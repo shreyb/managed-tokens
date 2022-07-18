@@ -5,36 +5,33 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"regexp"
 	"strings"
 
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 	// "github.com/rifflock/lfshook"
 	// "github.com/spf13/pflag"
 	// "github.com/spf13/viper"
+	// scitokens "github.com/scitokens/scitokens-go"
+	//"github.com/shreyb/managed-tokens/utils"
 )
 
 func main() {
 
 	experiment := "dune"
 	role := "production"
-	// account := "dunepro"
-	// desiredUID := 50762 // TODO Get from FERRY
-	// destination := "fermicloud525.fnal.gov"
+	account := "dunepro"
+	desiredUID := 50762 // TODO Get from FERRY
+	//destination := "fermicloud525.fnal.gov"
+	destination := "fermicloud525"
 	keytabPath := "/home/sbhat/dunepro.keytab.REXBATCH"
 	userPrincipal := "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
 	credKey := strings.ReplaceAll(userPrincipal, "@FNAL.GOV", "")
 
 	condorCreddHost := "dunegpschedd02.fnal.gov"
 	condorCollectorHost := "dunegpcoll02.fnal.gov"
-
-	htgettokenOpts := []string{
-		fmt.Sprintf("--credkey=%s", credKey),
-	}
-
-	os.Setenv("HTGETTOKENOPTS", strings.Join(htgettokenOpts, " "))
-	os.Setenv("_condor_CREDD_HOST", condorCreddHost)
-	os.Setenv("_condor_COLLECTOR_HOST", condorCollectorHost)
 
 	// Check for condor_store_cred executable
 	if _, err := exec.LookPath("condor_store_cred"); err != nil {
@@ -101,6 +98,14 @@ func main() {
 	}
 
 	// Store token in vault and get new vault token
+	htgettokenOpts := []string{
+		fmt.Sprintf("--credkey=%s", credKey),
+	}
+
+	os.Setenv("HTGETTOKENOPTS", strings.Join(htgettokenOpts, " "))
+	os.Setenv("_condor_CREDD_HOST", condorCreddHost)
+	os.Setenv("_condor_COLLECTOR_HOST", condorCollectorHost)
+
 	condorVaultStorerExe, err := exec.LookPath("condor_vault_storer")
 	if err != nil {
 		log.Fatal("Could not find path to condor_vault_storer executable")
@@ -113,6 +118,37 @@ func main() {
 		log.Fatalf("%s", stdoutStderr)
 	} else {
 		log.Infof("%s", stdoutStderr)
+	}
+
+	// TODO Verify token scopes with scitokens lib
+
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Fatal(err)
+	}
+	currentUID := currentUser.Uid
+
+	sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
+	destinationFilenames := []string{
+		fmt.Sprintf("/tmp/vt_u%d", desiredUID),
+		fmt.Sprintf("/tmp/vt_u%d-%s", desiredUID, service),
+	}
+
+	// Send to nodes
+	// Import rsync.go (maybe a utils package?)
+	for _, destinationFilename := range destinationFilenames {
+		rsyncConfig := utils.NewRsyncSetup(
+			account,
+			destination,
+			destinationFilename,
+			"",
+		)
+
+		if err := rsyncConfig.CopyToDestination(sourceFilename); err != nil {
+			log.Errorf("Could not copy file %s to destination %s", sourceFilename, destinationFilename)
+			log.Fatal(err)
+		}
+		log.Infof("Successfully copied file %s to destination %s", sourceFilename, destinationFilename)
 	}
 
 }
