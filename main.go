@@ -1,38 +1,50 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
+	"html/template"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"regexp"
 	"strings"
 
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 	// "github.com/rifflock/lfshook"
 	// "github.com/spf13/pflag"
-	// "github.com/spf13/viper"
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 )
 
+func init() {
+	// Get config file
+	viper.SetConfigName("managedTokens")
+	viper.AddConfigPath("/etc/managed-tokens/")
+	viper.AddConfigPath("$HOME/.managed-tokens/")
+	viper.AddConfigPath(".")
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.Panicf("Fatal error reading in config file: %w", err)
+	}
+	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
+	log.Infof("Using config file %s", viper.ConfigFileUsed())
+
+	// TODO Take care of overrides:  keytabPath, desiredUid, condorCreddHost, condorCollectorHost, userPrincipalOverride
+
+	// TODO Flags to override config
+
+	// TODO Logfile setup
+
+}
+
 func main() {
 
-	experiment := "dune"
-	role := "production"
-	account := "dunepro"
-	desiredUID := 50762 // TODO Get from FERRY
-	//destination := "fermicloud525.fnal.gov"
-	destination := "fermicloud525"
-	keytabPath := "/home/sbhat/dunepro.keytab.REXBATCH"
-	userPrincipal := "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
-	credKey := strings.ReplaceAll(userPrincipal, "@FNAL.GOV", "")
-
-	condorCreddHost := "dunegpschedd02.fnal.gov"
-	condorCollectorHost := "dunegpcoll02.fnal.gov"
-
+	// Check for executables
+	// TODO Move this stuff to init function, or wherever is appropriate
 	// Check for condor_store_cred executable
 	if _, err := exec.LookPath("condor_store_cred"); err != nil {
 		log.Warn("Could not find condor_store_cred.  Adding /usr/sbin to $PATH")
@@ -57,98 +69,215 @@ func main() {
 
 	}
 
-	log.Info("Now checking for kerberos ticket and removing old one")
-	checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
-	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
-		log.Warnf("%s", stdoutStderr)
-		checkBytes := []byte("klist: No credentials cache found")
-		if !bytes.Contains(stdoutStderr, checkBytes) {
-			log.Fatalf("%s", stdoutStderr)
-		}
-	} else {
-		destroyKerberosTicket := exec.Command(kerberosExecutables["kdestroy"])
-		if err := destroyKerberosTicket.Run(); err != nil {
-			log.Fatal(err)
-		}
+	// Experiment-specific stuff
+	experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
+
+	// Get experiments from config.
+	// TODO Handle case where experiment is passed in
+	// TODO set up logger to always include experiment field
+	for experiment := range viper.GetStringMap("experiments") {
+		experiments = append(experiments, experiment)
 	}
 
-	// Get kerberos ticket, check principal
-	principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
-	createKerberosTicket := exec.Command(kerberosExecutables["kinit"], "-k", "-t", keytabPath, userPrincipal)
-	log.Info("Now creating new kerberos ticket with keytab")
-	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
-		log.Fatalf("%s", stdoutstdErr)
-	}
-	log.Info("Checking user principal against configured principal")
-	checkForKerberosTicket = exec.Command(kerberosExecutables["klist"])
-	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
-		log.Fatal(err)
-	} else {
-		log.Infof("%s", stdoutStderr)
-		matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
-		if len(matches) != 2 {
-			log.Fatal("Could not find principal in kinit output")
-		}
-		principal := string(matches[1])
-		log.Infof("Found principal: %s", principal)
-		if principal != userPrincipal {
-			log.Fatal("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", userPrincipal, principal)
+	for _, experiment := range experiments {
+		// Setup
+		var keytabPath, userPrincipal string
+		experimentConfigPath := "experiments." + experiment
+		roles := make([]string, 0, len(viper.GetStringMap(experimentConfigPath+".roles")))
+		for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
+			roles = append(roles, role)
 		}
 
-	}
+		for _, role := range roles {
+			func() {
+				experimentRoleConfigPath := experimentConfigPath + ".roles." + role
 
-	// Store token in vault and get new vault token
-	htgettokenOpts := []string{
-		fmt.Sprintf("--credkey=%s", credKey),
-	}
+				// TODO maybe make this a type/struct?
+				commandEnvironment := map[string]string{
+					"krb5ccname":          "",
+					"condorCreddHost":     "",
+					"condorCollectorHost": "",
+					"htgettokenOpts":      "",
+				}
 
-	os.Setenv("HTGETTOKENOPTS", strings.Join(htgettokenOpts, " "))
-	os.Setenv("_condor_CREDD_HOST", condorCreddHost)
-	os.Setenv("_condor_COLLECTOR_HOST", condorCollectorHost)
+				krb5ccname, err := ioutil.TempFile("", fmt.Sprintf("managed-tokens-%s", experiment))
+				if err != nil {
+					log.WithField("experiment", experiment).Fatal("Cannot create temporary file for kerberos cache.  This will cause a fatal race condition.  Exiting")
+				}
+				defer os.Remove(krb5ccname.Name())
+				commandEnvironment["krb5ccname"] = "KRB5CCNAME=FILE:/" + krb5ccname.Name()
 
-	condorVaultStorerExe, err := exec.LookPath("condor_vault_storer")
-	if err != nil {
-		log.Fatal("Could not find path to condor_vault_storer executable")
-	}
+				// Keytab override
+				keytabConfigPath := experimentRoleConfigPath + ".keytabPath"
+				if viper.IsSet(keytabConfigPath) {
+					keytabPath = viper.GetString(keytabConfigPath)
+				} else {
+					// Default keytab location
+					keytabDir := viper.GetString("keytabPath")
+					keytabPath = path.Join(
+						keytabDir,
+						fmt.Sprintf(
+							"%s.keytab",
+							viper.GetString(experimentRoleConfigPath+".account"),
+						),
+					)
+				}
 
-	service := fmt.Sprintf("%s_%s", experiment, role)
-	getTokensAndStoreInVaultCmd := exec.Command(condorVaultStorerExe, service)
-	// if err := getTokensAndStoreInVaultCmd.Run(); err != nil {
-	if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
-		log.Fatalf("%s", stdoutStderr)
-	} else {
-		log.Infof("%s", stdoutStderr)
-	}
+				// User Principal override
+				userPrincipalTemplate := template.Must(template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))) // TODO Maybe move this out so it's not evaluated every experiment
+				userPrincipalOverrideConfigPath := experimentRoleConfigPath + ".userPrincipalOverride"
+				if viper.IsSet(userPrincipalOverrideConfigPath) {
+					userPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
+				} else {
+					var b strings.Builder
+					templateArgs := struct{ Account string }{Account: viper.GetString(experimentRoleConfigPath + ".account")}
+					if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
+						log.WithField("experiment", experiment).Fatal("Could not execute kerberos prinicpal template")
+					}
+					userPrincipal = b.String()
+				}
 
-	// TODO Verify token scopes with scitokens lib
+				// CREDD_HOST and COLLECTOR_HOST overrides
+				condorVarsToCheck := map[string]string{
+					"condorCreddHost":     "_condor_CREDD_HOST",
+					"condorCollectorHost": "_condor_COLLECTOR_HOST",
+				}
+				for condorVar, envVarName := range condorVarsToCheck {
+					addString := envVarName + "="
+					overrideVar := experimentRoleConfigPath + "." + condorVar + "Override"
+					if viper.IsSet(overrideVar) {
+						addString = addString + viper.GetString(overrideVar)
+						commandEnvironment[condorVar] = addString
+					} else {
+						addString = addString + viper.GetString(condorVar)
+						commandEnvironment[condorVar] = addString
+					}
+				}
 
-	currentUser, err := user.Current()
-	if err != nil {
-		log.Fatal(err)
-	}
-	currentUID := currentUser.Uid
+				// HTGETTOKENOPTS
+				credKey := strings.ReplaceAll(userPrincipal, "@FNAL.GOV", "")
+				htgettokenOptsRaw := []string{
+					fmt.Sprintf("--credkey=%s", credKey),
+				}
+				commandEnvironment["htgettokenOpts"] = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
 
-	sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
-	destinationFilenames := []string{
-		fmt.Sprintf("/tmp/vt_u%d", desiredUID),
-		fmt.Sprintf("/tmp/vt_u%d-%s", desiredUID, service),
-	}
+				// Desired UID lookup/override
+				var desiredUID uint32
+				if viper.IsSet(experimentRoleConfigPath + ".desiredUIDOverride") {
+					desiredUID = viper.GetUint32(experimentRoleConfigPath + ".desiredUIDOverride")
+				} else {
+					// FERRY STUFF
+					// TODO The desired UIDs should come from FERRY.  Need to write a service that writes out a config file in /tmp, loads it in setup, and checks that config right now.  SQLite DB?
+				}
 
-	// Send to nodes
-	// Import rsync.go (maybe a utils package?)
-	for _, destinationFilename := range destinationFilenames {
-		rsyncConfig := utils.NewRsyncSetup(
-			account,
-			destination,
-			destinationFilename,
-			"",
-		)
+				// Setup done
 
-		if err := rsyncConfig.CopyToDestination(sourceFilename); err != nil {
-			log.Errorf("Could not copy file %s to destination %s", sourceFilename, destinationFilename)
-			log.Fatal(err)
+				// Get kerberos ticket, check principal
+				principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
+
+				createKerberosTicket := exec.Command(kerberosExecutables["kinit"], "-k", "-t", keytabPath, userPrincipal)
+				createKerberosTicket = appendtoEnv(createKerberosTicket, commandEnvironment, "krb5ccname")
+				log.Info("Now creating new kerberos ticket with keytab")
+				if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
+					log.Fatalf("%s", stdoutstdErr)
+				}
+
+				checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
+				checkForKerberosTicket = appendtoEnv(checkForKerberosTicket, commandEnvironment, "krb5ccname")
+				log.Info("Checking user principal against configured principal")
+				if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
+					log.Fatal(err)
+				} else {
+					log.Infof("%s", stdoutStderr)
+					matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
+					if len(matches) != 2 {
+						log.Fatal("Could not find principal in kinit output")
+					}
+					principal := string(matches[1])
+					log.Infof("Found principal: %s", principal)
+					if principal != userPrincipal {
+						log.Fatal("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", userPrincipal, principal)
+					}
+
+				}
+
+				// Store token in vault and get new vault token
+				condorVaultStorerExe, err := exec.LookPath("condor_vault_storer")
+				if err != nil {
+					log.Fatal("Could not find path to condor_vault_storer executable")
+				}
+
+				service := experiment + "_" + role
+
+				//TODO if verbose, add the -v flag here
+				getTokensAndStoreInVaultCmd := exec.Command(condorVaultStorerExe, service)
+				getTokensAndStoreInVaultCmd = appendtoEnv(getTokensAndStoreInVaultCmd, commandEnvironment)
+				// if err := getTokensAndStoreInVaultCmd.Run(); err != nil {
+				if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
+					log.Fatalf("%s", stdoutStderr)
+				} else {
+					log.Infof("%s", stdoutStderr)
+				}
+
+				// TODO Verify token scopes with scitokens lib
+
+				// TODO Hopefully we won't need this bit with the current UID if I can get htgettoken to write out vault tokens to a random tempfile
+				// TODO Delete the source file.  Like with a defer os.Remove or something like that
+				currentUser, err := user.Current()
+				if err != nil {
+					log.Fatal(err)
+				}
+				currentUID := currentUser.Uid
+
+				sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
+				destinationFilenames := []string{
+					fmt.Sprintf("/tmp/vt_u%d", desiredUID),
+					fmt.Sprintf("/tmp/vt_u%d-%s", desiredUID, service),
+				}
+
+				// Send to nodes
+
+				// Import rsync.go (maybe a utils package?)
+				for _, destinationNode := range viper.GetStringSlice(experimentRoleConfigPath + ".destinationNodes") {
+					for _, destinationFilename := range destinationFilenames {
+						rsyncConfig := utils.NewRsyncSetup(
+							viper.GetString(experimentRoleConfigPath+".account"),
+							destinationNode,
+							destinationFilename,
+							"",
+						)
+
+						if err := rsyncConfig.CopyToDestination(sourceFilename); err != nil {
+							log.Errorf("Could not copy file %s to destination %s", sourceFilename, destinationFilename)
+							log.Fatal(err)
+						}
+					}
+				}
+				log.WithFields(log.Fields{
+					"experiment": experiment,
+					"role":       role,
+				}).Info("Success")
+			}()
 		}
-		log.Infof("Successfully copied file %s to destination %s", sourceFilename, destinationFilename)
 	}
+	fmt.Println("I guess we did something")
+}
 
+func appendtoEnv(cmd *exec.Cmd, environmentMap map[string]string, keys ...string) *exec.Cmd {
+	//TODO Maybe have all commands wrapped in this, where krbcc is set.  New type with env set?
+	toAdd := make([]string, 0)
+	if len(keys) == 0 {
+		// Add all keys to env
+		for _, keyValue := range environmentMap {
+			toAdd = append(toAdd, keyValue)
+		}
+	}
+	for _, key := range keys {
+		toAdd = append(toAdd, environmentMap[key])
+	}
+	cmd.Env = append(
+		os.Environ(),
+		toAdd...,
+	)
+	return cmd
 }
