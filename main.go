@@ -42,6 +42,7 @@ func init() {
 }
 
 func main() {
+	// var wg sync.WaitGroup
 
 	// Check for executables
 	// TODO Move this stuff to init function, or wherever is appropriate
@@ -89,23 +90,68 @@ func main() {
 		}
 
 		for _, role := range roles {
-			func() {
-				experimentRoleConfigPath := experimentConfigPath + ".roles." + role
+			// TODO IMPORTANT:  This fails under concurrency because maps are not concurrnent safe See commandEnvironment.  Need to use a Sync Map, or better yet, a struct
+			// wg.Add(1)
+			experimentRoleConfigPath := experimentConfigPath + ".roles." + role
+
+			// TODO make all these functional options
+			experimentCommandEnvironment := new(commandEnvironment)
+			// Krb5ccname
+			krb5ccname, err := ioutil.TempFile("", fmt.Sprintf("managed-tokens-%s", experiment))
+			if err != nil {
+				log.WithField("experiment", experiment).Fatal("Cannot create temporary file for kerberos cache.  This will cause a fatal race condition.  Exiting")
+			}
+			experimentCommandEnvironment.krb5ccname = "KRB5CCNAME=FILE:" + krb5ccname.Name()
+			// experimentCommandEnvironment.krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname.Name()
+
+			// CREDD_HOST and COLLECTOR_HOST overrides
+			// TODO make this a function or a functional option
+			addString := "_condor_CREDD_HOST="
+			overrideVar := experimentRoleConfigPath + ".condorCreddHostOverride"
+			if viper.IsSet(overrideVar) {
+				addString = addString + viper.GetString(overrideVar)
+				experimentCommandEnvironment.condorCreddHost = addString
+			} else {
+				addString = addString + viper.GetString("condorCreddHost")
+				experimentCommandEnvironment.condorCreddHost = addString
+			}
+			addString = "_condor_COLLECTOR_HOST="
+			overrideVar = experimentRoleConfigPath + ".condorCollectorHostOverride"
+			if viper.IsSet(overrideVar) {
+				addString = addString + viper.GetString(overrideVar)
+				experimentCommandEnvironment.condorCollectorHost = addString
+			} else {
+				addString = addString + viper.GetString("condorCollectorHost")
+				experimentCommandEnvironment.condorCollectorHost = addString
+			}
+
+			// User Principal override
+			userPrincipalTemplate := template.Must(template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))) // TODO Maybe move this out so it's not evaluated every experiment
+			userPrincipalOverrideConfigPath := experimentRoleConfigPath + ".userPrincipalOverride"
+			if viper.IsSet(userPrincipalOverrideConfigPath) {
+				userPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
+			} else {
+				var b strings.Builder
+				templateArgs := struct{ Account string }{Account: viper.GetString(experimentRoleConfigPath + ".account")}
+				if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
+					log.WithField("experiment", experiment).Fatal("Could not execute kerberos prinicpal template")
+				}
+				userPrincipal = b.String()
+			}
+
+			// HTGETTOKENOPTS
+			credKey := strings.ReplaceAll(userPrincipal, "@FNAL.GOV", "")
+			htgettokenOptsRaw := []string{
+				fmt.Sprintf("--credkey=%s", credKey),
+			}
+			experimentCommandEnvironment.htgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
+
+			func(experimentCommandEnvironment *commandEnvironment) {
+				// go func(experimentCommandEnvironment *commandEnvironment) {
+				// defer wg.Done()
+				defer os.Remove(krb5ccname.Name())
 
 				// TODO maybe make this a type/struct?
-				commandEnvironment := map[string]string{
-					"krb5ccname":          "",
-					"condorCreddHost":     "",
-					"condorCollectorHost": "",
-					"htgettokenOpts":      "",
-				}
-
-				krb5ccname, err := ioutil.TempFile("", fmt.Sprintf("managed-tokens-%s", experiment))
-				if err != nil {
-					log.WithField("experiment", experiment).Fatal("Cannot create temporary file for kerberos cache.  This will cause a fatal race condition.  Exiting")
-				}
-				defer os.Remove(krb5ccname.Name())
-				commandEnvironment["krb5ccname"] = "KRB5CCNAME=FILE:/" + krb5ccname.Name()
 
 				// Keytab override
 				keytabConfigPath := experimentRoleConfigPath + ".keytabPath"
@@ -123,44 +169,6 @@ func main() {
 					)
 				}
 
-				// User Principal override
-				userPrincipalTemplate := template.Must(template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))) // TODO Maybe move this out so it's not evaluated every experiment
-				userPrincipalOverrideConfigPath := experimentRoleConfigPath + ".userPrincipalOverride"
-				if viper.IsSet(userPrincipalOverrideConfigPath) {
-					userPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
-				} else {
-					var b strings.Builder
-					templateArgs := struct{ Account string }{Account: viper.GetString(experimentRoleConfigPath + ".account")}
-					if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
-						log.WithField("experiment", experiment).Fatal("Could not execute kerberos prinicpal template")
-					}
-					userPrincipal = b.String()
-				}
-
-				// CREDD_HOST and COLLECTOR_HOST overrides
-				condorVarsToCheck := map[string]string{
-					"condorCreddHost":     "_condor_CREDD_HOST",
-					"condorCollectorHost": "_condor_COLLECTOR_HOST",
-				}
-				for condorVar, envVarName := range condorVarsToCheck {
-					addString := envVarName + "="
-					overrideVar := experimentRoleConfigPath + "." + condorVar + "Override"
-					if viper.IsSet(overrideVar) {
-						addString = addString + viper.GetString(overrideVar)
-						commandEnvironment[condorVar] = addString
-					} else {
-						addString = addString + viper.GetString(condorVar)
-						commandEnvironment[condorVar] = addString
-					}
-				}
-
-				// HTGETTOKENOPTS
-				credKey := strings.ReplaceAll(userPrincipal, "@FNAL.GOV", "")
-				htgettokenOptsRaw := []string{
-					fmt.Sprintf("--credkey=%s", credKey),
-				}
-				commandEnvironment["htgettokenOpts"] = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
-
 				// Desired UID lookup/override
 				var desiredUID uint32
 				if viper.IsSet(experimentRoleConfigPath + ".desiredUIDOverride") {
@@ -175,15 +183,17 @@ func main() {
 				// Get kerberos ticket, check principal
 				principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
 
+				// Lock
 				createKerberosTicket := exec.Command(kerberosExecutables["kinit"], "-k", "-t", keytabPath, userPrincipal)
-				createKerberosTicket = appendtoEnv(createKerberosTicket, commandEnvironment, "krb5ccname")
+				createKerberosTicket = appendtoEnv(createKerberosTicket, experimentCommandEnvironment, "krb5ccname")
 				log.Info("Now creating new kerberos ticket with keytab")
 				if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 					log.Fatalf("%s", stdoutstdErr)
 				}
 
+				// Lock
 				checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
-				checkForKerberosTicket = appendtoEnv(checkForKerberosTicket, commandEnvironment, "krb5ccname")
+				checkForKerberosTicket = appendtoEnv(checkForKerberosTicket, experimentCommandEnvironment, "krb5ccname")
 				log.Info("Checking user principal against configured principal")
 				if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
 					log.Fatal(err)
@@ -210,8 +220,9 @@ func main() {
 				service := experiment + "_" + role
 
 				//TODO if verbose, add the -v flag here
+				// Lock
 				getTokensAndStoreInVaultCmd := exec.Command(condorVaultStorerExe, service)
-				getTokensAndStoreInVaultCmd = appendtoEnv(getTokensAndStoreInVaultCmd, commandEnvironment)
+				getTokensAndStoreInVaultCmd = appendtoEnv(getTokensAndStoreInVaultCmd, experimentCommandEnvironment)
 				// if err := getTokensAndStoreInVaultCmd.Run(); err != nil {
 				if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
 					log.Fatalf("%s", stdoutStderr)
@@ -257,27 +268,38 @@ func main() {
 					"experiment": experiment,
 					"role":       role,
 				}).Info("Success")
-			}()
+			}(experimentCommandEnvironment)
 		}
 	}
+	// wg.Wait()
 	fmt.Println("I guess we did something")
 }
 
-func appendtoEnv(cmd *exec.Cmd, environmentMap map[string]string, keys ...string) *exec.Cmd {
-	//TODO Maybe have all commands wrapped in this, where krbcc is set.  New type with env set?
+func appendtoEnv(cmd *exec.Cmd, environmentMap *commandEnvironment, keys ...string) *exec.Cmd {
+	//TODO Maybe have all commands wrapped in this, where krbcc is set.  New type of Cmd with env set?
 	toAdd := make([]string, 0)
 	if len(keys) == 0 {
 		// Add all keys to env
-		for _, keyValue := range environmentMap {
-			toAdd = append(toAdd, keyValue)
-		}
+		//FIGURE THIS OUT TODO
 	}
-	for _, key := range keys {
-		toAdd = append(toAdd, environmentMap[key])
-	}
+
+	toAdd = append(toAdd, environmentMap.krb5ccname)
+	toAdd = append(toAdd, environmentMap.condorCollectorHost)
+	toAdd = append(toAdd, environmentMap.condorCreddHost)
+	toAdd = append(toAdd, environmentMap.htgettokenOpts)
+
 	cmd.Env = append(
 		os.Environ(),
 		toAdd...,
 	)
 	return cmd
+}
+
+// Maybe consider having commandEnvironment implement Ranger
+
+type commandEnvironment struct {
+	krb5ccname          string
+	condorCreddHost     string
+	condorCollectorHost string
+	htgettokenOpts      string
 }
