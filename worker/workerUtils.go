@@ -14,14 +14,23 @@ type CommandEnvironment struct {
 	HtgettokenOpts      string
 }
 
+func (c *CommandEnvironment) toMap() map[string]string {
+	return map[string]string{
+		"Krb5ccname":          c.Krb5ccname,
+		"CondorCreddHost":     c.CondorCreddHost,
+		"CondorCollectorHost": c.CondorCollectorHost,
+		"HtgettokenOpts":      c.HtgettokenOpts,
+	}
+}
+
 // ServiceConfig is a mega struct containing all the information the Worker needs to have or pass onto lower level funcs.
 
 type ServiceConfig struct {
-	Name              string
+	Experiment        string
+	Role              string
 	UserPrincipal     string
 	Nodes             []string
 	Account           string
-	Role              string
 	KeytabPath        string
 	DesiredUID        uint32
 	ServiceConfigPath string
@@ -43,8 +52,8 @@ type ServiceConfig struct {
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
 func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) (*ServiceConfig, error) {
 	c := ServiceConfig{
-		Name: expt,
-		Role: role,
+		Experiment: expt,
+		Role:       role,
 	}
 	for _, option := range options {
 		err := option(&c)
@@ -54,7 +63,7 @@ func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) 
 		}
 	}
 	log.WithFields(log.Fields{
-		"experiment": c.Name,
+		"experiment": c.Experiment,
 		"role":       c.Role,
 	}).Debug("Set up service config")
 	return &c, nil
@@ -67,5 +76,15 @@ func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironmen
 		os.Environ(),
 		environ.Krb5ccname,
 	)
+	return cmd
+}
+
+func environmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironment) *exec.Cmd {
+	// TODO Make this func so that we can pass in context and args, and it'll return the command with wrapped environ.  So basically the same API as exec.Command plus the CommandEnvironment
+	cmd.Env = os.Environ()
+
+	for _, val := range environ.toMap() {
+		cmd.Env = append(cmd.Env, val)
+	}
 	return cmd
 }
