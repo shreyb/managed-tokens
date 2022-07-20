@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"sync"
 
 	// "os/user"
@@ -47,11 +46,7 @@ func init() {
 func main() {
 	// Check for executables
 	// TODO Move this stuff to init function, or wherever is appropriate
-	// Check for condor_store_cred executable
-	if _, err := exec.LookPath("condor_store_cred"); err != nil {
-		log.Warn("Could not find condor_store_cred.  Adding /usr/sbin to $PATH")
-		os.Setenv("PATH", "/usr/sbin:$PATH")
-	}
+	serviceConfigs := make([]*worker.ServiceConfig, 0)
 
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
@@ -62,9 +57,15 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
+	// All my channels
 	serviceConfigsForKinit := make(chan *worker.ServiceConfig)
 	kerberosTicketsDone := make(chan struct{})
+	serviceConfigsForCondor := make(chan *worker.ServiceConfig)
+	condorDone := make(chan struct{})
+
+	// Start workers up
 	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
+	go worker.StoreAndGetTokenWorker(serviceConfigsForCondor, condorDone)
 
 	// Set up service configs
 	experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
@@ -93,10 +94,9 @@ func main() {
 			for _, role := range roles {
 				// TODO IMPORTANT:  This fails under concurrency because maps are not concurrnent safe See commandEnvironment.  Need to use a Sync Map, or better yet, a struct
 				// Setup the configs
-				serviceConfigs := make([]*worker.ServiceConfig, 0)
 				serviceConfigPath := experimentConfigPath + ".roles." + role
 				setupWg.Add(1)
-				go func(role string) {
+				go func(experiment, role string) {
 					defer setupWg.Done()
 
 					// Functional options for service configs
@@ -221,7 +221,7 @@ func main() {
 					serviceConfigs = append(serviceConfigs, sc)
 					serviceConfigsForKinit <- sc
 
-				}(role)
+				}(experiment, role)
 			}
 		}
 		setupWg.Wait()
@@ -229,125 +229,137 @@ func main() {
 	<-kerberosTicketsDone
 	log.Debug("All kerberos tickets generated and verified")
 
-	// LEFT OFF HERE.  Uncomment everything after this one time
-
-	// 	func(experimentCommandEnvironment *CommandEnvironment) {
-	// 		// go func(experimentCommandEnvironment *CommandEnvironment) {
-	// 		// defer wg.Done()
-	// 		// defer os.Remove(krb5ccname.Name())
-
-	// 		// TODO maybe make this a type/struct?
-
-	// 		// Setup done
-
-	// 		// Get kerberos ticket, check principal
-
-	// 		// Lock
-	// 		// createKerberosTicket := exec.Command(kerberosExecutables["kinit"], "-k", "-t", keytabPath, userPrincipal)
-	// 		// createKerberosTicket = appendtoEnv(createKerberosTicket, experimentCommandEnvironment, "krb5ccname")
-	// 		// log.Info("Now creating new kerberos ticket with keytab")
-	// 		// if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
-	// 		// 	log.Fatalf("%s", stdoutstdErr)
-	// 		// }
-
-	// 		// // Lock
-	// 		// checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
-	// 		// checkForKerberosTicket = appendtoEnv(checkForKerberosTicket, experimentCommandEnvironment, "krb5ccname")
-	// 		// log.Info("Checking user principal against configured principal")
-	// 		// if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
-	// 		// 	log.Fatal(err)
-	// 		// } else {
-	// 		// 	log.Infof("%s", stdoutStderr)
-	// 		// 	matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
-	// 		// 	if len(matches) != 2 {
-	// 		// 		log.Fatal("Could not find principal in kinit output")
-	// 		// 	}
-	// 		// 	principal := string(matches[1])
-	// 		// 	log.Infof("Found principal: %s", principal)
-	// 		// 	if principal != userPrincipal {
-	// 		// 		log.Fatal("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", userPrincipal, principal)
-	// 		// 	}
-
-	// 		// }
-
-	// 		// Store token in vault and get new vault token
-	// 		condorVaultStorerExe, err := exec.LookPath("condor_vault_storer")
-	// 		if err != nil {
-	// 			log.Fatal("Could not find path to condor_vault_storer executable")
-	// 		}
-
-	// 		service := experiment + "_" + role
-
-	// 		//TODO if verbose, add the -v flag here
-	// 		// Lock
-	// 		getTokensAndStoreInVaultCmd := exec.Command(condorVaultStorerExe, service)
-	// 		getTokensAndStoreInVaultCmd = appendtoEnv(getTokensAndStoreInVaultCmd, experimentCommandEnvironment)
-	// 		// if err := getTokensAndStoreInVaultCmd.Run(); err != nil {
-	// 		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
-	// 			log.Fatalf("%s", stdoutStderr)
-	// 		} else {
-	// 			log.Infof("%s", stdoutStderr)
-	// 		}
-
-	// 		// TODO Verify token scopes with scitokens lib
-
-	// 		// TODO Hopefully we won't need this bit with the current UID if I can get htgettoken to write out vault tokens to a random tempfile
-	// 		// TODO Delete the source file.  Like with a defer os.Remove or something like that
-	// 		currentUser, err := user.Current()
-	// 		if err != nil {
-	// 			log.Fatal(err)
-	// 		}
-	// 		currentUID := currentUser.Uid
-
-	// 		sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
-	// 		destinationFilenames := []string{
-	// 			fmt.Sprintf("/tmp/vt_u%d", desiredUID),
-	// 			fmt.Sprintf("/tmp/vt_u%d-%s", desiredUID, service),
-	// 		}
-
-	// 		// Send to nodes
-
-	// 		// Import rsync.go (maybe a utils package?)
-	// 		for _, destinationNode := range viper.GetStringSlice(experimentRoleConfigPath + ".destinationNodes") {
-	// 			for _, destinationFilename := range destinationFilenames {
-	// 				rsyncConfig := utils.NewRsyncSetup(
-	// 					viper.GetString(experimentRoleConfigPath+".account"),
-	// 					destinationNode,
-	// 					destinationFilename,
-	// 					"",
-	// 				)
-
-	// 				if err := rsyncConfig.CopyToDestination(sourceFilename); err != nil {
-	// 					log.Errorf("Could not copy file %s to destination %s", sourceFilename, destinationFilename)
-	// 					log.Fatal(err)
-	// 				}
-	// 			}
-	// 		}
-	// 		log.WithFields(log.Fields{
-	// 			"experiment": experiment,
-	// 			"role":       role,
-	// 		}).Info("Success")
-	// 	}(experimentCommandEnvironment)
-	// 	// wg.Wait()
-	// 	fmt.Println("I guess we did something")
+	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
+	// Load serviceConfigs into channel for condor
+	func() {
+		defer close(serviceConfigsForCondor)
+		for _, sc := range serviceConfigs {
+			serviceConfigsForCondor <- sc
+		}
+	}()
+	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done
+	// before transferring to nodes
+	<-condorDone
+	fmt.Println("I guess we did something")
 }
 
-// func appendtoEnv(cmd *exec.Cmd, environmentMap *CommandEnvironment, keys ...string) *exec.Cmd {
-// 	//TODO Maybe have all commands wrapped in this, where krbcc is set.  New type of Cmd with env set?
-// 	toAdd := make([]string, 0)
-// 	if len(keys) == 0 {
-// 		// Add all keys to env
-// 		//FIGURE THIS OUT TODO
-// 	}
+// LEFT OFF HERE.
+// 	 	func(experimentCommandEnvironment *CommandEnvironment) {
+// 	 		// go func(experimentCommandEnvironment *CommandEnvironment) {
+// 	 		// defer wg.Done()
+// 	 		// defer os.Remove(krb5ccname.Name())
 
-// 	toAdd = append(toAdd, environmentMap.krb5ccname)
-// 	toAdd = append(toAdd, environmentMap.condorCollectorHost)
-// 	toAdd = append(toAdd, environmentMap.condorCreddHost)
-// 	toAdd = append(toAdd, environmentMap.htgettokenOpts)
+// 	 		// TODO maybe make this a type/struct?
 
-// 	cmd.Env = append(
-// 		os.Environ(),
-// 		toAdd...,
-// 	)
-// 	return cmd
+// 	 		// Setup done
+
+// 	 		// Get kerberos ticket, check principal
+
+// 	 		// Lock
+// 	 		// createKerberosTicket := exec.Command(kerberosExecutables["kinit"], "-k", "-t", keytabPath, userPrincipal)
+// 	 		// createKerberosTicket = appendtoEnv(createKerberosTicket, experimentCommandEnvironment, "krb5ccname")
+// 	 		// log.Info("Now creating new kerberos ticket with keytab")
+// 	 		// if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
+// 	 		// 	log.Fatalf("%s", stdoutstdErr)
+// 	 		// }
+
+// 	 		// // Lock
+// 	 		// checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
+// 	 		// checkForKerberosTicket = appendtoEnv(checkForKerberosTicket, experimentCommandEnvironment, "krb5ccname")
+// 	 		// log.Info("Checking user principal against configured principal")
+// 	 		// if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
+// 	 		// 	log.Fatal(err)
+// 	 		// } else {
+// 	 		// 	log.Infof("%s", stdoutStderr)
+// 	 		// 	matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
+// 	 		// 	if len(matches) != 2 {
+// 	 		// 		log.Fatal("Could not find principal in kinit output")
+// 	 		// 	}
+// 	 		// 	principal := string(matches[1])
+// 	 		// 	log.Infof("Found principal: %s", principal)
+// 	 		// 	if principal != userPrincipal {
+// 	 		// 		log.Fatal("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", userPrincipal, principal)
+// 	 		// 	}
+
+// 	 		// }
+
+// 	 		// Store token in vault and get new vault token
+// 	 		condorVaultStorerExe, err := exec.LookPath("condor_vault_storer")
+// 	 		if err != nil {
+// 	 			log.Fatal("Could not find path to condor_vault_storer executable")
+// 	 		}
+
+// 	 		service := experiment + "_" + role
+
+// 	 		//TODO if verbose, add the -v flag here
+// 	 		// Lock
+// 	 		getTokensAndStoreInVaultCmd := exec.Command(condorVaultStorerExe, service)
+// 	 		getTokensAndStoreInVaultCmd = appendtoEnv(getTokensAndStoreInVaultCmd, experimentCommandEnvironment)
+// 	 		// if err := getTokensAndStoreInVaultCmd.Run(); err != nil {
+// 	 		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
+// 	 			log.Fatalf("%s", stdoutStderr)
+// 	 		} else {
+// 	 			log.Infof("%s", stdoutStderr)
+// 	 		}
+
+// 	 		// TODO Verify token scopes with scitokens lib
+
+// 	 		// TODO Hopefully we won't need this bit with the current UID if I can get htgettoken to write out vault tokens to a random tempfile
+// 	 		// TODO Delete the source file.  Like with a defer os.Remove or something like that
+// 	 		currentUser, err := user.Current()
+// 	 		if err != nil {
+// 	 			log.Fatal(err)
+// 	 		}
+// 	 		currentUID := currentUser.Uid
+
+// 	 		sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
+// 	 		destinationFilenames := []string{
+// 	 			fmt.Sprintf("/tmp/vt_u%d", desiredUID),
+// 	 			fmt.Sprintf("/tmp/vt_u%d-%s", desiredUID, service),
+// 	 		}
+
+// 	 		// Send to nodes
+
+// 	 		// Import rsync.go (maybe a utils package?)
+// 	 		for _, destinationNode := range viper.GetStringSlice(experimentRoleConfigPath + ".destinationNodes") {
+// 	 			for _, destinationFilename := range destinationFilenames {
+// 	 				rsyncConfig := utils.NewRsyncSetup(
+// 	 					viper.GetString(experimentRoleConfigPath+".account"),
+// 	 					destinationNode,
+// 	 					destinationFilename,
+// 	 					"",
+// 	 				)
+
+// 	 				if err := rsyncConfig.CopyToDestination(sourceFilename); err != nil {
+// 	 					log.Errorf("Could not copy file %s to destination %s", sourceFilename, destinationFilename)
+// 	 					log.Fatal(err)
+// 	 				}
+// 	 			}
+// 	 		}
+// 	 		log.WithFields(log.Fields{
+// 	 			"experiment": experiment,
+// 	 			"role":       role,
+// 	 		}).Info("Success")
+// 	 	}(experimentCommandEnvironment)
+// 	 	// wg.Wait()
 // }
+
+//  func appendtoEnv(cmd *exec.Cmd, environmentMap *CommandEnvironment, keys ...string) *exec.Cmd {
+//  	//TODO Maybe have all commands wrapped in this, where krbcc is set.  New type of Cmd with env set?
+//  	toAdd := make([]string, 0)
+//  	if len(keys) == 0 {
+//  		// Add all keys to env
+//  		//FIGURE THIS OUT TODO
+//  	}
+
+//  	toAdd = append(toAdd, environmentMap.krb5ccname)
+//  	toAdd = append(toAdd, environmentMap.condorCollectorHost)
+//  	toAdd = append(toAdd, environmentMap.condorCreddHost)
+//  	toAdd = append(toAdd, environmentMap.htgettokenOpts)
+
+//  	cmd.Env = append(
+//  		os.Environ(),
+//  		toAdd...,
+//  	)
+//  	return cmd
+//  }
