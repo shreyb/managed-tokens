@@ -23,6 +23,15 @@ func (c *CommandEnvironment) toMap() map[string]string {
 	}
 }
 
+func (c *CommandEnvironment) toEnvs() map[string]string {
+	return map[string]string{
+		"Krb5ccname":          "KRB5CCNAME",
+		"CondorCreddHost":     "_condor_CREDD_HOST",
+		"CondorCollectorHost": "_condor_COLLECTOR_HOST",
+		"HtgettokenOpts":      "HTGETTOKENOPTS",
+	}
+}
+
 // ServiceConfig is a mega struct containing all the information the Worker needs to have or pass onto lower level funcs.
 
 type ServiceConfig struct {
@@ -71,6 +80,8 @@ func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) 
 
 func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironment) *exec.Cmd {
 	// TODO Make this func so that we can pass in context and args, and it'll return the command with wrapped environ.  So basically the same API as exec.Command plus the CommandEnvironment
+	envMapping := environ.toEnvs()
+	os.Unsetenv(envMapping["Krb5ccname"])
 
 	cmd.Env = append(
 		os.Environ(),
@@ -81,6 +92,10 @@ func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironmen
 
 func environmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironment) *exec.Cmd {
 	// TODO Make this func so that we can pass in context and args, and it'll return the command with wrapped environ.  So basically the same API as exec.Command plus the CommandEnvironment
+	for _, val := range environ.toEnvs() {
+		os.Unsetenv(val)
+	}
+
 	cmd.Env = os.Environ()
 
 	for _, val := range environ.toMap() {

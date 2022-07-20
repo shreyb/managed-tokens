@@ -74,7 +74,10 @@ func checkKerberosPrincipal(sc *ServiceConfig) error {
 	checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
 	checkForKerberosTicket = kerberosEnvironmentWrappedCommand(checkForKerberosTicket, &sc.CommandEnvironment)
 
-	log.Info("Checking user principal against configured principal")
+	log.WithFields(log.Fields{
+		"experiment": sc.Experiment,
+		"role":       sc.Role,
+	}).Info("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Experiment,
@@ -148,7 +151,6 @@ func switchKerberosCache(sc *ServiceConfig) error {
 
 	switchkCache := exec.Command(kerberosExecutables["kswitch"], args...)
 	switchkCache = kerberosEnvironmentWrappedCommand(switchkCache, &sc.CommandEnvironment)
-	log.Info("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Experiment,
