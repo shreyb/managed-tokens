@@ -9,6 +9,7 @@ import (
 
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
+	// TODO Make this use utils.CheckforExecutables
 	for kExe := range kerberosExecutables {
 		kPath, err := exec.LookPath(kExe)
 		if err != nil {

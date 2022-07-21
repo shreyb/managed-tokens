@@ -19,6 +19,7 @@ func init() {
 		os.Setenv("PATH", "/usr/sbin:$PATH")
 	}
 
+	// TODO Make this use utils.CheckforExecutables
 	for cExe := range condorExecutables {
 		cPath, err := exec.LookPath((cExe))
 		if err != nil {

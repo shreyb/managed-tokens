@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os/user"
 
-	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -20,10 +19,6 @@ func PushTokensWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{})
 				"role":       sc.Role,
 			}).Fatal("Could not switch kerberos caches")
 		}
-
-		// TODO This is failing probably because the kerberos cache isn't being passed into the
-		// environment.  Maybe move rsync out of utils into package worker and make rsync
-		// use a kerberosWrappedCommand rather than a plain command
 
 		// TODO Hopefully we won't need this bit with the current UID if I can get htgettoken to write out vault tokens to a random tempfile
 		// TODO Delete the source file.  Like with a defer os.Remove or something like that
@@ -63,11 +58,12 @@ func PushTokensWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{})
 }
 
 func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) error {
-	rsyncConfig := utils.NewRsyncSetup(
+	rsyncConfig := NewRsyncSetup(
 		sc.Account,
 		node,
 		destinationFile,
 		"",
+		&sc.CommandEnvironment,
 	)
 
 	if err := rsyncConfig.CopyToDestination(sourceFile); err != nil {

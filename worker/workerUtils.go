@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// TODO clean up this whole command environment business.  Maybe call it WorkerEnvironment?
 type CommandEnvironment struct {
 	Krb5ccname          string
 	CondorCreddHost     string
@@ -30,6 +31,11 @@ func (c *CommandEnvironment) toEnvs() map[string]string {
 		"CondorCollectorHost": "_condor_COLLECTOR_HOST",
 		"HtgettokenOpts":      "HTGETTOKENOPTS",
 	}
+}
+
+type EnvironmentMapper interface {
+	toMap() map[string]string
+	toEnvs() map[string]string
 }
 
 // ServiceConfig is a mega struct containing all the information the Worker needs to have or pass onto lower level funcs.
@@ -79,19 +85,19 @@ func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) 
 	return &c, nil
 }
 
-func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironment) *exec.Cmd {
+func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ EnvironmentMapper) *exec.Cmd {
 	// TODO Make this func so that we can pass in context and args, and it'll return the command with wrapped environ.  So basically the same API as exec.Command plus the CommandEnvironment
 	envMapping := environ.toEnvs()
 	os.Unsetenv(envMapping["Krb5ccname"])
 
 	cmd.Env = append(
 		os.Environ(),
-		environ.Krb5ccname,
+		environ.toMap()["Krb5ccname"],
 	)
 	return cmd
 }
 
-func environmentWrappedCommand(cmd *exec.Cmd, environ *CommandEnvironment) *exec.Cmd {
+func environmentWrappedCommand(cmd *exec.Cmd, environ EnvironmentMapper) *exec.Cmd {
 	// TODO Make this func so that we can pass in context and args, and it'll return the command with wrapped environ.  So basically the same API as exec.Command plus the CommandEnvironment
 	for _, val := range environ.toEnvs() {
 		os.Unsetenv(val)
