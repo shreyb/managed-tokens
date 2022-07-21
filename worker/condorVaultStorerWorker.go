@@ -14,10 +14,7 @@ var condorExecutables = map[string]string{
 
 func init() {
 	// Check for condor_store_cred executable
-	if _, err := exec.LookPath("condor_store_cred"); err != nil {
-		log.Warn("Could not find condor_store_cred.  Adding /usr/sbin to $PATH")
-		os.Setenv("PATH", "/usr/sbin:$PATH")
-	}
+	os.Setenv("PATH", "/usr/bin:/usr/sbin")
 
 	// TODO Make this use utils.CheckforExecutables
 	for cExe := range condorExecutables {
