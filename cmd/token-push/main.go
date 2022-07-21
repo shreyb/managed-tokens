@@ -19,6 +19,7 @@ import (
 	// "github.com/spf13/pflag"
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/utils/tokenpush"
 	"github.com/shreyb/managed-tokens/worker"
 )
 
@@ -71,6 +72,9 @@ func main() {
 	go worker.StoreAndGetTokenWorker(serviceConfigsForCondor, condorDone)
 	go worker.PushTokensWorker(serviceConfigsForPush, pushDone)
 
+	// TODO Ping all nodes concurrently, receive status in notifications Manager, and don't start pushing
+	// Tokens until all of those are done
+
 	// Set up service configs
 	experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
 
@@ -83,6 +87,7 @@ func main() {
 		experiments = append(experiments, experiment)
 	}
 
+	// TODO - Try to move this to mainUtils and call from here?
 	func() {
 		var setupWg sync.WaitGroup
 		defer close(serviceConfigsForKinit)
@@ -246,14 +251,14 @@ func main() {
 	log.Debug("All kerberos tickets generated and verified")
 
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
-	loadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
+	tokenpush.LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done
 	// before transferring to nodes
 	<-condorDone
 
 	// Send to nodes
-	loadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
+	tokenpush.LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
 	<-pushDone
 
 	fmt.Println("I guess we did something")
