@@ -80,6 +80,8 @@ func main() {
 
 	// Get experiments from config.
 	// TODO Handle case where experiment is passed in
+	// TODO Handle case where service can be passed in
+	// TODO dryRun
 	// TODO set up logger to always include experiment field
 	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
 

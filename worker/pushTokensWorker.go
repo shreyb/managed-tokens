@@ -72,6 +72,7 @@ func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) er
 			"role":                sc.Role,
 			"sourceFilename":      sourceFile,
 			"destinationFilename": destinationFile,
+			"node":                node,
 		}).Errorf("Could not copy file to destination")
 		return err
 	}
@@ -80,6 +81,7 @@ func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) er
 		"role":                sc.Role,
 		"sourceFilename":      sourceFile,
 		"destinationFilename": destinationFile,
+		"node":                node,
 	}).Info("Success copying file to destination")
 	return nil
 
