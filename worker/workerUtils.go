@@ -43,6 +43,7 @@ type ServiceConfig struct {
 	KeytabPath        string
 	DesiredUID        uint32
 	ServiceConfigPath string
+	Success           bool
 	CommandEnvironment
 }
 
