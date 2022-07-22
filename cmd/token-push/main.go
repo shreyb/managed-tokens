@@ -23,6 +23,7 @@ import (
 	// "github.com/spf13/pflag"
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/utils/tokenpush"
 	"github.com/shreyb/managed-tokens/worker"
 )
@@ -242,39 +243,20 @@ func main() {
 									return
 								}
 								defer db.Close()
-
-								stmt, err := db.Prepare(`
-								SELECT uid
-								FROM uids
-								WHERE username = ? ;`)
+								uid, err = utils.GetUIDByUsername(db, username)
 								if err != nil {
 									log.WithFields(log.Fields{
 										"experiment": experiment,
 										"role":       role,
-									}).Error("Could not prepare query to get UID")
-									log.WithFields(log.Fields{
-										"experiment": experiment,
-										"role":       role,
-									}).Error(err)
-									return
-								}
-								defer stmt.Close()
-								err = stmt.QueryRow(username).Scan(&uid)
-								if err != nil {
-									log.WithFields(log.Fields{
-										"experiment": experiment,
-										"role":       role,
-									}).Error("Could not execute query to get UID")
-									log.WithFields(log.Fields{
-										"experiment": experiment,
-										"role":       role,
-									}).Error(err)
+									}).Error("Could not get UID by username")
 									return
 								}
 								log.WithFields(log.Fields{
 									"experiment": experiment,
 									"role":       role,
-								}).Infof("Got UID %d", uid)
+									"username":   username,
+									"uid":        uid,
+								}).Debug("Got UID")
 								sc.DesiredUID = uint32(uid)
 							}()
 						}

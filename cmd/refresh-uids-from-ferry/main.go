@@ -61,17 +61,8 @@ func main() {
 	defer db.Close()
 
 	if newDB {
-		sqlStmt := `
-			CREATE TABLE uids (
-				username STRING NOT NULL PRIMARY KEY, 
-				uid INTEGER NOT NULL 
-				);
-			`
-
-		_, err = db.Exec(sqlStmt)
-		if err != nil {
-			log.Error(err)
-			log.Fatal("Could not create database table to store UIDs")
+		if err = utils.CreateUidsTableInDB(db); err != nil {
+			log.Fatal("Error creating UID table in database")
 		}
 	}
 
@@ -149,135 +140,18 @@ func main() {
 	// Wait until FERRY data aggregation is done before we insert anything into DB
 	<-aggDone
 
-	tx, err := db.Begin()
-	if err != nil {
-		log.Error(err)
-		log.Fatal("Could not open transaction to database")
-	}
-
-	func() {
-		insertStatement, err := tx.Prepare(`
-	INSERT INTO uids(username, uid)
-	VALUES
-		(?, ?)
-	ON CONFLICT(username) DO
-		UPDATE SET uid = ?;
-		`)
-		if err != nil {
-			log.Error(err)
-			log.Fatal("Could not prepare INSERT statement to database")
-		}
-		defer insertStatement.Close()
-
-		for _, datum := range ferryData {
-			_, err := insertStatement.Exec(datum.Username, datum.Uid, datum.Uid)
-			if err != nil {
-				log.Error(err)
+	if err = utils.InsertUidsIntoTableFromFERRY(db, ferryData); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}
 
 	// Confirm that we did it.  Maybe this will become a debug output
-	func() {
-		var username string
-		var uid int
-		rowsOut := make([][]string, 0)
-		rows, err := db.Query(`SELECT username, uid FROM uids;`)
+	count, err := utils.ConfirmUIDsInTable(db)
 	if err != nil {
-			log.Fatal(err)
+		log.Fatal("Error running verification of INSERT")
 	}
-		defer rows.Close()
-		for rows.Next() {
-			err := rows.Scan(&username, &uid)
-			if err != nil {
-				log.Fatal(err)
+	if count != len(ferryData) {
+		log.Fatal("Verification of INSERT failed.  Expected %d total UID rows, got %d", len(ferryData), count)
 	}
-			rowsOut = append(rowsOut, []string{
-				username,
-				strconv.Itoa(uid),
-			})
-		}
-		log.Info("UID output: ", rowsOut)
-		err = rows.Err()
-		if err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-}
-
-type ferryResponse struct {
-	FerryStatus string   `json:"ferry_status"`
-	FerryError  []string `json:"ferry_error"`
-	FerryOutput struct {
-		ExpirationDate string `json:"expirationdate"`
-		FullName       string `json:"fullname"`
-		GroupAccount   bool   `json:"groupaccount"`
-		Status         bool   `json:"status"`
-		Uid            int    `json:"uid"`
-		VOPersonId     string `json:"vopersonid"`
-	} `json:"ferry_output"`
-}
-
-type entryFromFerry struct {
-	Username string
-	Uid      int
-}
-
-// InitializeHTTPSClientForFerry sets up the HTTPS client to query the FERRY service
-func InitializeHTTPSClientForFerry() *http.Client {
-	log.Debug("Initializing client to query FERRY")
-	caCertSlice := make([]string, 0)
-	caCertPool := x509.NewCertPool()
-
-	// Adapted from  https://gist.github.com/michaljemala/d6f4e01c4834bf47a9c4
-	// Load host cert
-	cert, err := tls.LoadX509KeyPair(viper.GetString("hostCert"), viper.GetString("hostKey"))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Load CA certs
-	caFiles, err := ioutil.ReadDir(viper.GetString("caPath"))
-	if err != nil {
-		log.WithField("caPath", viper.GetString("caPath")).Fatal(err)
-
-	}
-	for _, f := range caFiles {
-		if filepath.Ext(f.Name()) == ".pem" {
-			filenameToAdd := path.Join(viper.GetString("caPath"), f.Name())
-			caCertSlice = append(caCertSlice, filenameToAdd)
-		}
-	}
-	for _, f := range caCertSlice {
-		caCert, err := ioutil.ReadFile(f)
-		if err != nil {
-			log.WithField("filename", f).Warn(err)
-		}
-		caCertPool.AppendCertsFromPEM(caCert)
-	}
-	// Setup HTTPS client
-	tlsConfig := &tls.Config{
-		Certificates:  []tls.Certificate{cert},
-		RootCAs:       caCertPool,
-		Renegotiation: tls.RenegotiateFreelyAsClient,
-	}
-
-	tlsConfig.BuildNameToCertificate()
-	transport := &http.Transport{TLSClientConfig: tlsConfig}
-	return &http.Client{Transport: transport}
-}
-
-func getAllAccountsFromConfig() []string {
-	s := make([]string, 0)
-
-	for experiment := range viper.GetStringMap("experiments") {
-		roleConfigPath := "experiments." + experiment + ".roles"
-		for role := range viper.GetStringMap(roleConfigPath) {
-			accountConfigPath := roleConfigPath + "." + role + ".account"
-			account := viper.GetString(accountConfigPath)
-			log.WithField("account", account).Info("Found account")
-			s = append(s, account)
-		}
-	}
-	return s
+	//TODO Make this a debug
+	log.Info("Verified INSERT. Done")
 }
