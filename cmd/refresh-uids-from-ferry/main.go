@@ -1,23 +1,20 @@
 package main
 
 import (
-	"crypto/tls"
-	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/ioutil"
-	"net/http"
 	"os"
-	"path"
-	"path/filepath"
-	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 func init() {
@@ -50,7 +47,6 @@ func main() {
 		dbLocation = viper.GetString("dbLocation")
 	} else {
 		dbLocation = "/var/lib/managed-tokens/uid.db"
-
 	}
 
 	if _, err := os.Stat(dbLocation); errors.Is(err, os.ErrNotExist) {
@@ -77,62 +73,81 @@ func main() {
 			log.Error(err)
 			log.Fatal("Could not create database table to store UIDs")
 		}
-
-		log.Info("Created new database and table")
 	}
 
 	// TODO Get data from FERRY.  Make this concurrent
 	// ferryURL
 	// ferryPort
-	ferryData := make([]*entryFromFerry, 0)
-	ferryClient := InitializeHTTPSClientForFerry()
+	ferryData := make([]*utils.UIDEntryFromFerry, 0)
+	ferryClient := utils.InitializeHTTPSClient(viper.GetString("hostCert"), viper.GetString("hostKey"), viper.GetString("caPath"))
 
 	ferryURLUIDTemplate := template.Must(template.New("ferry").Parse("{{.URL}}:{{.Port}}/{{.API}}?username={{.Username}}"))
 
 	// TODO get all usernames from config
 
 	usernames := getAllAccountsFromConfig()
+	ferryDataChan := make(chan *utils.UIDEntryFromFerry)
+	ferryDataWg := new(sync.WaitGroup)
+	aggDone := make(chan struct{})
 
-	for _, username := range usernames {
-		ferryAPIConfig := struct{ URL, Port, API, Username string }{
-			URL:      viper.GetString("ferryURL"),
-			Port:     viper.GetString("ferryPort"),
-			API:      "getUserInfo",
-			Username: username,
+	// Start up worker to aggregate all ferry data
+	// TODO Move this to package worker and give it a name
+	go func(ferryDataChan <-chan *utils.UIDEntryFromFerry, aggDone chan<- struct{}) {
+		defer close(aggDone)
+		for ferryDatum := range ferryDataChan {
+			ferryData = append(ferryData, ferryDatum)
 		}
+	}(ferryDataChan, aggDone)
 
-		var b strings.Builder
-		if err := ferryURLUIDTemplate.Execute(&b, ferryAPIConfig); err != nil {
-			log.Errorf("Could not execute ferryURLUID template")
-			log.Fatal(err)
+	func() {
+		defer close(ferryDataChan)
+		for _, username := range usernames {
+			ferryDataWg.Add(1)
+			go func(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry) {
+				defer ferryDataWg.Done()
+				ferryAPIConfig := struct{ URL, Port, API, Username string }{
+					URL:      viper.GetString("ferryURL"),
+					Port:     viper.GetString("ferryPort"),
+					API:      "getUserInfo",
+					Username: username,
+				}
+
+				var b strings.Builder
+				if err := ferryURLUIDTemplate.Execute(&b, ferryAPIConfig); err != nil {
+					log.Errorf("Could not execute ferryURLUID template")
+					log.Fatal(err)
+				}
+
+				resp, err := ferryClient.Get(b.String())
+				if err != nil {
+					log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
+					log.WithField("account", username).Error(err)
+					return
+				}
+				defer resp.Body.Close()
+				body, err := ioutil.ReadAll(resp.Body)
+				if err != nil {
+					log.WithField("account", username).Error("Could not read body from HTTP response")
+				}
+
+				parsedResponse := ferryResponse{}
+				if err := json.Unmarshal(body, &parsedResponse); err != nil {
+					log.WithField("account", username).Error("Could not unmarshal FERRY response")
+					log.WithField("account", username).Error(err)
+				}
+
+				entry := utils.UIDEntryFromFerry{
+					Username: username,
+					Uid:      parsedResponse.FerryOutput.Uid,
+				}
+
+				ferryDataChan <- &entry
+			}(username, ferryDataChan)
 		}
-
-		resp, err := ferryClient.Get(b.String())
-		if err != nil {
-			log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
-			log.WithField("account", username).Error(err)
-			continue
-		}
-		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			log.WithField("account", username).Error("Could not read body from HTTP response")
-		}
-
-		parsedResponse := ferryResponse{}
-		if err := json.Unmarshal(body, &parsedResponse); err != nil {
-			log.WithField("account", username).Error("Could not unmarshal FERRY response")
-			log.WithField("account", username).Error(err)
-		}
-
-		entry := entryFromFerry{
-			Username: username,
-			Uid:      parsedResponse.FerryOutput.Uid,
-		}
-
-		ferryData = append(ferryData, &entry)
-
-	}
+		ferryDataWg.Wait()
+	}()
+	// Wait until FERRY data aggregation is done before we insert anything into DB
+	<-aggDone
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -158,19 +173,8 @@ func main() {
 			_, err := insertStatement.Exec(datum.Username, datum.Uid, datum.Uid)
 			if err != nil {
 				log.Error(err)
-				log.Fatal("Could not insert FERRY data into database")
-			}
-		}
-
-		err = tx.Commit()
-		if err != nil {
-			log.Error(err)
-			log.Fatal("Could not commit transaction to database.  Rolling back.")
-		}
-
-		log.Infof("Inserted data into database")
-
-	}()
+		log.Fatal("Could not insert FERRY data into database")
+	}
 
 	// Confirm that we did it.  Maybe this will become a debug output
 	func() {
@@ -178,15 +182,15 @@ func main() {
 		var uid int
 		rowsOut := make([][]string, 0)
 		rows, err := db.Query(`SELECT username, uid FROM uids;`)
-		if err != nil {
+	if err != nil {
 			log.Fatal(err)
-		}
+	}
 		defer rows.Close()
 		for rows.Next() {
 			err := rows.Scan(&username, &uid)
 			if err != nil {
 				log.Fatal(err)
-			}
+	}
 			rowsOut = append(rowsOut, []string{
 				username,
 				strconv.Itoa(uid),
