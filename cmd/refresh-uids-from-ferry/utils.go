@@ -6,24 +6,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-type ferryResponse struct {
-	FerryStatus string   `json:"ferry_status"`
-	FerryError  []string `json:"ferry_error"`
-	FerryOutput struct {
-		ExpirationDate string `json:"expirationdate"`
-		FullName       string `json:"fullname"`
-		GroupAccount   bool   `json:"groupaccount"`
-		Status         bool   `json:"status"`
-		Uid            int    `json:"uid"`
-		VOPersonId     string `json:"vopersonid"`
-	} `json:"ferry_output"`
-}
-
-type entryFromFerry struct {
-	Username string
-	Uid      int
-}
-
 func getAllAccountsFromConfig() []string {
 	s := make([]string, 0)
 
