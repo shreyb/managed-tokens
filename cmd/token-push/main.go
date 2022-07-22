@@ -24,7 +24,6 @@ import (
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/utils/tokenpush"
 	"github.com/shreyb/managed-tokens/worker"
 )
 
@@ -243,6 +242,7 @@ func main() {
 									return
 								}
 								defer db.Close()
+
 								uid, err = utils.GetUIDByUsername(db, username)
 								if err != nil {
 									log.WithFields(log.Fields{
@@ -300,14 +300,14 @@ func main() {
 	log.Debug("All kerberos tickets generated and verified")
 
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
-	tokenpush.LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
+	worker.LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done
 	// before transferring to nodes
 	<-condorDone
 
 	// Send to nodes
-	tokenpush.LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
+	worker.LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
 	<-pushDone
 
 	fmt.Println("I guess we did something")

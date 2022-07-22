@@ -85,6 +85,13 @@ func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) 
 	return &c, nil
 }
 
+func LoadServiceConfigsIntoChannel(chanToLoad chan<- *ServiceConfig, serviceConfigs []*ServiceConfig) {
+	defer close(chanToLoad)
+	for _, sc := range serviceConfigs {
+		chanToLoad <- sc
+	}
+}
+
 func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ EnvironmentMapper) *exec.Cmd {
 	// TODO Make this func so that we can pass in context and args, and it'll return the command with wrapped environ.  So basically the same API as exec.Command plus the CommandEnvironment
 	envMapping := environ.toEnvs()
