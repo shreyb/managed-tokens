@@ -11,6 +11,10 @@ import (
 	"path"
 	"strings"
 
+	"database/sql"
+
+	_ "github.com/mattn/go-sqlite3"
+
 	// "github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -37,6 +41,7 @@ func init() {
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
 	// TODO Take care of overrides:  keytabPath, desiredUid, condorCreddHost, condorCollectorHost, userPrincipalOverride
+	// TODO should not run as root ALL executables
 
 	// TODO Flags to override config
 
@@ -45,6 +50,7 @@ func init() {
 }
 
 func main() {
+	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	// Check for executables
 	// TODO Move this stuff to init function, or wherever is appropriate
@@ -103,7 +109,6 @@ func main() {
 			}
 
 			for _, role := range roles {
-				// TODO IMPORTANT:  This fails under concurrency because maps are not concurrnent safe See commandEnvironment.  Need to use a Sync Map, or better yet, a struct
 				// Setup the configs
 				serviceConfigPath := experimentConfigPath + ".roles." + role
 				setupWg.Add(1)
@@ -111,6 +116,7 @@ func main() {
 					defer setupWg.Done()
 
 					// Functional options for service configs
+					//TODO Can I put these funcs ANYWHERE else?  It's really cluttering up the main() space
 					serviceConfigViperPath := func(sc *worker.ServiceConfig) error {
 						// TODO See if there's a way of getting around repetition
 						sc.ServiceConfigPath = serviceConfigPath
@@ -210,8 +216,67 @@ func main() {
 						if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
 							sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
 						} else {
-							// FERRY STUFF
-							// TODO The desired UIDs should come from FERRY.  Need to write a service that writes out a config file in /tmp, loads it in setup, and checks that config right now.  SQLite DB?
+							// Get UID from SQLite DB that should be kept up to date by refresh-uids-from-ferry
+							func() {
+								var dbLocation string
+								var uid int
+
+								username := viper.GetString(serviceConfigPath + ".account")
+
+								if viper.IsSet("dbLocation") {
+									dbLocation = viper.GetString("dbLocation")
+								} else {
+									dbLocation = "/var/lib/managed-tokens/uid.db"
+
+								}
+								db, err := sql.Open("sqlite3", dbLocation)
+								if err != nil {
+									log.WithFields(log.Fields{
+										"experiment": experiment,
+										"role":       role,
+									}).Error("Could not open the UID database file")
+									log.WithFields(log.Fields{
+										"experiment": experiment,
+										"role":       role,
+									}).Error(err)
+									return
+								}
+								defer db.Close()
+
+								stmt, err := db.Prepare(`
+								SELECT uid
+								FROM uids
+								WHERE username = ? ;`)
+								if err != nil {
+									log.WithFields(log.Fields{
+										"experiment": experiment,
+										"role":       role,
+									}).Error("Could not prepare query to get UID")
+									log.WithFields(log.Fields{
+										"experiment": experiment,
+										"role":       role,
+									}).Error(err)
+									return
+								}
+								defer stmt.Close()
+								err = stmt.QueryRow(username).Scan(&uid)
+								if err != nil {
+									log.WithFields(log.Fields{
+										"experiment": experiment,
+										"role":       role,
+									}).Error("Could not execute query to get UID")
+									log.WithFields(log.Fields{
+										"experiment": experiment,
+										"role":       role,
+									}).Error(err)
+									return
+								}
+								log.WithFields(log.Fields{
+									"experiment": experiment,
+									"role":       role,
+								}).Infof("Got UID %d", uid)
+								sc.DesiredUID = uint32(uid)
+							}()
 						}
 						return nil
 					}
