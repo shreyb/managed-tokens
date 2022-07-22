@@ -300,14 +300,14 @@ func main() {
 	log.Debug("All kerberos tickets generated and verified")
 
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
-	worker.LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
+	LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done
 	// before transferring to nodes
 	<-condorDone
 
 	// Send to nodes
-	worker.LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
+	LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
 	<-pushDone
 
 	fmt.Println("I guess we did something")

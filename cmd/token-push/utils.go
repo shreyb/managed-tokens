@@ -1,6 +1,8 @@
-package tokenpush
+package main
 
-import "github.com/shreyb/managed-tokens/worker"
+import (
+	"github.com/shreyb/managed-tokens/worker"
+)
 
 func LoadServiceConfigsIntoChannel(chanToLoad chan<- *worker.ServiceConfig, serviceConfigs []*worker.ServiceConfig) {
 	defer close(chanToLoad)
