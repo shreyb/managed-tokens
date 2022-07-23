@@ -3,6 +3,7 @@ package worker
 import (
 	"os"
 	"os/exec"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -38,8 +39,8 @@ type EnvironmentMapper interface {
 	toEnvs() map[string]string
 }
 
-// ServiceConfig is a mega struct containing all the information the Worker needs to have or pass onto lower level funcs.
-
+// ServiceConfig is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
+//TODO Add Service as a field that is <experiment>_<role>, use it everywhere applicable
 type ServiceConfig struct {
 	Experiment        string
 	Role              string
@@ -109,4 +110,18 @@ func environmentWrappedCommand(cmd *exec.Cmd, environ EnvironmentMapper) *exec.C
 		cmd.Env = append(cmd.Env, val)
 	}
 	return cmd
+}
+
+// Borrowed from hashicorp's vault API, since we ONLY need this func
+// Source: https://github.com/hashicorp/vault/blob/main/vault/version_store.go
+// and https://github.com/hashicorp/vault/blob/main/sdk/helper/consts/token_consts.go
+
+const (
+	ServiceTokenPrefix       = "hvs."
+	LegacyServiceTokenPrefix = "s."
+)
+
+func IsServiceToken(token string) bool {
+	return strings.HasPrefix(token, ServiceTokenPrefix) ||
+		strings.HasPrefix(token, LegacyServiceTokenPrefix)
 }

@@ -1,9 +1,18 @@
 package worker
 
 import (
+	// "fmt"
+	"errors"
+	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/user"
 
+	// "os/user"
+
+	// "github.com/lestrrat-go/jwx/jwt"
+	// "github.com/scitokens/scitokens-go"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -35,16 +44,46 @@ func StoreAndGetTokenWorker(inputChan <-chan *ServiceConfig, doneChan chan<- str
 			log.WithFields(log.Fields{
 				"experiment": sc.Experiment,
 				"role":       sc.Role,
-			}).Fatal("Could not switch kerberos caches")
+			}).Error("Could not switch kerberos caches")
+			return
 		}
 
-		// Get tokens and store them in vault
+		// Get token and store it in vault
 		if err := getTokensandStoreinVault(sc); err != nil {
 			log.WithFields(log.Fields{
 				"experiment": sc.Experiment,
 				"role":       sc.Role,
-			}).Fatal("Could not obtain vault token")
+			}).Error("Could not obtain vault token")
+			return
 		}
+
+		// Validate vault token
+		currentUser, err := user.Current()
+		if err != nil {
+			log.WithFields(log.Fields{
+				"experiment": sc.Experiment,
+				"role":       sc.Role,
+			}).Error(err)
+			return
+		}
+		currentUID := currentUser.Uid
+		service := sc.Experiment + "_" + sc.Role
+		vaultTokenFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
+
+		if err := validateVaultToken(vaultTokenFilename); err != nil {
+			log.WithFields(log.Fields{
+				"experiment": sc.Experiment,
+				"role":       sc.Role,
+			}).Error("Could not validate vault token")
+			return
+		}
+
+		// TODO Make this a debug
+		log.WithFields(log.Fields{
+			"experiment": sc.Experiment,
+			"role":       sc.Role,
+		}).Info("Validated vault token")
+
 	}
 }
 
@@ -79,6 +118,25 @@ func getTokensandStoreinVault(sc *ServiceConfig) error {
 		"experiment": sc.Experiment,
 		"role":       sc.Role,
 	}).Info("Successfully obtained and stored vault token")
+
 	return nil
-	// TODO verify token scopes
+}
+
+// validateVaultToken verifies that a vault token (service token as Hashicorp calls them) indicated by the filename is valid
+func validateVaultToken(vaultTokenFilename string) error {
+	vaultTokenBytes, err := ioutil.ReadFile(vaultTokenFilename)
+	if err != nil {
+		log.WithField("filename", vaultTokenFilename).Error("Could not read tokenfile for verification.")
+		return err
+	}
+
+	vaultTokenString := string(vaultTokenBytes[:])
+
+	if !IsServiceToken(vaultTokenString) {
+		errString := "vault token failed validation"
+		log.WithField("filename", vaultTokenFilename).Error(errString)
+		return errors.New(errString)
+	}
+
+	return nil
 }
