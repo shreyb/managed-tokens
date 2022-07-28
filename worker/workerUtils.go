@@ -44,6 +44,7 @@ type EnvironmentMapper interface {
 type ServiceConfig struct {
 	Experiment        string
 	Role              string
+	Service           string
 	UserPrincipal     string
 	Nodes             []string
 	Account           string
@@ -72,6 +73,9 @@ func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) 
 		Experiment: expt,
 		Role:       role,
 	}
+
+	c.Service = expt + "_" + role
+
 	for _, option := range options {
 		err := option(&c)
 		if err != nil {
