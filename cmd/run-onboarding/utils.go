@@ -1,24 +1,15 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"html/template"
 	"path"
 	"strings"
 
-	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
-
-func LoadServiceConfigsIntoChannel(chanToLoad chan<- *worker.ServiceConfig, serviceConfigs []*worker.ServiceConfig) {
-	defer close(chanToLoad)
-	for _, sc := range serviceConfigs {
-		chanToLoad <- sc
-	}
-}
 
 func setCondorCreddHost(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
 	return func(sc *worker.ServiceConfig) error {
@@ -94,48 +85,6 @@ func setKeytabOverride(serviceConfigPath string) func(sc *worker.ServiceConfig) 
 					viper.GetString(serviceConfigPath+".account"),
 				),
 			)
-		}
-		return nil
-	}
-}
-
-func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
-		if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
-			sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
-		} else {
-			// Get UID from SQLite DB that should be kept up to date by refresh-uids-from-ferry
-			func() {
-				var dbLocation string
-				var uid int
-
-				username := viper.GetString(serviceConfigPath + ".account")
-
-				if viper.IsSet("dbLocation") {
-					dbLocation = viper.GetString("dbLocation")
-				} else {
-					dbLocation = "/var/lib/managed-tokens/uid.db"
-
-				}
-				db, err := sql.Open("sqlite3", dbLocation)
-				if err != nil {
-					log.Error("Could not open the UID database file")
-					log.Error(err)
-					return
-				}
-				defer db.Close()
-
-				uid, err = utils.GetUIDByUsername(db, username)
-				if err != nil {
-					log.Error("Could not get UID by username")
-					return
-				}
-				log.WithFields(log.Fields{
-					"username": username,
-					"uid":      uid,
-				}).Debug("Got UID")
-				sc.DesiredUID = uint32(uid)
-			}()
 		}
 		return nil
 	}

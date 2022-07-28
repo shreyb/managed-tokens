@@ -2,18 +2,11 @@ package main
 
 import (
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"os"
 	"sync"
 
 	// "os/user"
-	"path"
-	"strings"
-
-	"database/sql"
-
-	_ "github.com/mattn/go-sqlite3"
 
 	// "github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
@@ -23,7 +16,7 @@ import (
 	// "github.com/spf13/pflag"
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/utils"
+
 	"github.com/shreyb/managed-tokens/worker"
 )
 
@@ -112,21 +105,19 @@ func main() {
 				// Setup the configs
 				serviceConfigPath := experimentConfigPath + ".roles." + role
 				setupWg.Add(1)
-				go func(experiment, role string) {
+				go func(experiment, role, serviceConfigPath string) {
 					defer setupWg.Done()
 
 					// Functional options for service configs
-					//TODO Can I put these funcs ANYWHERE else?  It's really cluttering up the main() space
-					serviceConfigViperPath := func(sc *worker.ServiceConfig) error {
-						// TODO See if there's a way of getting around repetition
-						sc.ServiceConfigPath = serviceConfigPath
+					experimentOverride := func(sc *worker.ServiceConfig) error {
+						if viper.IsSet("experiments." + experiment + "experimentNameOverride") {
+							sc.Experiment = viper.GetString("experiments." + experiment + "experimentNameOverride")
+						}
 						return nil
 					}
 
-					// TODO Experimentname override
-
-					account := func(sc *worker.ServiceConfig) error {
-						sc.Account = viper.GetString(serviceConfigPath + ".account")
+					serviceConfigViperPath := func(sc *worker.ServiceConfig) error {
+						sc.ServiceConfigPath = serviceConfigPath
 						return nil
 					}
 
@@ -136,148 +127,33 @@ func main() {
 						return nil
 					}
 
-					// CREDD_HOST
-					condorCreddHost := func(sc *worker.ServiceConfig) error {
-						addString := "_condor_CREDD_HOST="
-						overrideVar := serviceConfigPath + ".condorCreddHostOverride"
-						if viper.IsSet(overrideVar) {
-							addString = addString + viper.GetString(overrideVar)
-						} else {
-							addString = addString + viper.GetString("condorCreddHost")
-						}
-						sc.CommandEnvironment.CondorCreddHost = addString
-						return nil
-					}
-
-					// COLLECTOR_HOST
-					condorCollectorHost := func(sc *worker.ServiceConfig) error {
-						addString := "_condor_COLLECTOR_HOST="
-						overrideVar := serviceConfigPath + ".condorCollectorHostOverride"
-						if viper.IsSet(overrideVar) {
-							addString = addString + viper.GetString(overrideVar)
-						} else {
-							addString = addString + viper.GetString("condorCollectorHost")
-						}
-						sc.CommandEnvironment.CondorCollectorHost = addString
-						return nil
-					}
-
-					// User Principal override and httokengetopts
-					setUserPrincipalOverride := func(sc *worker.ServiceConfig) error {
-						userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
-						if err != nil {
-							log.Error("Error parsing Kerberos Principal Template")
-							log.Error(err)
-							return err
-						}
-						userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"
-						if viper.IsSet(userPrincipalOverrideConfigPath) {
-							sc.UserPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
-						} else {
-							var b strings.Builder
-							templateArgs := struct{ Account string }{Account: viper.GetString(serviceConfigPath + ".account")}
-							if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
-								log.WithField("experiment", experiment).Error("Could not execute kerberos prinicpal template")
-								return err
-							}
-							sc.UserPrincipal = b.String()
-						}
-
-						credKey := strings.ReplaceAll(sc.UserPrincipal, "@FNAL.GOV", "")
-						// TODO Make htgettokenopts configurable
-						htgettokenOptsRaw := []string{
-							fmt.Sprintf("--credkey=%s", credKey),
-						}
-						sc.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
-						return nil
-					}
-
-					// Keytab override
-					setKeytab := func(sc *worker.ServiceConfig) error {
-						keytabConfigPath := serviceConfigPath + ".keytabPath"
-						if viper.IsSet(keytabConfigPath) {
-							sc.KeytabPath = viper.GetString(keytabConfigPath)
-						} else {
-							// Default keytab location
-							keytabDir := viper.GetString("keytabPath")
-							sc.KeytabPath = path.Join(
-								keytabDir,
-								fmt.Sprintf(
-									"%s.keytab",
-									viper.GetString(serviceConfigPath+".account"),
-								),
-							)
-						}
-						return nil
-					}
-
-					// Desired UID lookup/override
-					setDesiredUID := func(sc *worker.ServiceConfig) error {
-						if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
-							sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
-						} else {
-							// Get UID from SQLite DB that should be kept up to date by refresh-uids-from-ferry
-							func() {
-								var dbLocation string
-								var uid int
-
-								username := viper.GetString(serviceConfigPath + ".account")
-
-								if viper.IsSet("dbLocation") {
-									dbLocation = viper.GetString("dbLocation")
-								} else {
-									dbLocation = "/var/lib/managed-tokens/uid.db"
-
-								}
-								db, err := sql.Open("sqlite3", dbLocation)
-								if err != nil {
-									log.WithFields(log.Fields{
-										"experiment": experiment,
-										"role":       role,
-									}).Error("Could not open the UID database file")
-									log.WithFields(log.Fields{
-										"experiment": experiment,
-										"role":       role,
-									}).Error(err)
-									return
-								}
-								defer db.Close()
-
-								uid, err = utils.GetUIDByUsername(db, username)
-								if err != nil {
-									log.WithFields(log.Fields{
-										"experiment": experiment,
-										"role":       role,
-									}).Error("Could not get UID by username")
-									return
-								}
-								log.WithFields(log.Fields{
-									"experiment": experiment,
-									"role":       role,
-									"username":   username,
-									"uid":        uid,
-								}).Debug("Got UID")
-								sc.DesiredUID = uint32(uid)
-							}()
-						}
-						return nil
-					}
+					condorCreddHostFunc := setCondorCreddHost(serviceConfigPath)
+					condorCollectorHostFunc := setCondorCollectorHost(serviceConfigPath)
+					userPrincipalAndHtgettokenoptsFunc := setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment)
+					setKeytabFunc := setKeytabOverride(serviceConfigPath)
+					setDesiredUIDFunc := setDesiredUIByOverrideOrLookup(serviceConfigPath)
 
 					destinationNodes := func(sc *worker.ServiceConfig) error {
 						sc.Nodes = viper.GetStringSlice(serviceConfigPath + ".destinationNodes")
 						return nil
 					}
 
+					account := func(sc *worker.ServiceConfig) error {
+						sc.Account = viper.GetString(serviceConfigPath + ".account")
+						return nil
+					}
+
 					sc, err := worker.NewServiceConfig(
 						experiment,
 						role,
+						experimentOverride,
 						serviceConfigViperPath,
 						setkrb5ccname,
-						condorCreddHost,
-						condorCollectorHost,
-						setUserPrincipalOverride,
-						setKeytab,
-						setDesiredUID,
+						condorCreddHostFunc,
+						condorCollectorHostFunc,
+						userPrincipalAndHtgettokenoptsFunc,
+						setKeytabFunc,
+						setDesiredUIDFunc,
 						destinationNodes,
 						account,
 					)
@@ -291,7 +167,7 @@ func main() {
 					serviceConfigs = append(serviceConfigs, sc)
 					serviceConfigsForKinit <- sc
 
-				}(experiment, role)
+				}(experiment, role, serviceConfigPath)
 			}
 		}
 		setupWg.Wait()
