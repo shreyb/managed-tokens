@@ -73,6 +73,7 @@ func init() {
 }
 
 func main() {
+	// TODO delete any generated vault token
 	serviceConfigs := make([]*worker.ServiceConfig, 0)
 	// Get servicename
 	// Run condor_vault_storer worker, which passes cmd.out to tty

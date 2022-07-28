@@ -1,0 +1,14 @@
+For all TODOs that are more general
+
+* Put notifications in 
+* For any main() loop where we're going through a number of services, make sure we tally and log the services that worked, and the services that didn't
+* See if we can get tokens into temp files rather than the standard locations
+* Flags for all executables
+* Contexts EVERYWHERE
+* Interface a bunch of things if possible
+* Check all the errors to make sure they're the right level, and useful
+* Write unit tests
+* In-code documentation
+* Check import order in all files
+* Documentation on github
+* Remove this file from repo.  From this point on, all TODOs should be issues in the github repo
