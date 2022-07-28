@@ -30,17 +30,22 @@ func init() {
 	}
 }
 
-func StoreAndGetTokenWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{}) {
-	defer close(doneChan)
+func StoreAndGetTokenWorker(inputChan <-chan *ServiceConfig, successChan chan<- *VaultStorerSuccess) {
+	defer close(successChan)
 	var interactive bool
 	for sc := range inputChan {
+		success := &VaultStorerSuccess{
+			Service: sc.Service,
+		}
 		if err := storeAndGetTokens(sc, interactive); err != nil {
 			log.WithFields(log.Fields{
 				"experiment": sc.Experiment,
 				"role":       sc.Role,
 			}).Error("Could not store and get vault tokens")
-			return
+		} else {
+			success.Success = true
 		}
+		successChan <- success
 	}
 }
 
@@ -168,4 +173,9 @@ func validateVaultToken(vaultTokenFilename string) error {
 	}
 
 	return nil
+}
+
+type VaultStorerSuccess struct {
+	Service string
+	Success bool
 }

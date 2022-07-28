@@ -21,6 +21,7 @@ import (
 )
 
 func init() {
+
 	// Get config file
 	viper.SetConfigName("managedTokens")
 	viper.AddConfigPath("/etc/managed-tokens/")
@@ -33,10 +34,8 @@ func init() {
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
-	// TODO Take care of overrides:  keytabPath, desiredUid, condorCreddHost, condorCollectorHost, userPrincipalOverride
 	// TODO should not run as root ALL executables
-
-	// TODO Flags to override config
+	// TODO implement test flag behavior
 
 	// TODO Logfile setup
 
@@ -47,7 +46,8 @@ func main() {
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	// Check for executables
 	// TODO Move this stuff to init function, or wherever is appropriate
-	serviceConfigs := make([]*worker.ServiceConfig, 0)
+	//serviceConfigs := make([]*worker.ServiceConfig, 0)
+	serviceConfigs := make(map[string]*worker.ServiceConfig)
 
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
@@ -58,18 +58,10 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
-	// All my channels
+	// Channels and worker for getting kerberos tickets
 	serviceConfigsForKinit := make(chan *worker.ServiceConfig)
 	kerberosTicketsDone := make(chan struct{})
-	serviceConfigsForCondor := make(chan *worker.ServiceConfig)
-	condorDone := make(chan struct{})
-	serviceConfigsForPush := make(chan *worker.ServiceConfig)
-	pushDone := make(chan struct{})
-
-	// Start workers up
 	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
-	go worker.StoreAndGetTokenWorker(serviceConfigsForCondor, condorDone)
-	go worker.PushTokensWorker(serviceConfigsForPush, pushDone)
 
 	// TODO Ping all nodes concurrently, receive status in notifications Manager, and don't start pushing
 	// Tokens until all of those are done
@@ -78,14 +70,13 @@ func main() {
 	experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
 
 	// Get experiments from config.
-	// TODO Handle case where experiment is passed in
 	// TODO Handle case where service can be passed in
 	// TODO dryRun
 	// TODO set up logger to always include experiment field
 	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
 
-	for experiment := range viper.GetStringMap("experiments") {
-		experiments = append(experiments, experiment)
+		for experiment := range viper.GetStringMap("experiments") {
+			experiments = append(experiments, experiment)
 	}
 
 	// TODO - Try to move this to mainUtils and call from here?
@@ -164,7 +155,7 @@ func main() {
 							"role":       role,
 						}).Fatal("Could not create config for service")
 					}
-					serviceConfigs = append(serviceConfigs, sc)
+					serviceConfigs[sc.Service] = sc
 					serviceConfigsForKinit <- sc
 
 				}(experiment, role, serviceConfigPath)
@@ -176,13 +167,32 @@ func main() {
 	log.Debug("All kerberos tickets generated and verified")
 
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
+
+	// Channels and worker for getting/storing vault token
+	serviceConfigsForCondor := make(chan *worker.ServiceConfig, len(serviceConfigs))
+	condorDone := make(chan *worker.VaultStorerSuccess, len(serviceConfigs))
+	go worker.StoreAndGetTokenWorker(serviceConfigsForCondor, condorDone)
+
 	LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
 
-	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done
-	// before transferring to nodes
-	<-condorDone
+	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
+	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
+	for vaultStorerSuccess := range condorDone {
+		if !vaultStorerSuccess.Success {
+			log.WithField(
+				"service", vaultStorerSuccess.Service,
+			).Info("Failed to obtain vault token.  Will not try to push vault token to service nodes")
+			delete(serviceConfigs, vaultStorerSuccess.Service)
+		}
+	}
 
 	// Send to nodes
+
+	// Channels and worker for pushing tokens
+	serviceConfigsForPush := make(chan *worker.ServiceConfig)
+	pushDone := make(chan struct{})
+	go worker.PushTokensWorker(serviceConfigsForPush, pushDone)
+
 	LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
 	<-pushDone
 

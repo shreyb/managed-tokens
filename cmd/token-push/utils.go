@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func LoadServiceConfigsIntoChannel(chanToLoad chan<- *worker.ServiceConfig, serviceConfigs []*worker.ServiceConfig) {
+func LoadServiceConfigsIntoChannel(chanToLoad chan<- *worker.ServiceConfig, serviceConfigs map[string]*worker.ServiceConfig) {
 	defer close(chanToLoad)
 	for _, sc := range serviceConfigs {
 		chanToLoad <- sc
