@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/viper"
 
 	// "github.com/rifflock/lfshook"
-	// "github.com/spf13/pflag"
+	"github.com/spf13/pflag"
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 
@@ -21,9 +21,30 @@ import (
 )
 
 func init() {
+	const configFile string = "managedTokens"
+	// Defaults
+	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
+
+	// Flags
+	pflag.StringP("experiment", "e", "", "Name of single experiment to push proxies")
+	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
+	pflag.String("admin", "", "Override the config file admin email")
+
+	pflag.Parse()
+	viper.BindPFlags(pflag.CommandLine)
 
 	// Get config file
-	viper.SetConfigName("managedTokens")
+
+	// Check for override
+	if viper.GetString("configfile") != "" {
+		viper.SetConfigFile(viper.GetString("configfile"))
+	} else {
+		viper.SetConfigName(configFile)
+	}
+
+	viper.SetConfigName(configFile)
 	viper.AddConfigPath("/etc/managed-tokens/")
 	viper.AddConfigPath("$HOME/.managed-tokens/")
 	viper.AddConfigPath(".")
@@ -75,8 +96,13 @@ func main() {
 	// TODO set up logger to always include experiment field
 	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
 
+	// If experiment is passed in on command line, ONLY generate and push tokens for that experiment
+	if exp := viper.GetString("experiment"); exp != "" {
+		experiments = append(experiments, exp)
+	} else {
 		for experiment := range viper.GetStringMap("experiments") {
 			experiments = append(experiments, experiment)
+		}
 	}
 
 	// TODO - Try to move this to mainUtils and call from here?
