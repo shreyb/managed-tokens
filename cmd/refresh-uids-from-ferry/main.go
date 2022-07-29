@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -52,6 +53,30 @@ func init() {
 	if err != nil {
 		log.Panicf("Fatal error reading in config file: %w", err)
 	}
+
+	// Set up logs
+	log.SetLevel(log.DebugLevel)
+	debugLogConfigLookup := "logs.refresh-uids-from-ferry.debugfile"
+	logConfigLookup := "logs.refresh-uids-from-ferry.logfile"
+	// Debug log
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.DebugLevel: viper.GetString(debugLogConfigLookup),
+		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
+		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
+		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
+		log.FatalLevel: viper.GetString(debugLogConfigLookup),
+		log.PanicLevel: viper.GetString(debugLogConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Info log file
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.InfoLevel:  viper.GetString(logConfigLookup),
+		log.WarnLevel:  viper.GetString(logConfigLookup),
+		log.ErrorLevel: viper.GetString(logConfigLookup),
+		log.FatalLevel: viper.GetString(logConfigLookup),
+		log.PanicLevel: viper.GetString(logConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 

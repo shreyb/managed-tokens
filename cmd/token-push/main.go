@@ -13,8 +13,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
-	// "github.com/rifflock/lfshook"
+	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
+
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 
@@ -58,6 +59,30 @@ func init() {
 	if err != nil {
 		log.Panicf("Fatal error reading in config file: %w", err)
 	}
+
+	// Set up logs
+	log.SetLevel(log.DebugLevel)
+	debugLogConfigLookup := "logs.token-push.debugfile"
+	logConfigLookup := "logs.token-push.logfile"
+	// Debug log
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.DebugLevel: viper.GetString(debugLogConfigLookup),
+		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
+		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
+		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
+		log.FatalLevel: viper.GetString(debugLogConfigLookup),
+		log.PanicLevel: viper.GetString(debugLogConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Info log file
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.InfoLevel:  viper.GetString(logConfigLookup),
+		log.WarnLevel:  viper.GetString(logConfigLookup),
+		log.ErrorLevel: viper.GetString(logConfigLookup),
+		log.FatalLevel: viper.GetString(logConfigLookup),
+		log.PanicLevel: viper.GetString(logConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 

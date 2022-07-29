@@ -12,10 +12,10 @@ import (
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
 
+	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	// "github.com/rifflock/lfshook"
 )
 
 var experiment string
@@ -61,6 +61,30 @@ func init() {
 	if err != nil {
 		log.Panicf("Fatal error reading in config file: %w", err)
 	}
+
+	// Set up logs
+	log.SetLevel(log.DebugLevel)
+	debugLogConfigLookup := "logs.run-onboarding.debugfile"
+	logConfigLookup := "logs.run-onboarding.logfile"
+	// Debug log
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.DebugLevel: viper.GetString(debugLogConfigLookup),
+		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
+		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
+		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
+		log.FatalLevel: viper.GetString(debugLogConfigLookup),
+		log.PanicLevel: viper.GetString(debugLogConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Info log file
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.InfoLevel:  viper.GetString(logConfigLookup),
+		log.WarnLevel:  viper.GetString(logConfigLookup),
+		log.ErrorLevel: viper.GetString(logConfigLookup),
+		log.FatalLevel: viper.GetString(logConfigLookup),
+		log.PanicLevel: viper.GetString(logConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
@@ -70,9 +94,6 @@ func init() {
 	}
 
 	// TODO Take care of overrides:  keytabPath, condorCreddHost, condorCollectorHost, userPrincipalOverride
-
-	// TODO Logfile setup
-
 }
 
 func main() {
