@@ -16,7 +16,6 @@ import (
 
 // GetArgsFromTemplate takes a template string and breaks it into a slice of args
 func GetArgsFromTemplate(s string) ([]string, error) {
-	args := make([]string, 0)
 	args, err := shlex.Split(s)
 	if err != nil {
 		return []string{}, fmt.Errorf("Could not split string according to shlex rules: %s", err)
