@@ -36,6 +36,7 @@ func init() {
 	// Flags
 	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
 	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
@@ -86,10 +87,6 @@ func init() {
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
-	// TODO implement test flag behavior
-
-	// TODO Logfile setup
-
 }
 
 func main() {
@@ -127,16 +124,27 @@ func main() {
 
 	// Set up service configs
 	experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
+	roles := make([]string, 0)
 
 	// Get experiments from config.
-	// TODO Handle case where service can be passed in
 	// TODO set up logger to always include experiment field
 	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
 
-	// If experiment is passed in on command line, ONLY generate and push tokens for that experiment
-	if exp := viper.GetString("experiment"); exp != "" {
-		experiments = append(experiments, exp)
-	} else {
+	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
+	switch {
+	case viper.GetString("experiment") != "":
+		experiments = append(experiments, viper.GetString("experiment"))
+	case viper.GetString("service") != "":
+		experimentRole, err := utils.ParseServiceToExperimentRole(viper.GetString("service"))
+		if err != nil {
+			log.WithField(
+				"service",
+				viper.GetString("service"),
+			).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
+		}
+		experiments = append(experiments, experimentRole[0])
+		roles = append(roles, experimentRole[1])
+	default:
 		for experiment := range viper.GetStringMap("experiments") {
 			experiments = append(experiments, experiment)
 		}
@@ -150,9 +158,11 @@ func main() {
 			// Setup
 			// var keytabPath, userPrincipal string
 			experimentConfigPath := "experiments." + experiment
-			roles := make([]string, 0, len(viper.GetStringMap(experimentConfigPath+".roles")))
-			for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
-				roles = append(roles, role)
+			if len(roles) == 0 {
+				// Only populate roles if we haven't previously done so
+				for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
+					roles = append(roles, role)
+				}
 			}
 
 			for _, role := range roles {
