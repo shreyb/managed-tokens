@@ -28,13 +28,11 @@ func init() {
 	}
 
 	// Defaults
-
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
 	// Parse our command-line arguments
-	pflag.StringP("experiment", "e", "", "Name of single experiment to push proxies")
+	pflag.StringP("experiment", "e", "", "Name of experiment to run onboarding for.  This experiment MUST be configured in the config file")
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
-	pflag.BoolP("test", "t", false, "Test mode")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
 
@@ -49,7 +47,6 @@ func init() {
 	}
 
 	// Get config file
-
 	// Check for override
 	if viper.GetString("configfile") != "" {
 		viper.SetConfigFile(viper.GetString("configfile"))
@@ -73,7 +70,6 @@ func init() {
 	}
 
 	// TODO Take care of overrides:  keytabPath, condorCreddHost, condorCollectorHost, userPrincipalOverride
-	// TODO should not run as root ALL executables
 
 	// TODO Logfile setup
 
@@ -81,7 +77,9 @@ func init() {
 
 func main() {
 	// TODO delete any generated vault token
+	// TODO This whole thing should only run for one SERVICE, not one EXPERIMENT.  Change code to reflect that
 	serviceConfigs := make([]*worker.ServiceConfig, 0)
+	serviceConfigSuccess := make(map[string]bool)
 	// Get servicename
 	// Run condor_vault_storer worker, which passes cmd.out to tty
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
@@ -167,8 +165,6 @@ func main() {
 	}()
 	<-kerberosTicketsDone
 	log.Debug("All kerberos tickets generated and verified")
-
-	serviceConfigSuccess := make(map[string]bool)
 
 	for _, serviceConfig := range serviceConfigs {
 		serviceConfigSuccess[serviceConfig.Service] = false

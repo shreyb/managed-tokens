@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 	"sync"
 
 	// "os/user"
@@ -32,7 +33,7 @@ func init() {
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
 	// Flags
-	pflag.StringP("experiment", "e", "", "Name of single experiment to push proxies")
+	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
 	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
@@ -42,7 +43,6 @@ func init() {
 	viper.BindPFlags(pflag.CommandLine)
 
 	// Get config file
-
 	// Check for override
 	if viper.GetString("configfile") != "" {
 		viper.SetConfigFile(viper.GetString("configfile"))
@@ -61,7 +61,6 @@ func init() {
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
-	// TODO should not run as root ALL executables
 	// TODO implement test flag behavior
 
 	// TODO Logfile setup
@@ -75,6 +74,14 @@ func main() {
 	// TODO Move this stuff to init function, or wherever is appropriate
 	//serviceConfigs := make([]*worker.ServiceConfig, 0)
 	serviceConfigs := make(map[string]*worker.ServiceConfig)
+	successfulServices := make(map[string]bool)
+
+	defer func(successfulServices map[string]bool) {
+		if err := cleanup(successfulServices); err != nil {
+			log.Fatal("Error cleaning up")
+		}
+
+	}(successfulServices)
 
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
@@ -98,7 +105,6 @@ func main() {
 
 	// Get experiments from config.
 	// TODO Handle case where service can be passed in
-	// TODO dryRun
 	// TODO set up logger to always include experiment field
 	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
 
@@ -188,6 +194,7 @@ func main() {
 						}).Fatal("Could not create config for service")
 					}
 					serviceConfigs[sc.Service] = sc
+					successfulServices[sc.Service] = false
 					serviceConfigsForKinit <- sc
 
 				}(experiment, role, serviceConfigPath)
@@ -218,6 +225,15 @@ func main() {
 		}
 	}
 
+	if viper.GetBool("test") {
+		log.Info("Test mode.  Cleaning up now")
+
+		for service := range serviceConfigs {
+			successfulServices[service] = true
+		}
+		return
+	}
+
 	// Send to nodes
 
 	// Channels and worker for pushing tokens
@@ -231,5 +247,22 @@ func main() {
 	fmt.Println("I guess we did something")
 
 	// Notifications
-	// Cleanup
+}
+
+func cleanup(successMap map[string]bool) error {
+	successes := make([]string, 0, len(successMap))
+	failures := make([]string, 0, len(successMap))
+
+	for service, success := range successMap {
+		if success {
+			successes = append(successes, service)
+		} else {
+			failures = append(failures, service)
+		}
+	}
+
+	log.Infof("Successes: %s", strings.Join(successes, ", "))
+	log.Infof("Failures: %s", strings.Join(failures, ", "))
+
+	return nil
 }

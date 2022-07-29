@@ -3,11 +3,14 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/utils"
@@ -15,13 +18,33 @@ import (
 )
 
 func init() {
+	const configFile string = "managedTokens"
 
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
 		log.Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
+	// Defaults
+	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
+
+	// Flags
+	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
+	pflag.String("admin", "", "Override the config file admin email")
+
+	pflag.Parse()
+	viper.BindPFlags(pflag.CommandLine)
+
 	// Get config file
-	viper.SetConfigName("managedTokens")
+	// Check for override
+	if viper.GetString("configfile") != "" {
+		viper.SetConfigFile(viper.GetString("configfile"))
+	} else {
+		viper.SetConfigName(configFile)
+	}
+
+	viper.SetConfigName(configFile)
 	viper.AddConfigPath("/etc/managed-tokens/")
 	viper.AddConfigPath("$HOME/.managed-tokens/")
 	viper.AddConfigPath(".")
@@ -34,6 +57,9 @@ func init() {
 
 	// TODO Take care of overrides:  keytabPath, desiredUid, condorCreddHost, condorCollectorHost, userPrincipalOverride
 
+	if viper.GetBool("test") {
+		log.Info("Running in test mode")
+	}
 	// TODO Flags to override config
 
 	// TODO Logfile setup
@@ -43,6 +69,7 @@ func init() {
 func main() {
 	var dbLocation string
 	var newDB bool
+	var db *sql.DB
 
 	// Open connection to the SQLite database where UID info will be stored
 	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
@@ -56,16 +83,18 @@ func main() {
 		newDB = true
 	}
 
-	db, err := sql.Open("sqlite3", dbLocation)
-	if err != nil {
-		log.Error("Could not open the UID database file")
-		log.Fatal(err)
-	}
-	defer db.Close()
+	if !viper.GetBool("test") {
+		db, err := sql.Open("sqlite3", dbLocation)
+		if err != nil {
+			log.Error("Could not open the UID database file")
+			log.Fatal(err)
+		}
+		defer db.Close()
 
-	if newDB {
-		if err = utils.CreateUidsTableInDB(db); err != nil {
-			log.Fatal("Error creating UID table in database")
+		if newDB {
+			if err = utils.CreateUidsTableInDB(db); err != nil {
+				log.Fatal("Error creating UID table in database")
+			}
 		}
 	}
 
@@ -101,7 +130,20 @@ func main() {
 	// Wait until FERRY data aggregation is done before we insert anything into DB
 	<-aggFERRYDataDone
 
-	if err = utils.InsertUidsIntoTableFromFERRY(db, ferryData); err != nil {
+	if viper.GetBool("test") {
+		log.Info("Finished gathering data from FERRY")
+
+		ferryDataStringSlice := make([]string, 0, len(ferryData))
+		for _, datum := range ferryData {
+			ferryDataStringSlice = append(ferryDataStringSlice, fmt.Sprintf("%s", datum))
+		}
+		log.Infof(strings.Join(ferryDataStringSlice, "; "))
+
+		log.Info("Test mode finished")
+		os.Exit(0)
+	}
+
+	if err := utils.InsertUidsIntoTableFromFERRY(db, ferryData); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}
 

@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"path"
@@ -15,6 +16,10 @@ import (
 type UIDEntryFromFerry struct {
 	Username string
 	Uid      int
+}
+
+func (u *UIDEntryFromFerry) String() string {
+	return fmt.Sprintf("Username: %s, Uid: %d", u.Username, u.Uid)
 }
 
 // InitializeHTTPSClientForFerry sets up the HTTPS client to query the FERRY service
