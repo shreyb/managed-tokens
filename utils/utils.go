@@ -46,7 +46,7 @@ func CheckRunningUserNotRoot() error {
 	return nil
 }
 
-func ParseServiceToExperimentRole(service string) ([]string, error) {
+func ParseServiceToExperimentAndRole(service string) ([]string, error) {
 	matches := servicePattern.FindStringSubmatch(service)
 	if len(matches) < 3 {
 		msg := "could not parse experiment and role from service"

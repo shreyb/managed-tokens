@@ -135,7 +135,7 @@ func main() {
 	case viper.GetString("experiment") != "":
 		experiments = append(experiments, viper.GetString("experiment"))
 	case viper.GetString("service") != "":
-		experimentRole, err := utils.ParseServiceToExperimentRole(viper.GetString("service"))
+		experimentRole, err := utils.ParseServiceToExperimentAndRole(viper.GetString("service"))
 		if err != nil {
 			log.WithField(
 				"service",
