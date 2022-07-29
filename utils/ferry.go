@@ -56,6 +56,7 @@ func InitializeHTTPSClient(hostCert, hostKey, caPath string) *http.Client {
 		Renegotiation: tls.RenegotiateFreelyAsClient,
 	}
 
+	// TODO BuildNameToCertificate is deprecated.  Work on replacing it
 	tlsConfig.BuildNameToCertificate()
 	transport := &http.Transport{TLSClientConfig: tlsConfig}
 	return &http.Client{Transport: transport}

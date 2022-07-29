@@ -15,6 +15,11 @@ import (
 )
 
 func init() {
+
+	if err := utils.CheckRunningUserNotRoot(); err != nil {
+		log.Fatal("Current user is root.  Please run this executable as a non-root user")
+	}
+
 	// Get config file
 	viper.SetConfigName("managedTokens")
 	viper.AddConfigPath("/etc/managed-tokens/")

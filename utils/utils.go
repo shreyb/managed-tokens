@@ -1,8 +1,12 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
+	"os/user"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // CheckForExecutables takes a map of executables of the form {"name_of_executable": "whatever"} and
@@ -15,5 +19,26 @@ func CheckForExecutables(exeMap map[string]string) error {
 		}
 		exeMap[exe] = pth
 	}
+	return nil
+}
+
+func CheckRunningUserNotRoot() error {
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Error("Could not get current user")
+		return err
+	}
+	rootUser, err := user.Lookup("root")
+	if err != nil {
+		log.Error("Could not lookup root user")
+		return err
+	}
+	if *currentUser == *rootUser {
+		msg := "current user is root"
+		log.Error(msg)
+		return errors.New(msg)
+	}
+	//TODO Make this a debug
+	log.Infof("Current user is %s", currentUser.Username)
 	return nil
 }

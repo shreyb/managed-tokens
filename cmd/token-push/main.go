@@ -17,11 +17,17 @@ import (
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 
+	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
 )
 
 func init() {
 	const configFile string = "managedTokens"
+
+	if err := utils.CheckRunningUserNotRoot(); err != nil {
+		log.Fatal("Current user is root.  Please run this executable as a non-root user")
+	}
+
 	// Defaults
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
