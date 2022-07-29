@@ -98,11 +98,17 @@ func init() {
 
 func main() {
 	// TODO delete any generated vault token
-	// TODO This whole thing should only run for one SERVICE, not one EXPERIMENT.  Change code to reflect that
+	// TODO This whole thing should only run for one SERVICE, not one EXPERIMENT.  Change code to reflect that.  Use utils.ParseServiceToExperimentRole
 	serviceConfigs := make([]*worker.ServiceConfig, 0)
-	serviceConfigSuccess := make(map[string]bool)
-	// Get servicename
-	// Run condor_vault_storer worker, which passes cmd.out to tty
+	successfulServices := make(map[string]bool)
+
+	defer func(successfulServices map[string]bool) {
+		if err := cleanup(successfulServices); err != nil {
+			log.Fatal("Error cleaning up")
+		}
+
+	}(successfulServices)
+
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
@@ -188,18 +194,15 @@ func main() {
 	log.Debug("All kerberos tickets generated and verified")
 
 	for _, serviceConfig := range serviceConfigs {
-		serviceConfigSuccess[serviceConfig.Service] = false
+		successfulServices[serviceConfig.Service] = false
 		if err := worker.StoreAndGetRefreshAndVaultTokens(serviceConfig); err != nil {
 			log.WithFields(log.Fields{
 				"experiment": serviceConfig.Experiment,
 				"role":       serviceConfig.Role,
 			}).Error("Could not generate refresh tokens and store vault token for service")
 		} else {
-			serviceConfigSuccess[serviceConfig.Service] = true
+			successfulServices[serviceConfig.Service] = true
 		}
-	}
-	if err := cleanup(serviceConfigSuccess); err != nil {
-		log.Fatalf("Error running cleanup: %w", err)
 	}
 }
 
