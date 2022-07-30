@@ -20,6 +20,7 @@ func LoadServiceConfigsIntoChannel(chanToLoad chan<- *worker.ServiceConfig, serv
 	}
 }
 
+// Functional options for worker.ServiceConfig initialization
 func setCondorCreddHost(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
 	return func(sc *worker.ServiceConfig) error {
 		addString := "_condor_CREDD_HOST="
@@ -137,6 +138,34 @@ func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*worker.Servi
 				sc.DesiredUID = uint32(uid)
 			}()
 		}
+		return nil
+	}
+}
+
+func serviceConfigViperPath(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.ServiceConfigPath = serviceConfigPath
+		return nil
+	}
+}
+
+func setkrb5ccname(krb5ccname string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
+		return nil
+	}
+}
+
+func destinationNodes(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.Nodes = viper.GetStringSlice(serviceConfigPath + ".destinationNodes")
+		return nil
+	}
+}
+
+func account(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.Account = viper.GetString(serviceConfigPath + ".account")
 		return nil
 	}
 }

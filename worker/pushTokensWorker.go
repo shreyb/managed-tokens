@@ -10,13 +10,12 @@ import (
 func PushTokensWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{}) {
 	defer close(doneChan)
 	for sc := range inputChan {
-		service := sc.Experiment + "_" + sc.Role
 
 		// kswitch
 		if err := switchKerberosCache(sc); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Fatal("Could not switch kerberos caches")
 		}
 
@@ -25,16 +24,16 @@ func PushTokensWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{})
 		currentUser, err := user.Current()
 		if err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Fatal(err)
 		}
 		currentUID := currentUser.Uid
 
-		sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
+		sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
 		destinationFilenames := []string{
 			fmt.Sprintf("/tmp/vt_u%d", sc.DesiredUID),
-			fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, service),
+			fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
 		}
 
 		// Send to nodes
@@ -43,8 +42,8 @@ func PushTokensWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{})
 			for _, destinationFilename := range destinationFilenames {
 				if err := pushToNodes(sc, sourceFilename, destinationNode, destinationFilename); err != nil {
 					log.WithFields(log.Fields{
-						"experiment": sc.Experiment,
-						"role":       sc.Role,
+						"experiment": sc.Service.Experiment(),
+						"role":       sc.Service.Role(),
 					}).Error("Error pushing tokens to destination nodes")
 					numFailures += 1
 				}
@@ -68,8 +67,8 @@ func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) er
 
 	if err := rsyncConfig.CopyToDestination(sourceFile); err != nil {
 		log.WithFields(log.Fields{
-			"experiment":          sc.Experiment,
-			"role":                sc.Role,
+			"experiment":          sc.Service.Experiment(),
+			"role":                sc.Service.Role(),
 			"sourceFilename":      sourceFile,
 			"destinationFilename": destinationFile,
 			"node":                node,
@@ -77,8 +76,8 @@ func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) er
 		return err
 	}
 	log.WithFields(log.Fields{
-		"experiment":          sc.Experiment,
-		"role":                sc.Role,
+		"experiment":          sc.Service.Experiment(),
+		"role":                sc.Service.Role(),
 		"sourceFilename":      sourceFile,
 		"destinationFilename": destinationFile,
 		"node":                node,

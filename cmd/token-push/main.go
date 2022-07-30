@@ -19,6 +19,7 @@ import (
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 
+	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
 )
@@ -94,7 +95,6 @@ func main() {
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	// Check for executables
 	// TODO Move this stuff to init function, or wherever is appropriate
-	//serviceConfigs := make([]*worker.ServiceConfig, 0)
 	serviceConfigs := make(map[string]*worker.ServiceConfig)
 	successfulServices := make(map[string]bool)
 
@@ -115,7 +115,7 @@ func main() {
 	}()
 
 	// Channels and worker for getting kerberos tickets
-	serviceConfigsForKinit := make(chan *worker.ServiceConfig)
+	serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
 	kerberosTicketsDone := make(chan struct{})
 	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
 
@@ -123,117 +123,97 @@ func main() {
 	// Tokens until all of those are done
 
 	// Set up service configs
-	experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
-	roles := make([]string, 0)
+	// experiments := make([]string, 0, len(viper.GetStringMap("experiments")))
+	// roles := make([]string, 0)
+	services := make([]service.Service, 0)
 
 	// Get experiments from config.
-	// TODO set up logger to always include experiment field
 	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
 
+	// Get our list of services
 	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
 	switch {
 	case viper.GetString("experiment") != "":
-		experiments = append(experiments, viper.GetString("experiment"))
+		// Running on a single experiment and all its roles
+		experimentConfigPath := "experiments." + viper.GetString("experiment")
+		for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
+			// Setup the configs
+			serviceName := viper.GetString("experiment") + "_" + role
+			service, err := service.NewService(serviceName)
+			if err != nil {
+				log.WithField(
+					"service",
+					viper.GetString("service"),
+				).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
+			}
+			services = append(services, service)
+		}
 	case viper.GetString("service") != "":
-		experimentRole, err := utils.ParseServiceToExperimentAndRole(viper.GetString("service"))
+		// Running on a single service
+		service, err := service.NewService(viper.GetString("service"))
 		if err != nil {
 			log.WithField(
 				"service",
 				viper.GetString("service"),
 			).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
 		}
-		experiments = append(experiments, experimentRole[0])
-		roles = append(roles, experimentRole[1])
+		// experiments = append(experiments, service.Experiment())
+		// roles = append(roles, service.Role())
+		services = append(services, service)
 	default:
+		// Running on every configured experiment and role
 		for experiment := range viper.GetStringMap("experiments") {
-			experiments = append(experiments, experiment)
+			experimentConfigPath := "experiments." + experiment
+			for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
+				// Setup the configs
+				serviceName := experiment + "_" + role
+				service, err := service.NewService(serviceName)
+				if err != nil {
+					log.WithField(
+						"service",
+						viper.GetString("service"),
+					).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
+				}
+				services = append(services, service)
+			}
 		}
 	}
 
 	// TODO - Try to move this to mainUtils and call from here?
 	func() {
-		var setupWg sync.WaitGroup
 		defer close(serviceConfigsForKinit)
-		for _, experiment := range experiments {
-			// Setup
-			// var keytabPath, userPrincipal string
-			experimentConfigPath := "experiments." + experiment
-			if len(roles) == 0 {
-				// Only populate roles if we haven't previously done so
-				for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
-					roles = append(roles, role)
+		var setupWg sync.WaitGroup
+		for _, s := range services {
+			// Setup the configs
+			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
+			setupWg.Add(1)
+			go func(s service.Service, serviceConfigPath string) {
+				defer setupWg.Done()
+
+				sc, err := worker.NewServiceConfig(
+					s,
+					serviceConfigViperPath(serviceConfigPath),
+					setkrb5ccname(krb5ccname),
+					setCondorCreddHost(serviceConfigPath),
+					setCondorCollectorHost(serviceConfigPath),
+					setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, s.Experiment()),
+					setKeytabOverride(serviceConfigPath),
+					setDesiredUIByOverrideOrLookup(serviceConfigPath),
+					destinationNodes(serviceConfigPath),
+					account(serviceConfigPath),
+				)
+				if err != nil {
+					// Something more descriptive
+					log.WithFields(log.Fields{
+						"experiment": s.Experiment(),
+						"role":       s.Role(),
+					}).Fatal("Could not create config for service")
 				}
-			}
+				serviceConfigs[s.Name()] = sc
+				successfulServices[s.Name()] = false
+				serviceConfigsForKinit <- sc
 
-			for _, role := range roles {
-				// Setup the configs
-				serviceConfigPath := experimentConfigPath + ".roles." + role
-				setupWg.Add(1)
-				go func(experiment, role, serviceConfigPath string) {
-					defer setupWg.Done()
-
-					// Functional options for service configs
-					experimentOverride := func(sc *worker.ServiceConfig) error {
-						if viper.IsSet("experiments." + experiment + "experimentNameOverride") {
-							sc.Experiment = viper.GetString("experiments." + experiment + "experimentNameOverride")
-						}
-						return nil
-					}
-
-					serviceConfigViperPath := func(sc *worker.ServiceConfig) error {
-						sc.ServiceConfigPath = serviceConfigPath
-						return nil
-					}
-
-					// Krb5ccname
-					setkrb5ccname := func(sc *worker.ServiceConfig) error {
-						sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
-						return nil
-					}
-
-					condorCreddHostFunc := setCondorCreddHost(serviceConfigPath)
-					condorCollectorHostFunc := setCondorCollectorHost(serviceConfigPath)
-					userPrincipalAndHtgettokenoptsFunc := setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment)
-					setKeytabFunc := setKeytabOverride(serviceConfigPath)
-					setDesiredUIDFunc := setDesiredUIByOverrideOrLookup(serviceConfigPath)
-
-					destinationNodes := func(sc *worker.ServiceConfig) error {
-						sc.Nodes = viper.GetStringSlice(serviceConfigPath + ".destinationNodes")
-						return nil
-					}
-
-					account := func(sc *worker.ServiceConfig) error {
-						sc.Account = viper.GetString(serviceConfigPath + ".account")
-						return nil
-					}
-
-					sc, err := worker.NewServiceConfig(
-						experiment,
-						role,
-						experimentOverride,
-						serviceConfigViperPath,
-						setkrb5ccname,
-						condorCreddHostFunc,
-						condorCollectorHostFunc,
-						userPrincipalAndHtgettokenoptsFunc,
-						setKeytabFunc,
-						setDesiredUIDFunc,
-						destinationNodes,
-						account,
-					)
-					if err != nil {
-						// Something more descriptive
-						log.WithFields(log.Fields{
-							"experiment": experiment,
-							"role":       role,
-						}).Fatal("Could not create config for service")
-					}
-					serviceConfigs[sc.Service] = sc
-					successfulServices[sc.Service] = false
-					serviceConfigsForKinit <- sc
-
-				}(experiment, role, serviceConfigPath)
-			}
+			}(s, serviceConfigPath)
 		}
 		setupWg.Wait()
 	}()
@@ -271,6 +251,7 @@ func main() {
 
 	// Send to nodes
 
+	// TODO get successfulServices to take into account pushing tokens
 	// Channels and worker for pushing tokens
 	serviceConfigsForPush := make(chan *worker.ServiceConfig)
 	pushDone := make(chan struct{})

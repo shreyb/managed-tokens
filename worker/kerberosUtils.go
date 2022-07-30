@@ -36,8 +36,8 @@ func getKerberosTicket(sc *ServiceConfig) error {
 	if err := kerberosTemplates["kinit"].Execute(&b, cArgs); err != nil {
 		err := fmt.Sprintf("Could not execute kinit template: %s", err.Error())
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error(err)
 		return errors.New(err)
 	}
@@ -46,8 +46,8 @@ func getKerberosTicket(sc *ServiceConfig) error {
 	if err != nil {
 		err := fmt.Sprintf("Could not get kinit command arguments from template: %s", err.Error())
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error(err)
 		return errors.New(err)
 	}
@@ -57,12 +57,12 @@ func getKerberosTicket(sc *ServiceConfig) error {
 	log.Info("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error("Error running kinit to create new keytab")
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Errorf("%s", stdoutstdErr)
 		return err
 	}
@@ -75,47 +75,47 @@ func checkKerberosPrincipal(sc *ServiceConfig) error {
 	checkForKerberosTicket = kerberosEnvironmentWrappedCommand(checkForKerberosTicket, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
-		"experiment": sc.Experiment,
-		"role":       sc.Role,
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
 	}).Info("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error("Error running klist")
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Errorf("%s", stdoutStderr)
 		return err
 
 	} else {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Infof("%s", stdoutStderr)
 
 		matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
 		if len(matches) != 2 {
 			err := "could not find principal in kinit output"
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Error(err)
 			return errors.New(err)
 		}
 		principal := string(matches[1])
 		// TODO Make this a debug
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Infof("Found principal: %s", principal)
 
 		if principal != sc.UserPrincipal {
 			err := fmt.Sprintf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", sc.UserPrincipal, principal)
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Error(err)
 			return errors.New(err)
 		}
@@ -133,8 +133,8 @@ func switchKerberosCache(sc *ServiceConfig) error {
 	if err := kerberosTemplates["kswitch"].Execute(&b, cArgs); err != nil {
 		err := fmt.Sprintf("Could not execute kswitch template: %s", err.Error())
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error(err)
 		return errors.New(err)
 	}
@@ -143,8 +143,8 @@ func switchKerberosCache(sc *ServiceConfig) error {
 	if err != nil {
 		err := fmt.Sprintf("Could not get kswitch command arguments from template: %s", err.Error())
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error(err)
 		return errors.New(err)
 	}
@@ -153,12 +153,12 @@ func switchKerberosCache(sc *ServiceConfig) error {
 	switchkCache = kerberosEnvironmentWrappedCommand(switchkCache, &sc.CommandEnvironment)
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error("Error running kswitch to load proper principal")
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Errorf("%s", stdoutstdErr)
 		return err
 	}

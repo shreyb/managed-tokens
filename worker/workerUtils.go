@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/service"
 )
 
 // TODO clean up this whole command environment business.  Maybe call it WorkerEnvironment?
@@ -42,9 +44,7 @@ type EnvironmentMapper interface {
 // ServiceConfig is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 //TODO Add Service as a field that is <experiment>_<role>, use it everywhere applicable
 type ServiceConfig struct {
-	Experiment        string
-	Role              string
-	Service           string
+	Service           service.Service
 	UserPrincipal     string
 	Nodes             []string
 	Account           string
@@ -68,13 +68,8 @@ type ServiceConfig struct {
 //        }
 // If you then pass in foo(3), like CreateExptConfig("my_expt", foo(3)), then ExptConfig.spam will be set to 6
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
-func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) (*ServiceConfig, error) {
-	c := ServiceConfig{
-		Experiment: expt,
-		Role:       role,
-	}
-
-	c.Service = expt + "_" + role
+func NewServiceConfig(service service.Service, options ...func(*ServiceConfig) error) (*ServiceConfig, error) {
+	c := ServiceConfig{Service: service}
 
 	for _, option := range options {
 		err := option(&c)
@@ -84,8 +79,8 @@ func NewServiceConfig(expt, role string, options ...func(*ServiceConfig) error) 
 		}
 	}
 	log.WithFields(log.Fields{
-		"experiment": c.Experiment,
-		"role":       c.Role,
+		"experiment": c.Service.Experiment(),
+		"role":       c.Service.Role(),
 	}).Debug("Set up service config")
 	return &c, nil
 }

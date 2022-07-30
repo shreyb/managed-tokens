@@ -27,15 +27,15 @@ func GetKerberosTicketsWorker(inputChan <-chan *ServiceConfig, doneChan chan<- s
 	for sc := range inputChan {
 		if err := getKerberosTicket(sc); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Fatal("Could not obtain kerberos ticket")
 		}
 
 		if err := checkKerberosPrincipal(sc); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Fatal("Kerberos ticket verification failed")
 		}
 	}

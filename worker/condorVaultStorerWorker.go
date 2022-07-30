@@ -35,12 +35,12 @@ func StoreAndGetTokenWorker(inputChan <-chan *ServiceConfig, successChan chan<- 
 	var interactive bool
 	for sc := range inputChan {
 		success := &VaultStorerSuccess{
-			Service: sc.Service,
+			Service: sc.Service.Name(),
 		}
 		if err := storeAndGetTokens(sc, interactive); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Error("Could not store and get vault tokens")
 		} else {
 			success.Success = true
@@ -58,8 +58,8 @@ func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
 	// kswitch
 	if err := switchKerberosCache(sc); err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error("Could not switch kerberos caches")
 		return err
 	}
@@ -67,8 +67,8 @@ func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
 	// Get token and store it in vault
 	if err := getTokensandStoreinVault(sc, interactive); err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error("Could not obtain vault token")
 		return err
 	}
@@ -77,27 +77,26 @@ func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
 	currentUser, err := user.Current()
 	if err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error(err)
 		return err
 	}
 	currentUID := currentUser.Uid
-	service := sc.Experiment + "_" + sc.Role
-	vaultTokenFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, service)
+	vaultTokenFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
 
 	if err := validateVaultToken(vaultTokenFilename); err != nil {
 		log.WithFields(log.Fields{
-			"experiment": sc.Experiment,
-			"role":       sc.Role,
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
 		}).Error("Could not validate vault token")
 		return err
 	}
 
 	// TODO Make this a debug
 	log.WithFields(log.Fields{
-		"experiment": sc.Experiment,
-		"role":       sc.Role,
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
 	}).Info("Validated vault token")
 	return nil
 }
@@ -105,13 +104,12 @@ func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
 func getTokensandStoreinVault(sc *ServiceConfig, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
-	service := sc.Experiment + "_" + sc.Role
-	getTokensAndStoreInVaultCmd := exec.Command(condorExecutables["condor_vault_storer"], service)
+	getTokensAndStoreInVaultCmd := exec.Command(condorExecutables["condor_vault_storer"], sc.Service.Name())
 	getTokensAndStoreInVaultCmd = environmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
-		"experiment": sc.Experiment,
-		"role":       sc.Role,
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
 	}).Info("Storing and obtaining vault token")
 
 	if interactive {
@@ -121,26 +119,26 @@ func getTokensandStoreinVault(sc *ServiceConfig, interactive bool) error {
 
 		if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
 		}
 		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err.Error())
 			return err
 		}
 	} else {
 		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err.Error())
 			log.WithFields(log.Fields{
-				"experiment": sc.Experiment,
-				"role":       sc.Role,
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
 			}).Errorf("%s", stdoutStderr)
 			return err
 		} else {
@@ -149,8 +147,8 @@ func getTokensandStoreinVault(sc *ServiceConfig, interactive bool) error {
 	}
 
 	log.WithFields(log.Fields{
-		"experiment": sc.Experiment,
-		"role":       sc.Role,
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
 	}).Info("Successfully obtained and stored vault token")
 
 	return nil

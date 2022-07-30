@@ -3,13 +3,25 @@ package main
 import (
 	"fmt"
 	"html/template"
+	"os"
 	"path"
 	"strings"
 
 	"github.com/shreyb/managed-tokens/worker"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
+
+// Custom usage function for positional argument.
+// Thanks https://stackoverflow.com/a/31873508
+func onboardingUsage() {
+	fmt.Printf("Usage: %s [OPTIONS] service...\n", os.Args[0])
+	fmt.Printf("service must be of the form 'experiment_role', e.g. 'dune_production'\n")
+	pflag.PrintDefaults()
+}
+
+// Functional options for initialization of serviceConfigs
 
 func setCondorCreddHost(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
 	return func(sc *worker.ServiceConfig) error {
@@ -86,6 +98,27 @@ func setKeytabOverride(serviceConfigPath string) func(sc *worker.ServiceConfig) 
 				),
 			)
 		}
+		return nil
+	}
+}
+
+func account(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.Account = viper.GetString(serviceConfigPath + ".account")
+		return nil
+	}
+}
+
+func serviceConfigViperPath(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.ServiceConfigPath = serviceConfigPath
+		return nil
+	}
+}
+
+func setkrb5ccname(krb5ccname string) func(sc *worker.ServiceConfig) error {
+	return func(sc *worker.ServiceConfig) error {
+		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
 		return nil
 	}
 }
