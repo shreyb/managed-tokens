@@ -108,18 +108,16 @@ func main() {
 		newDB = true
 	}
 
-	if !viper.GetBool("test") {
-		db, err := sql.Open("sqlite3", dbLocation)
-		if err != nil {
-			log.Error("Could not open the UID database file")
-			log.Fatal(err)
-		}
-		defer db.Close()
+	db, err := sql.Open("sqlite3", dbLocation)
+	if err != nil {
+		log.Error("Could not open the UID database file")
+		log.Fatal(err)
+	}
+	defer db.Close()
 
-		if newDB {
-			if err = utils.CreateUidsTableInDB(db); err != nil {
-				log.Fatal("Error creating UID table in database")
-			}
+	if newDB {
+		if err = utils.CreateUidsTableInDB(db); err != nil {
+			log.Fatal("Error creating UID table in database")
 		}
 	}
 
@@ -170,6 +168,7 @@ func main() {
 		os.Exit(0)
 	}
 
+	log.Info(ferryData)
 	if err := utils.InsertUidsIntoTableFromFERRY(db, ferryData); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}

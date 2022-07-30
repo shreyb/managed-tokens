@@ -1,4 +1,4 @@
-package worker
+package kerberos
 
 import (
 	"errors"
@@ -8,6 +8,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -25,7 +26,14 @@ var kerberosTemplates = map[string]*template.Template{
 
 var principalCheckRegexp = regexp.MustCompile("Default principal: (.+)")
 
-func getKerberosTicket(sc *ServiceConfig) error {
+func init() {
+	// Get Kerberos templates into the kerberosExecutables map
+	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
+		log.Fatal("Could not find kerberos executables")
+	}
+}
+
+func GetTicket(sc *service.Config) error {
 	// Kinit
 	cArgs := struct{ KeytabPath, UserPrincipal string }{
 		KeytabPath:    sc.KeytabPath,
@@ -53,7 +61,7 @@ func getKerberosTicket(sc *ServiceConfig) error {
 	}
 
 	createKerberosTicket := exec.Command(kerberosExecutables["kinit"], args...)
-	createKerberosTicket = kerberosEnvironmentWrappedCommand(createKerberosTicket, &sc.CommandEnvironment)
+	createKerberosTicket = utils.KerberosEnvironmentWrappedCommand(createKerberosTicket, &sc.CommandEnvironment)
 	log.Info("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
@@ -69,10 +77,10 @@ func getKerberosTicket(sc *ServiceConfig) error {
 	return nil
 }
 
-func checkKerberosPrincipal(sc *ServiceConfig) error {
+func CheckPrincipal(sc *service.Config) error {
 	// Verify principal matches config principal
 	checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
-	checkForKerberosTicket = kerberosEnvironmentWrappedCommand(checkForKerberosTicket, &sc.CommandEnvironment)
+	checkForKerberosTicket = utils.KerberosEnvironmentWrappedCommand(checkForKerberosTicket, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
 		"experiment": sc.Service.Experiment(),
@@ -123,7 +131,7 @@ func checkKerberosPrincipal(sc *ServiceConfig) error {
 	return nil
 }
 
-func switchKerberosCache(sc *ServiceConfig) error {
+func SwitchCache(sc *service.Config) error {
 	// kswitch
 	cArgs := struct{ UserPrincipal string }{
 		UserPrincipal: sc.UserPrincipal,
@@ -150,7 +158,7 @@ func switchKerberosCache(sc *ServiceConfig) error {
 	}
 
 	switchkCache := exec.Command(kerberosExecutables["kswitch"], args...)
-	switchkCache = kerberosEnvironmentWrappedCommand(switchkCache, &sc.CommandEnvironment)
+	switchkCache = utils.KerberosEnvironmentWrappedCommand(switchkCache, &sc.CommandEnvironment)
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),

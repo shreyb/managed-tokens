@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// TODO maybe move this into own package ferry
 type UIDEntryFromFerry struct {
 	Username string
 	Uid      int

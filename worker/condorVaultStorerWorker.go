@@ -3,6 +3,7 @@ package worker
 import (
 	"os"
 
+	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -40,12 +41,11 @@ func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
 			} else {
 				success.success = true
 			}
-			// chans.GetSuccessChan() <- success
 		}()
 	}
 }
 
-func StoreAndGetRefreshAndVaultTokens(sc *ServiceConfig) error {
+func StoreAndGetRefreshAndVaultTokens(sc *service.Config) error {
 	interactive := true
 	return storeAndGetTokens(sc, interactive)
 }

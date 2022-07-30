@@ -23,7 +23,7 @@ import (
 
 var (
 	services       []service.Service
-	serviceConfigs = make(map[string]*worker.ServiceConfig)
+	serviceConfigs = make(map[string]*service.Config)
 )
 
 // Initial setup.  Read flags, find config file, setup logs
@@ -179,7 +179,7 @@ func main() {
 			go func(s service.Service, serviceConfigPath string) {
 				defer serviceConfigSetupWg.Done()
 
-				sc, err := worker.NewServiceConfig(
+				sc, err := service.NewConfig(
 					s,
 					serviceConfigViperPath(serviceConfigPath),
 					setkrb5ccname(krb5ccname),

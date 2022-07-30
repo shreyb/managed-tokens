@@ -7,22 +7,22 @@ import (
 	"path"
 	"strings"
 
+	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/worker"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
-func LoadServiceConfigsIntoChannel(chanToLoad chan<- *worker.ServiceConfig, serviceConfigs map[string]*worker.ServiceConfig) {
+func LoadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceConfigs map[string]*service.Config) {
 	defer close(chanToLoad)
 	for _, sc := range serviceConfigs {
 		chanToLoad <- sc
 	}
 }
 
-// Functional options for worker.ServiceConfig initialization
-func setCondorCreddHost(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+// Functional options for service.Config initialization
+func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		addString := "_condor_CREDD_HOST="
 		overrideVar := serviceConfigPath + ".condorCreddHostOverride"
 		if viper.IsSet(overrideVar) {
@@ -35,8 +35,8 @@ func setCondorCreddHost(serviceConfigPath string) func(sc *worker.ServiceConfig)
 	}
 }
 
-func setCondorCollectorHost(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		addString := "_condor_COLLECTOR_HOST="
 		overrideVar := serviceConfigPath + ".condorCollectorHostOverride"
 		if viper.IsSet(overrideVar) {
@@ -49,8 +49,8 @@ func setCondorCollectorHost(serviceConfigPath string) func(sc *worker.ServiceCon
 	}
 }
 
-func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
 		if err != nil {
 			log.Error("Error parsing Kerberos Principal Template")
@@ -80,8 +80,8 @@ func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment str
 	}
 }
 
-func setKeytabOverride(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		keytabConfigPath := serviceConfigPath + ".keytabPath"
 		if viper.IsSet(keytabConfigPath) {
 			sc.KeytabPath = viper.GetString(keytabConfigPath)
@@ -100,8 +100,8 @@ func setKeytabOverride(serviceConfigPath string) func(sc *worker.ServiceConfig) 
 	}
 }
 
-func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*service.Config) error {
+	return func(sc *service.Config) error {
 		if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
 			sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
 		} else {
@@ -142,29 +142,29 @@ func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*worker.Servi
 	}
 }
 
-func serviceConfigViperPath(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
-		sc.ServiceConfigPath = serviceConfigPath
+func serviceConfigViperPath(serviceConfigPath string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
+		sc.ConfigPath = serviceConfigPath
 		return nil
 	}
 }
 
-func setkrb5ccname(krb5ccname string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
 		return nil
 	}
 }
 
-func destinationNodes(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func destinationNodes(serviceConfigPath string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		sc.Nodes = viper.GetStringSlice(serviceConfigPath + ".destinationNodes")
 		return nil
 	}
 }
 
-func account(serviceConfigPath string) func(sc *worker.ServiceConfig) error {
-	return func(sc *worker.ServiceConfig) error {
+func account(serviceConfigPath string) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
 		sc.Account = viper.GetString(serviceConfigPath + ".account")
 		return nil
 	}

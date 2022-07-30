@@ -10,10 +10,12 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/shreyb/managed-tokens/service"
 	log "github.com/sirupsen/logrus"
 	// "cdcvs.fnal.gov/discompsupp/ken_proxy_push/v4/utils"
 )
 
+// TODO Move this to utils,
 // TODO Figure out public API/interfaces for this package.  For now, just export copyToDestination as is, use it for proof of concept
 
 const (
@@ -22,15 +24,16 @@ const (
 )
 
 // Added this stuff to make it work
-func NewRsyncSetup(account, node, destination, sshOptions string) *rsyncSetup {
+func NewRsyncSetup(account, node, destination, sshOptions string, env service.EnvironmentMapper) *rsyncSetup {
 	if sshOptions == "" {
 		sshOptions = sshOpts
 	}
 	return &rsyncSetup{
-		account:     account,
-		node:        node,
-		destination: destination,
-		sshOpts:     sshOptions,
+		account:           account,
+		node:              node,
+		destination:       destination,
+		sshOpts:           sshOptions,
+		EnvironmentMapper: env,
 	}
 }
 
@@ -48,11 +51,12 @@ type rsyncSetup struct {
 	node        string
 	destination string
 	sshOpts     string
+	service.EnvironmentMapper
 }
 
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
 func (r *rsyncSetup) copyToDestination(ctx context.Context, source string) error {
-	err := rsyncFile(ctx, source, r.node, r.account, r.destination, r.sshOpts)
+	err := rsyncFile(ctx, source, r.node, r.account, r.destination, r.sshOpts, r.EnvironmentMapper)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"sourcePath": source,
@@ -65,7 +69,7 @@ func (r *rsyncSetup) copyToDestination(ctx context.Context, source string) error
 }
 
 // rsyncFile runs rsync on a file at source, and syncs it with the destination account@node:dest
-func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptions string) error {
+func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptions string, environ service.EnvironmentMapper) error {
 	rsyncExecutables := map[string]string{
 		"rsync": "",
 		"ssh":   "",
@@ -97,6 +101,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 	}
 
 	cmd := exec.CommandContext(ctx, rsyncExecutables["rsync"], args...)
+	cmd = KerberosEnvironmentWrappedCommand(cmd, environ)
 	if err := cmd.Run(); err != nil {
 		err := fmt.Sprintf("rsync command failed: %s", err.Error())
 		log.WithFields(log.Fields{

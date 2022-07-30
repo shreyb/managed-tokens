@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os/user"
 
+	"github.com/shreyb/managed-tokens/kerberos"
+	"github.com/shreyb/managed-tokens/service"
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -33,7 +36,7 @@ func PushTokensWorker(chans ChannelsForWorkers) {
 			}(pushSuccess)
 
 			// kswitch
-			if err := switchKerberosCache(sc); err != nil {
+			if err := kerberos.SwitchCache(sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -81,8 +84,8 @@ func PushTokensWorker(chans ChannelsForWorkers) {
 	}
 }
 
-func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) error {
-	rsyncConfig := NewRsyncSetup(
+func pushToNodes(sc *service.Config, sourceFile, node, destinationFile string) error {
+	rsyncConfig := utils.NewRsyncSetup(
 		sc.Account,
 		node,
 		destinationFile,

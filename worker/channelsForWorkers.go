@@ -1,10 +1,12 @@
 package worker
 
+import "github.com/shreyb/managed-tokens/service"
+
 // TODO Add notifications channel to this interface and accompanying type?
 // TODO Have workers that use channels to communicate accept this interface rather than explicit channels
 
 type ChannelsForWorkers interface {
-	GetServiceConfigChan() chan *ServiceConfig
+	GetServiceConfigChan() chan *service.Config
 	GetSuccessChan() chan SuccessReporter
 	// GetNotificationsChan() chan *notifications.notification or whatever it's actually called
 
@@ -19,19 +21,19 @@ func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 	}
 
 	return &channelGroup{
-		serviceConfigChan: make(chan *ServiceConfig, useBufferSize),
+		serviceConfigChan: make(chan *service.Config, useBufferSize),
 		successChan:       make(chan SuccessReporter, useBufferSize),
 		// notificationsChan: make(chan *notifications.notification, useBufferSize),
 	}
 }
 
 type channelGroup struct {
-	serviceConfigChan chan *ServiceConfig
+	serviceConfigChan chan *service.Config
 	successChan       chan SuccessReporter
 	// notificationsChan chan *notifications.notification
 }
 
-func (c *channelGroup) GetServiceConfigChan() chan *ServiceConfig {
+func (c *channelGroup) GetServiceConfigChan() chan *service.Config {
 	return c.serviceConfigChan
 }
 

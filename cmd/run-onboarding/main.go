@@ -96,7 +96,7 @@ func init() {
 }
 
 func main() {
-	var serviceConfig *worker.ServiceConfig
+	var serviceConfig *service.Config
 	// TODO delete any generated vault token
 
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
@@ -109,7 +109,7 @@ func main() {
 	}()
 
 	// All my channels
-	// serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
+	// serviceConfigsForKinit := make(chan *service.Config, 1)
 	// kerberosTicketsDone := make(chan worker.SuccessReporter)
 	kerberosChannels := worker.NewChannelsForWorkers(1)
 	// go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
@@ -129,7 +129,7 @@ func main() {
 		}
 
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-		serviceConfig, err = worker.NewServiceConfig(
+		serviceConfig, err = service.NewConfig(
 			s,
 			serviceConfigViperPath(serviceConfigPath),
 			setkrb5ccname(krb5ccname),

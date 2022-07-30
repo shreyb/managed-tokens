@@ -9,6 +9,10 @@ import (
 	"os/user"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/kerberos"
+	"github.com/shreyb/managed-tokens/service"
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 type vaultStorerSuccess struct {
@@ -24,9 +28,9 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 	return v.success
 }
 
-func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
+func storeAndGetTokens(sc *service.Config, interactive bool) error {
 	// kswitch
-	if err := switchKerberosCache(sc); err != nil {
+	if err := kerberos.SwitchCache(sc); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -71,11 +75,11 @@ func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
 	return nil
 }
 
-func getTokensandStoreinVault(sc *ServiceConfig, interactive bool) error {
+func getTokensandStoreinVault(sc *service.Config, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
 	getTokensAndStoreInVaultCmd := exec.Command(condorExecutables["condor_vault_storer"], sc.Service.Name())
-	getTokensAndStoreInVaultCmd = environmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
+	getTokensAndStoreInVaultCmd = utils.EnvironmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
 		"experiment": sc.Service.Experiment(),
@@ -134,7 +138,7 @@ func validateVaultToken(vaultTokenFilename string) error {
 
 	vaultTokenString := string(vaultTokenBytes[:])
 
-	if !IsServiceToken(vaultTokenString) {
+	if !utils.IsServiceToken(vaultTokenString) {
 		errString := "vault token failed validation"
 		log.WithField("filename", vaultTokenFilename).Error(errString)
 		return errors.New(errString)

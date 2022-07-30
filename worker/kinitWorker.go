@@ -1,7 +1,7 @@
 package worker
 
 import (
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/kerberos"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -18,12 +18,12 @@ func (v *kinitSuccess) GetSuccess() bool {
 	return v.success
 }
 
-func init() {
-	// Get Kerberos templates into the kerberosExecutables map
-	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
-		log.Fatal("Could not find kerberos executables")
-	}
-}
+// func init() {
+// 	// Get Kerberos templates into the kerberosExecutables map
+// 	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
+// 		log.Fatal("Could not find kerberos executables")
+// 	}
+// }
 
 func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
@@ -37,7 +37,7 @@ func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- k
 			}(success)
 
-			if err := getKerberosTicket(sc); err != nil {
+			if err := kerberos.GetTicket(sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -45,7 +45,7 @@ func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 				return
 			}
 
-			if err := checkKerberosPrincipal(sc); err != nil {
+			if err := kerberos.CheckPrincipal(sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
