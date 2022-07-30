@@ -15,24 +15,6 @@ type Service interface {
 	Name() string
 }
 
-type service struct {
-	name       string
-	experiment string
-	role       string
-}
-
-func (s *service) Experiment() string {
-	return s.experiment
-}
-
-func (s *service) Role() string {
-	return s.role
-}
-
-func (s *service) Name() string {
-	return s.name
-}
-
 func NewService(serviceName string) (Service, error) {
 	s := &service{}
 	matches := servicePattern.FindStringSubmatch(serviceName)
@@ -52,4 +34,22 @@ func NewService(serviceName string) (Service, error) {
 	s.role = matches[2]
 
 	return s, nil
+}
+
+type service struct {
+	name       string
+	experiment string
+	role       string
+}
+
+func (s *service) Experiment() string {
+	return s.experiment
+}
+
+func (s *service) Role() string {
+	return s.role
+}
+
+func (s *service) Name() string {
+	return s.name
 }
