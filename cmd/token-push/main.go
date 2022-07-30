@@ -24,7 +24,6 @@ import (
 var (
 	services       []service.Service
 	serviceConfigs = make(map[string]*worker.ServiceConfig)
-	krb5ccname     string
 )
 
 // Initial setup.  Read flags, find config file, setup logs
