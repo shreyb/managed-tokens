@@ -110,7 +110,7 @@ func main() {
 
 	// All my channels
 	serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
-	kerberosTicketsDone := make(chan struct{})
+	kerberosTicketsDone := make(chan worker.SuccessReporter)
 
 	// Get Kerberos tickets
 	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
@@ -147,8 +147,16 @@ func main() {
 		serviceConfigsForKinit <- serviceConfig
 	}()
 
-	<-kerberosTicketsDone
-	log.Debug("All kerberos tickets generated and verified")
+	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
+	// tokens for that service
+	for kerberosTicketSuccess := range kerberosTicketsDone {
+		if !kerberosTicketSuccess.GetSuccess() {
+			log.WithField(
+				"service", kerberosTicketSuccess.GetServiceName(),
+			).Error("Failed to obtain kerberos ticket. Stopping onboarding")
+			return
+		}
+	}
 
 	if err := worker.StoreAndGetRefreshAndVaultTokens(serviceConfig); err != nil {
 		log.WithFields(log.Fields{

@@ -112,7 +112,7 @@ func main() {
 
 	// Channels and worker for getting kerberos tickets
 	serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
-	kerberosTicketsDone := make(chan struct{})
+	kerberosTicketsDone := make(chan worker.SuccessReporter)
 	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
 
 	// Set up service configs
@@ -168,6 +168,7 @@ func main() {
 		}
 	}
 
+	// TODO implement a success reporter like the others
 	// Set up our serviceConfigs and get kerberos tickets for each
 	func() {
 		defer close(serviceConfigsForKinit)
@@ -206,8 +207,17 @@ func main() {
 		}
 		setupWg.Wait()
 	}()
-	<-kerberosTicketsDone
-	log.Debug("All kerberos tickets generated and verified")
+
+	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
+	// tokens for that service
+	for kerberosTicketSuccess := range kerberosTicketsDone {
+		if !kerberosTicketSuccess.GetSuccess() {
+			log.WithField(
+				"service", kerberosTicketSuccess.GetServiceName(),
+			).Info("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
+			delete(serviceConfigs, kerberosTicketSuccess.GetServiceName())
+		}
+	}
 
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
 

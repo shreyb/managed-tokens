@@ -7,27 +7,50 @@ import (
 
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
-	// TODO Make this use utils.CheckforExecutables
 	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
 		log.Fatal("Could not find kerberos executables")
 	}
 }
 
-func GetKerberosTicketsWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{}) {
-	defer close(doneChan)
+func GetKerberosTicketsWorker(inputChan <-chan *ServiceConfig, successChan chan<- SuccessReporter) {
+	defer close(successChan)
 	for sc := range inputChan {
+		success := &kinitSuccess{
+			serviceName: sc.Service.Name(),
+		}
 		if err := getKerberosTicket(sc); err != nil {
 			log.WithFields(log.Fields{
 				"experiment": sc.Service.Experiment(),
 				"role":       sc.Service.Role(),
-			}).Fatal("Could not obtain kerberos ticket")
+			}).Error("Could not obtain kerberos ticket")
 		}
 
 		if err := checkKerberosPrincipal(sc); err != nil {
 			log.WithFields(log.Fields{
 				"experiment": sc.Service.Experiment(),
 				"role":       sc.Service.Role(),
-			}).Fatal("Kerberos ticket verification failed")
+			}).Error("Kerberos ticket verification failed")
+		} else {
+			// TODO Make this debug
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Info("Kerberos ticket obtained and verified")
+			success.success = true
 		}
+		successChan <- success
 	}
+}
+
+type kinitSuccess struct {
+	serviceName string
+	success     bool
+}
+
+func (v *kinitSuccess) GetServiceName() string {
+	return v.serviceName
+}
+
+func (v *kinitSuccess) GetSuccess() bool {
+	return v.success
 }
