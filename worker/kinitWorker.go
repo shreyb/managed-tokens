@@ -1,25 +1,16 @@
 package worker
 
 import (
-	"os"
-	"os/exec"
-
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
 	// TODO Make this use utils.CheckforExecutables
-	for kExe := range kerberosExecutables {
-		kPath, err := exec.LookPath(kExe)
-		if err != nil {
-			log.Errorf("Could not find executable %s.  Please ensure it exists on your system", kExe)
-			os.Exit(1)
-		}
-		kerberosExecutables[kExe] = kPath
-		log.Infof("Using %s executable: %s", kExe, kPath)
+	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
+		log.Fatal("Could not find kerberos executables")
 	}
-
 }
 
 func GetKerberosTicketsWorker(inputChan <-chan *ServiceConfig, doneChan chan<- struct{}) {

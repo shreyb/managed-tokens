@@ -18,9 +18,13 @@ func CheckForExecutables(exeMap map[string]string) error {
 	for exe := range exeMap {
 		pth, err := exec.LookPath(exe)
 		if err != nil {
-			return fmt.Errorf("%s was not found in $PATH", exe)
+			msg := fmt.Sprintf("%s was not found in $PATH", exe)
+			log.Error(msg)
+			return errors.New(msg)
 		}
 		exeMap[exe] = pth
+		// TODO Make this a debug
+		log.Infof("Using %s executable at %s", exe, pth)
 	}
 	return nil
 }

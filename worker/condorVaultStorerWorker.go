@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,16 +18,9 @@ var condorExecutables = map[string]string{
 }
 
 func init() {
-	// Check for condor_store_cred executable
 	os.Setenv("PATH", "/usr/bin:/usr/sbin")
-
-	// TODO Make this use utils.CheckforExecutables
-	for cExe := range condorExecutables {
-		cPath, err := exec.LookPath((cExe))
-		if err != nil {
-			log.WithField("executable", cExe).Fatal("Could not find path to condor executable")
-		}
-		condorExecutables[cExe] = cPath
+	if err := utils.CheckForExecutables(condorExecutables); err != nil {
+		log.Fatal("Could not find path to condor executables")
 	}
 }
 

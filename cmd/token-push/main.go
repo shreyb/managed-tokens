@@ -7,9 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	// "os/user"
-
-	// "github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
@@ -245,12 +242,10 @@ func main() {
 
 	// Send to nodes
 
-	// TODO get successfulServices to take into account pushing tokens
 	// Channels and worker for pushing tokens
 	serviceConfigsForPush := make(chan *worker.ServiceConfig)
 	pushDone := make(chan worker.SuccessReporter, len(serviceConfigs))
 	go worker.PushTokensWorker(serviceConfigsForPush, pushDone)
-
 	LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
 
 	// Aggregate the successes
