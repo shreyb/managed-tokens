@@ -21,6 +21,13 @@ import (
 	"github.com/shreyb/managed-tokens/worker"
 )
 
+var (
+	services       []service.Service
+	serviceConfigs = make(map[string]*worker.ServiceConfig)
+	krb5ccname     string
+)
+
+// Initial setup.  Read flags, find config file, setup logs
 func init() {
 	const configFile string = "managedTokens"
 
@@ -87,36 +94,8 @@ func init() {
 
 }
 
-func main() {
-	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
-	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
-	// TODO Move this stuff to init function, or wherever is appropriate
-	serviceConfigs := make(map[string]*worker.ServiceConfig)
-	successfulServices := make(map[string]bool)
-
-	defer func(successfulServices map[string]bool) {
-		if err := cleanup(successfulServices); err != nil {
-			log.Fatal("Error cleaning up")
-		}
-
-	}(successfulServices)
-
-	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
-	if err != nil {
-		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
-	}
-	defer func() {
-		os.RemoveAll(krb5ccname)
-		log.Info("Cleared kerberos cache")
-	}()
-
-	// Set up service configs
-	services := make([]service.Service, 0)
-
-	// Get experiments from config.
-	// TODO Maybe put this in a second init function here (until chan wait)?  A lot of clutter
-
-	// Get our slice of services
+// Setup of services
+func init() {
 	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
 	switch {
 	case viper.GetString("experiment") != "":
@@ -164,6 +143,27 @@ func main() {
 	}
 }
 
+func main() {
+	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
+	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
+	successfulServices := make(map[string]bool)
+
+	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
+	if err != nil {
+		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+	}
+
+	defer func() {
+		os.RemoveAll(krb5ccname)
+		log.Info("Cleared kerberos cache")
+	}()
+
+	defer func(successfulServices map[string]bool) {
+		if err := cleanup(successfulServices); err != nil {
+			log.Fatal("Error cleaning up")
+		}
+
+	}(successfulServices)
 
 	// Channels and worker for getting kerberos tickets
 	kerberosChannels := worker.NewChannelsForWorkers(len(services))
