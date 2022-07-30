@@ -168,7 +168,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	log.Info(ferryData)
 	if err := utils.InsertUidsIntoTableFromFERRY(db, ferryData); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}
