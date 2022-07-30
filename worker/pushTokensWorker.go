@@ -7,6 +7,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type pushTokenSuccess struct {
+	serviceName string
+	success     bool
+}
+
+func (v *pushTokenSuccess) GetServiceName() string {
+	return v.serviceName
+}
+
+func (v *pushTokenSuccess) GetSuccess() bool {
+	return v.success
+}
+
 func PushTokensWorker(chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	for sc := range chans.GetServiceConfigChan() {
@@ -96,17 +109,4 @@ func pushToNodes(sc *ServiceConfig, sourceFile, node, destinationFile string) er
 	}).Info("Success copying file to destination")
 	return nil
 
-}
-
-type pushTokenSuccess struct {
-	serviceName string
-	success     bool
-}
-
-func (v *pushTokenSuccess) GetServiceName() string {
-	return v.serviceName
-}
-
-func (v *pushTokenSuccess) GetSuccess() bool {
-	return v.success
 }

@@ -5,6 +5,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type kinitSuccess struct {
+	serviceName string
+	success     bool
+}
+
+func (v *kinitSuccess) GetServiceName() string {
+	return v.serviceName
+}
+
+func (v *kinitSuccess) GetSuccess() bool {
+	return v.success
+}
+
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
 	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
@@ -48,17 +61,4 @@ func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 			// chans.GetSuccessChan() <- success
 		}()
 	}
-}
-
-type kinitSuccess struct {
-	serviceName string
-	success     bool
-}
-
-func (v *kinitSuccess) GetServiceName() string {
-	return v.serviceName
-}
-
-func (v *kinitSuccess) GetSuccess() bool {
-	return v.success
 }

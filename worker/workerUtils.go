@@ -4,11 +4,17 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
-
-	"github.com/shreyb/managed-tokens/service"
 )
+
+type SuccessReporter interface {
+	GetServiceName() string
+	GetSuccess() bool
+}
+
+type EnvironmentMapper interface {
+	toMap() map[string]string
+	toEnvs() map[string]string
+}
 
 // TODO clean up this whole command environment business.  Maybe call it WorkerEnvironment?
 type CommandEnvironment struct {
@@ -34,54 +40,6 @@ func (c *CommandEnvironment) toEnvs() map[string]string {
 		"CondorCollectorHost": "_condor_COLLECTOR_HOST",
 		"HtgettokenOpts":      "HTGETTOKENOPTS",
 	}
-}
-
-type EnvironmentMapper interface {
-	toMap() map[string]string
-	toEnvs() map[string]string
-}
-
-// ServiceConfig is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
-//TODO Add Service as a field that is <experiment>_<role>, use it everywhere applicable
-type ServiceConfig struct {
-	Service           service.Service
-	UserPrincipal     string
-	Nodes             []string
-	Account           string
-	KeytabPath        string
-	DesiredUID        uint32
-	ServiceConfigPath string
-	CommandEnvironment
-}
-
-// CreateServiceConfig takes the config information from the global file and creates an exptConfig object
-// To create functional options, simply define functions that operate on an *ExptConfig.  E.g.
-// func foo(e *ExptConfig) { e.Name = "bar" }.  You can then pass in foo to CreateExptConfig (e.g.
-// CreateExptConfig("my_expt", foo), to set the ExptConfig.Name to "bar".
-//
-// To pass in something that's dynamic, define a function that returns a func(*ExptConfig).   e.g.:
-// func foo(bar int, e *ExptConfig) func(*ExptConfig) {
-//     baz = bar + 3
-//     return func(*ExptConfig) {
-//          e.spam = baz
-//        }
-// If you then pass in foo(3), like CreateExptConfig("my_expt", foo(3)), then ExptConfig.spam will be set to 6
-// Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
-func NewServiceConfig(service service.Service, options ...func(*ServiceConfig) error) (*ServiceConfig, error) {
-	c := ServiceConfig{Service: service}
-
-	for _, option := range options {
-		err := option(&c)
-		if err != nil {
-			log.WithField("function", option).Error(err)
-			return &c, err
-		}
-	}
-	log.WithFields(log.Fields{
-		"experiment": c.Service.Experiment(),
-		"role":       c.Service.Role(),
-	}).Debug("Set up service config")
-	return &c, nil
 }
 
 func kerberosEnvironmentWrappedCommand(cmd *exec.Cmd, environ EnvironmentMapper) *exec.Cmd {
@@ -123,51 +81,3 @@ func IsServiceToken(token string) bool {
 	return strings.HasPrefix(token, ServiceTokenPrefix) ||
 		strings.HasPrefix(token, LegacyServiceTokenPrefix)
 }
-
-type SuccessReporter interface {
-	GetServiceName() string
-	GetSuccess() bool
-}
-
-// TODO Add notifications channel to this interface and accompanying type?
-// TODO Have workers that use channels to communicate accept this interface rather than explicit channels
-
-type ChannelsForWorkers interface {
-	GetServiceConfigChan() chan *ServiceConfig
-	GetSuccessChan() chan SuccessReporter
-	// GetNotificationsChan() chan *notifications.notification or whatever it's actually called
-
-}
-
-func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
-	var useBufferSize int
-	if bufferSize == 0 {
-		useBufferSize = 1
-	} else {
-		useBufferSize = bufferSize
-	}
-
-	return &channelGroup{
-		serviceConfigChan: make(chan *ServiceConfig, useBufferSize),
-		successChan:       make(chan SuccessReporter, useBufferSize),
-		// notificationsChan: make(chan *notifications.notification, useBufferSize),
-	}
-}
-
-type channelGroup struct {
-	serviceConfigChan chan *ServiceConfig
-	successChan       chan SuccessReporter
-	// notificationsChan chan *notifications.notification
-}
-
-func (c *channelGroup) GetServiceConfigChan() chan *ServiceConfig {
-	return c.serviceConfigChan
-}
-
-func (c *channelGroup) GetSuccessChan() chan SuccessReporter {
-	return c.successChan
-}
-
-// func (c *channelGroup) GetNotificationsChan() chan *notifications.notification{
-// 	return c.notificationsChan
-// }

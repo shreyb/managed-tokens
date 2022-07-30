@@ -140,6 +140,8 @@ func main() {
 		}
 	}(ferryDataChan, aggFERRYDataDone)
 
+	// TODO Make sure GetFERRYUIDData handles errors properly.
+	// Perhaps convert this to using SuccessReporter chan
 	// Start workers to get data from FERRY
 	func() {
 		defer close(ferryDataChan)
