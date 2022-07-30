@@ -7,16 +7,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func PushTokensWorker(inputChan <-chan *ServiceConfig, successChan chan<- SuccessReporter) {
-	defer close(successChan)
-	for sc := range inputChan {
+func PushTokensWorker(chans ChannelsForWorkers) {
+	defer close(chans.GetSuccessChan())
+	for sc := range chans.GetServiceConfigChan() {
 		pushSuccess := &pushTokenSuccess{
 			serviceName: sc.Service.Name(),
 		}
 
 		func() {
 			defer func(p *pushTokenSuccess) {
-				successChan <- p
+				chans.GetSuccessChan() <- p
 			}(pushSuccess)
 
 			// kswitch

@@ -24,10 +24,10 @@ func init() {
 	}
 }
 
-func StoreAndGetTokenWorker(inputChan <-chan *ServiceConfig, successChan chan<- SuccessReporter) {
-	defer close(successChan)
+func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
+	defer close(chans.GetSuccessChan())
 	var interactive bool
-	for sc := range inputChan {
+	for sc := range chans.GetServiceConfigChan() {
 		success := &vaultStorerSuccess{
 			serviceName: sc.Service.Name(),
 		}

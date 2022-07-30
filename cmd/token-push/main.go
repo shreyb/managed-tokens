@@ -162,6 +162,8 @@ func main() {
 			}
 		}
 	}
+}
+
 
 	// Channels and worker for getting kerberos tickets
 	kerberosChannels := worker.NewChannelsForWorkers(len(services))
@@ -170,13 +172,13 @@ func main() {
 	// Set up our serviceConfigs and get kerberos tickets for each
 	func() {
 		defer close(kerberosChannels.GetServiceConfigChan())
-		var setupWg sync.WaitGroup
+		var serviceConfigSetupWg sync.WaitGroup
 		for _, s := range services {
 			// Setup the configs
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-			setupWg.Add(1)
+			serviceConfigSetupWg.Add(1)
 			go func(s service.Service, serviceConfigPath string) {
-				defer setupWg.Done()
+				defer serviceConfigSetupWg.Done()
 
 				sc, err := worker.NewServiceConfig(
 					s,
@@ -203,7 +205,7 @@ func main() {
 
 			}(s, serviceConfigPath)
 		}
-		setupWg.Wait()
+		serviceConfigSetupWg.Wait()
 	}()
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
@@ -221,14 +223,13 @@ func main() {
 
 	// Channels and worker for getting/storing vault token
 	// TODO Implement ChannelGroup for storeToken and pushToken workers
-	serviceConfigsForCondor := make(chan *worker.ServiceConfig, len(serviceConfigs))
-	condorDone := make(chan worker.SuccessReporter, len(serviceConfigs))
-	go worker.StoreAndGetTokenWorker(serviceConfigsForCondor, condorDone)
-	LoadServiceConfigsIntoChannel(serviceConfigsForCondor, serviceConfigs)
+	condorVaultChans := worker.NewChannelsForWorkers(len(serviceConfigs))
+	go worker.StoreAndGetTokenWorker(condorVaultChans)
+	LoadServiceConfigsIntoChannel(condorVaultChans.GetServiceConfigChan(), serviceConfigs)
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
 	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
-	for vaultStorerSuccess := range condorDone {
+	for vaultStorerSuccess := range condorVaultChans.GetSuccessChan() {
 		if !vaultStorerSuccess.GetSuccess() {
 			log.WithField(
 				"service", vaultStorerSuccess.GetServiceName(),
@@ -252,13 +253,12 @@ func main() {
 	// Send to nodes
 
 	// Channels and worker for pushing tokens
-	serviceConfigsForPush := make(chan *worker.ServiceConfig)
-	pushDone := make(chan worker.SuccessReporter, len(serviceConfigs))
-	go worker.PushTokensWorker(serviceConfigsForPush, pushDone)
-	LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
+	pushChans := worker.NewChannelsForWorkers(len(serviceConfigs))
+	go worker.PushTokensWorker(pushChans)
+	LoadServiceConfigsIntoChannel(pushChans.GetServiceConfigChan(), serviceConfigs)
 
 	// Aggregate the successes
-	for pushSuccess := range pushDone {
+	for pushSuccess := range pushChans.GetSuccessChan() {
 		if pushSuccess.GetSuccess() {
 			successfulServices[pushSuccess.GetServiceName()] = true
 		}
