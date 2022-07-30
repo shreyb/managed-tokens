@@ -109,14 +109,17 @@ func main() {
 	}()
 
 	// All my channels
-	serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
-	kerberosTicketsDone := make(chan worker.SuccessReporter)
-
+	// serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
+	// kerberosTicketsDone := make(chan worker.SuccessReporter)
+	kerberosChannels := worker.NewChannelsForWorkers(1)
+	// go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
 	// Get Kerberos tickets
-	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
+	go worker.GetKerberosTicketsWorker(kerberosChannels)
+
+	// go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
 
 	func() {
-		defer close(serviceConfigsForKinit)
+		defer close(kerberosChannels.GetServiceConfigChan())
 		s, err := service.NewService(viper.GetString("service"))
 		if err != nil {
 			log.WithField(
@@ -144,12 +147,12 @@ func main() {
 			}).Fatal("Could not create config for service")
 		}
 
-		serviceConfigsForKinit <- serviceConfig
+		kerberosChannels.GetServiceConfigChan() <- serviceConfig
 	}()
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
-	for kerberosTicketSuccess := range kerberosTicketsDone {
+	for kerberosTicketSuccess := range kerberosChannels.GetSuccessChan() {
 		if !kerberosTicketSuccess.GetSuccess() {
 			log.WithField(
 				"service", kerberosTicketSuccess.GetServiceName(),

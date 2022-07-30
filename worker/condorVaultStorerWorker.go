@@ -48,6 +48,8 @@ func StoreAndGetRefreshAndVaultTokens(sc *ServiceConfig) error {
 	return storeAndGetTokens(sc, interactive)
 }
 
+// TODO Move the rest of the funcs into a condorVaultStorerUtils.go file.  Keep the type vaultStorerSuccess here though
+
 func storeAndGetTokens(sc *ServiceConfig, interactive bool) error {
 	// kswitch
 	if err := switchKerberosCache(sc); err != nil {

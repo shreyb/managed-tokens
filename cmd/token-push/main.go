@@ -110,11 +110,6 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
-	// Channels and worker for getting kerberos tickets
-	serviceConfigsForKinit := make(chan *worker.ServiceConfig, 1)
-	kerberosTicketsDone := make(chan worker.SuccessReporter)
-	go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
-
 	// Set up service configs
 	services := make([]service.Service, 0)
 
@@ -168,10 +163,13 @@ func main() {
 		}
 	}
 
-	// TODO implement a success reporter like the others
+	// Channels and worker for getting kerberos tickets
+	kerberosChannels := worker.NewChannelsForWorkers(len(services))
+	go worker.GetKerberosTicketsWorker(kerberosChannels)
+
 	// Set up our serviceConfigs and get kerberos tickets for each
 	func() {
-		defer close(serviceConfigsForKinit)
+		defer close(kerberosChannels.GetServiceConfigChan())
 		var setupWg sync.WaitGroup
 		for _, s := range services {
 			// Setup the configs
@@ -201,7 +199,7 @@ func main() {
 				}
 				serviceConfigs[s.Name()] = sc
 				successfulServices[s.Name()] = false
-				serviceConfigsForKinit <- sc
+				kerberosChannels.GetServiceConfigChan() <- sc
 
 			}(s, serviceConfigPath)
 		}
@@ -210,11 +208,11 @@ func main() {
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
-	for kerberosTicketSuccess := range kerberosTicketsDone {
+	for kerberosTicketSuccess := range kerberosChannels.GetSuccessChan() {
 		if !kerberosTicketSuccess.GetSuccess() {
 			log.WithField(
 				"service", kerberosTicketSuccess.GetServiceName(),
-			).Info("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
+			).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
 			delete(serviceConfigs, kerberosTicketSuccess.GetServiceName())
 		}
 	}
@@ -222,6 +220,7 @@ func main() {
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
 
 	// Channels and worker for getting/storing vault token
+	// TODO Implement ChannelGroup for storeToken and pushToken workers
 	serviceConfigsForCondor := make(chan *worker.ServiceConfig, len(serviceConfigs))
 	condorDone := make(chan worker.SuccessReporter, len(serviceConfigs))
 	go worker.StoreAndGetTokenWorker(serviceConfigsForCondor, condorDone)

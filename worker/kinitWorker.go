@@ -12,9 +12,9 @@ func init() {
 	}
 }
 
-func GetKerberosTicketsWorker(inputChan <-chan *ServiceConfig, successChan chan<- SuccessReporter) {
-	defer close(successChan)
-	for sc := range inputChan {
+func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
+	defer close(chans.GetSuccessChan())
+	for sc := range chans.GetServiceConfigChan() {
 		success := &kinitSuccess{
 			serviceName: sc.Service.Name(),
 		}
@@ -38,7 +38,7 @@ func GetKerberosTicketsWorker(inputChan <-chan *ServiceConfig, successChan chan<
 			}).Info("Kerberos ticket obtained and verified")
 			success.success = true
 		}
-		successChan <- success
+		chans.GetSuccessChan() <- success
 	}
 }
 
