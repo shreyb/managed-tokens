@@ -18,27 +18,35 @@ func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 		success := &kinitSuccess{
 			serviceName: sc.Service.Name(),
 		}
-		if err := getKerberosTicket(sc); err != nil {
-			log.WithFields(log.Fields{
-				"experiment": sc.Service.Experiment(),
-				"role":       sc.Service.Role(),
-			}).Error("Could not obtain kerberos ticket")
-		}
 
-		if err := checkKerberosPrincipal(sc); err != nil {
-			log.WithFields(log.Fields{
-				"experiment": sc.Service.Experiment(),
-				"role":       sc.Service.Role(),
-			}).Error("Kerberos ticket verification failed")
-		} else {
-			// TODO Make this debug
-			log.WithFields(log.Fields{
-				"experiment": sc.Service.Experiment(),
-				"role":       sc.Service.Role(),
-			}).Info("Kerberos ticket obtained and verified")
-			success.success = true
-		}
-		chans.GetSuccessChan() <- success
+		func() {
+			defer func(k *kinitSuccess) {
+				chans.GetSuccessChan() <- k
+			}(success)
+
+			if err := getKerberosTicket(sc); err != nil {
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Error("Could not obtain kerberos ticket")
+				return
+			}
+
+			if err := checkKerberosPrincipal(sc); err != nil {
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Error("Kerberos ticket verification failed")
+			} else {
+				// TODO Make this debug
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Info("Kerberos ticket obtained and verified")
+				success.success = true
+			}
+			// chans.GetSuccessChan() <- success
+		}()
 	}
 }
 

@@ -31,15 +31,22 @@ func StoreAndGetTokenWorker(inputChan <-chan *ServiceConfig, successChan chan<- 
 		success := &vaultStorerSuccess{
 			serviceName: sc.Service.Name(),
 		}
-		if err := storeAndGetTokens(sc, interactive); err != nil {
-			log.WithFields(log.Fields{
-				"experiment": sc.Service.Experiment(),
-				"role":       sc.Service.Role(),
-			}).Error("Could not store and get vault tokens")
-		} else {
-			success.success = true
-		}
-		successChan <- success
+
+		func() {
+			defer func(v *vaultStorerSuccess) {
+				chans.GetSuccessChan() <- v
+			}(success)
+
+			if err := storeAndGetTokens(sc, interactive); err != nil {
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Error("Could not store and get vault tokens")
+			} else {
+				success.success = true
+			}
+			// chans.GetSuccessChan() <- success
+		}()
 	}
 }
 
