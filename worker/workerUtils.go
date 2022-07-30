@@ -51,7 +51,6 @@ type ServiceConfig struct {
 	KeytabPath        string
 	DesiredUID        uint32
 	ServiceConfigPath string
-	Success           bool
 	CommandEnvironment
 }
 
@@ -123,4 +122,9 @@ const (
 func IsServiceToken(token string) bool {
 	return strings.HasPrefix(token, ServiceTokenPrefix) ||
 		strings.HasPrefix(token, LegacyServiceTokenPrefix)
+}
+
+type SuccessReporter interface {
+	GetServiceName() string
+	GetSuccess() bool
 }

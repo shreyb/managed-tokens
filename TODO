@@ -1,9 +1,7 @@
 For all TODOs that are more general
 
 * Put notifications in 
-* For any main() loop where we're going through a number of services, make sure we tally and log the services that worked, and the services that didn't
 * See if we can get tokens into temp files rather than the standard locations
-* Flags for all executables
 * Contexts EVERYWHERE
 * Interface a bunch of things if possible
 * Check all the errors to make sure they're the right level, and useful
