@@ -248,7 +248,7 @@ func main() {
 	// TODO get successfulServices to take into account pushing tokens
 	// Channels and worker for pushing tokens
 	serviceConfigsForPush := make(chan *worker.ServiceConfig)
-	pushDone := make(chan worker.SuccessReporter)
+	pushDone := make(chan worker.SuccessReporter, len(serviceConfigs))
 	go worker.PushTokensWorker(serviceConfigsForPush, pushDone)
 
 	LoadServiceConfigsIntoChannel(serviceConfigsForPush, serviceConfigs)
