@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -160,7 +159,7 @@ func main() {
 
 		ferryDataStringSlice := make([]string, 0, len(ferryData))
 		for _, datum := range ferryData {
-			ferryDataStringSlice = append(ferryDataStringSlice, fmt.Sprintf("%s", datum))
+			ferryDataStringSlice = append(ferryDataStringSlice, datum.String())
 		}
 		log.Infof(strings.Join(ferryDataStringSlice, "; "))
 
