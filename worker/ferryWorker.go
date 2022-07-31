@@ -29,7 +29,7 @@ type ferryUIDResponse struct {
 }
 
 func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry,
-	requestRunnerWithAuthMethodFunc func(string) (*http.Response, error)) (*utils.UIDEntryFromFerry, error) {
+	requestRunnerWithAuthMethodFunc func(url, verb string) (*http.Response, error)) (*utils.UIDEntryFromFerry, error) {
 	entry := utils.UIDEntryFromFerry{}
 
 	ferryAPIConfig := struct{ URL, Port, API, Username string }{
@@ -45,7 +45,7 @@ func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFe
 		log.Fatal(err)
 	}
 
-	resp, err := requestRunnerWithAuthMethodFunc(b.String())
+	resp, err := requestRunnerWithAuthMethodFunc(b.String(), "GET")
 	if err != nil {
 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
 		log.WithField("account", username).Error(err)
