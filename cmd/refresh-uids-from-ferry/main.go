@@ -137,8 +137,6 @@ func main() {
 		}
 	}(ferryDataChan, aggFERRYDataDone)
 
-	// TODO Make sure GetFERRYUIDData handles errors properly.
-	// Perhaps convert this to using SuccessReporter chan
 	// Start workers to get data from FERRY
 	func() {
 		defer close(ferryDataChan)
@@ -146,7 +144,7 @@ func main() {
 			ferryDataWg.Add(1)
 			go func(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry) {
 				defer ferryDataWg.Done()
-				worker.GetFERRYUIDData(
+				entry, err := worker.GetFERRYUIDData(
 					username,
 					ferryDataChan,
 					worker.WithTLSAuth(
@@ -155,6 +153,11 @@ func main() {
 						viper.GetString("caPath"),
 					),
 				)
+				if err != nil {
+					log.WithField("username", username).Error("Could not get FERRY UID data")
+				} else {
+					ferryDataChan <- entry
+				}
 			}(username, ferryDataChan)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in

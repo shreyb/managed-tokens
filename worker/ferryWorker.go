@@ -78,9 +78,10 @@ type ferryUIDResponse struct {
 // 	ferryDataChan <- &entry
 // }
 
-// // TODO Make this take a functional opt (handlerfunc) that describes how it should authenticate.  Then THIS function should initialize
-// // the FERRY client by either using HTTPS or JWT
-func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry, requestRunnerWithAuthMethodFunc func(string) (*http.Response, error)) {
+func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry,
+	requestRunnerWithAuthMethodFunc func(string) (*http.Response, error)) (*utils.UIDEntryFromFerry, error) {
+	entry := utils.UIDEntryFromFerry{}
+
 	ferryAPIConfig := struct{ URL, Port, API, Username string }{
 		URL:      viper.GetString("ferryURL"),
 		Port:     viper.GetString("ferryPort"),
@@ -94,39 +95,34 @@ func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFe
 		log.Fatal(err)
 	}
 
-	//
-
 	resp, err := requestRunnerWithAuthMethodFunc(b.String())
 	if err != nil {
 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
 		log.WithField("account", username).Error(err)
-		return
+		return &entry, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.WithField("account", username).Error("Could not read body from HTTP response")
-		return
+		return &entry, err
 	}
 
 	parsedResponse := ferryUIDResponse{}
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
 		log.WithField("account", username).Error("Could not unmarshal FERRY response")
 		log.WithField("account", username).Error(err)
-		return
+		return &entry, err
 	}
 
-	entry := utils.UIDEntryFromFerry{
-		Username: username,
-		Uid:      parsedResponse.FerryOutput.Uid,
-	}
+	entry.Username = username
+	entry.Uid = parsedResponse.FerryOutput.Uid
 
 	log.WithField("account", username).Info("Successfully got data from FERRY")
-	ferryDataChan <- &entry
+	return &entry, nil
 }
 
-// TODO WithTLSAuth should take the necessary strings, initialize the client, prepare and send the request, and return the response as is
 // TODO Similarly, WithTokenAuth should get a bearer token, initialize the client, prepare and send the request using the bearer token in the
 // header, and return the response text as is.
 // We then pass this into GetFERRYUIDData so the function call looks like GetFERRYUIDData(WithTokenAuth, username)
