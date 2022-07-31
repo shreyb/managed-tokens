@@ -10,7 +10,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/kerberos"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 )
@@ -30,7 +29,7 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 
 func storeAndGetTokens(sc *service.Config, interactive bool) error {
 	// kswitch
-	if err := kerberos.SwitchCache(sc); err != nil {
+	if err := utils.SwitchKerberosCache(sc); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
