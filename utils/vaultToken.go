@@ -1,4 +1,4 @@
-package worker
+package utils
 
 import (
 	"errors"
@@ -7,29 +7,28 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
 )
 
-type vaultStorerSuccess struct {
-	serviceName string
-	success     bool
+var condorExecutables = map[string]string{
+	"condor_vault_storer": "",
+	"condor_store_cred":   "",
 }
 
-func (v *vaultStorerSuccess) GetServiceName() string {
-	return v.serviceName
+func init() {
+	os.Setenv("PATH", "/usr/bin:/usr/sbin")
+	if err := CheckForExecutables(condorExecutables); err != nil {
+		log.Fatal("Could not find path to condor executables")
+	}
 }
 
-func (v *vaultStorerSuccess) GetSuccess() bool {
-	return v.success
-}
-
-func storeAndGetTokens(sc *service.Config, interactive bool) error {
+func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 	// kswitch
-	if err := utils.SwitchKerberosCache(sc); err != nil {
+	if err := SwitchKerberosCache(sc); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -78,7 +77,7 @@ func getTokensandStoreinVault(sc *service.Config, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
 	getTokensAndStoreInVaultCmd := exec.Command(condorExecutables["condor_vault_storer"], sc.Service.Name())
-	getTokensAndStoreInVaultCmd = utils.EnvironmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
+	getTokensAndStoreInVaultCmd = EnvironmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
 		"experiment": sc.Service.Experiment(),
@@ -137,11 +136,25 @@ func validateVaultToken(vaultTokenFilename string) error {
 
 	vaultTokenString := string(vaultTokenBytes[:])
 
-	if !utils.IsServiceToken(vaultTokenString) {
+	if !IsServiceToken(vaultTokenString) {
 		errString := "vault token failed validation"
 		log.WithField("filename", vaultTokenFilename).Error(errString)
 		return errors.New(errString)
 	}
 
 	return nil
+}
+
+// Borrowed from hashicorp's vault API, since we ONLY need this func
+// Source: https://github.com/hashicorp/vault/blob/main/vault/version_store.go
+// and https://github.com/hashicorp/vault/blob/main/sdk/helper/consts/token_consts.go
+
+const (
+	ServiceTokenPrefix       = "hvs."
+	LegacyServiceTokenPrefix = "s."
+)
+
+func IsServiceToken(token string) bool {
+	return strings.HasPrefix(token, ServiceTokenPrefix) ||
+		strings.HasPrefix(token, LegacyServiceTokenPrefix)
 }

@@ -1,23 +1,23 @@
 package worker
 
 import (
-	"os"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
-	log "github.com/sirupsen/logrus"
 )
 
-var condorExecutables = map[string]string{
-	"condor_vault_storer": "",
-	"condor_store_cred":   "",
+type vaultStorerSuccess struct {
+	serviceName string
+	success     bool
 }
 
-func init() {
-	os.Setenv("PATH", "/usr/bin:/usr/sbin")
-	if err := utils.CheckForExecutables(condorExecutables); err != nil {
-		log.Fatal("Could not find path to condor executables")
-	}
+func (v *vaultStorerSuccess) GetServiceName() string {
+	return v.serviceName
+}
+
+func (v *vaultStorerSuccess) GetSuccess() bool {
+	return v.success
 }
 
 func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
@@ -33,7 +33,7 @@ func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- v
 			}(success)
 
-			if err := storeAndGetTokens(sc, interactive); err != nil {
+			if err := utils.StoreAndGetTokens(sc, interactive); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -47,5 +47,5 @@ func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
 
 func StoreAndGetRefreshAndVaultTokens(sc *service.Config) error {
 	interactive := true
-	return storeAndGetTokens(sc, interactive)
+	return utils.StoreAndGetTokens(sc, interactive)
 }
