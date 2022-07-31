@@ -33,6 +33,11 @@ var (
 	`
 )
 
+type FerryDatum interface {
+	Username() string
+	Uid() int
+}
+
 func CreateUidsTableInDB(db *sql.DB) error {
 	_, err := db.Exec(createUIDTableStatement)
 	if err != nil {
@@ -44,7 +49,7 @@ func CreateUidsTableInDB(db *sql.DB) error {
 	return nil
 }
 
-func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []*UIDEntryFromFerry) error {
+func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryDatum) error {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Error(err)
@@ -61,7 +66,7 @@ func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []*UIDEntryFromFerry) er
 	defer insertStatement.Close()
 
 	for _, datum := range ferryData {
-		_, err := insertStatement.Exec(datum.Username, datum.Uid, datum.Uid)
+		_, err := insertStatement.Exec(datum.Username(), datum.Uid(), datum.Uid())
 		if err != nil {
 			log.Error(err)
 			log.Error("Could not insert FERRY data into database")
