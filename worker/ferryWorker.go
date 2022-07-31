@@ -65,5 +65,6 @@ func GetFERRYUIDData(httpsClient *http.Client, username string, ferryDataChan ch
 		Uid:      parsedResponse.FerryOutput.Uid,
 	}
 
+	log.WithField("account", username).Info("Successfully got data from FERRY")
 	ferryDataChan <- &entry
 }
