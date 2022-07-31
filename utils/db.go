@@ -33,7 +33,7 @@ var (
 	`
 )
 
-type FerryDatum interface {
+type FerryUIDDatum interface {
 	Username() string
 	Uid() int
 }
@@ -49,7 +49,7 @@ func CreateUidsTableInDB(db *sql.DB) error {
 	return nil
 }
 
-func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryDatum) error {
+func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryUIDDatum) error {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Error(err)

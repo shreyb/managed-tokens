@@ -178,7 +178,7 @@ func main() {
 	}
 
 	// Convert type of ferryData to []FerryDatum
-	ferryDataConverted := make([]utils.FerryDatum, 0, len(ferryData))
+	ferryDataConverted := make([]utils.FerryUIDDatum, 0, len(ferryData))
 	for _, entry := range ferryData {
 		ferryDataConverted = append(ferryDataConverted, entry)
 	}
