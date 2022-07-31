@@ -1,9 +1,13 @@
 package worker
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"path"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -28,7 +32,55 @@ type ferryUIDResponse struct {
 	} `json:"ferry_output"`
 }
 
-func GetFERRYUIDData(httpsClient *http.Client, username string, ferryDataChan chan<- *utils.UIDEntryFromFerry) {
+// func GetFERRYUIDData(httpsClient *http.Client, username string, ferryDataChan chan<- *utils.UIDEntryFromFerry) {
+// 	ferryAPIConfig := struct{ URL, Port, API, Username string }{
+// 		URL:      viper.GetString("ferryURL"),
+// 		Port:     viper.GetString("ferryPort"),
+// 		API:      "getUserInfo",
+// 		Username: username,
+// 	}
+
+// 	var b strings.Builder
+// 	if err := ferryURLUIDTemplate.Execute(&b, ferryAPIConfig); err != nil {
+// 		log.Errorf("Could not execute ferryURLUID template")
+// 		log.Fatal(err)
+// 	}
+
+// 	req, err := http.NewRequest("GET", b.String(), nil)
+// 	if err != nil {
+// 		log.WithField("account", username).Error("Could not initialize HTTP request")
+// 	}
+// 	// resp, err := httpsClient.Get(b.String())
+// 	resp, err := httpsClient.Do(req)
+// 	if err != nil {
+// 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
+// 		log.WithField("account", username).Error(err)
+// 		return
+// 	}
+// 	defer resp.Body.Close()
+// 	body, err := ioutil.ReadAll(resp.Body)
+// 	if err != nil {
+// 		log.WithField("account", username).Error("Could not read body from HTTP response")
+// 	}
+
+// 	parsedResponse := ferryUIDResponse{}
+// 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
+// 		log.WithField("account", username).Error("Could not unmarshal FERRY response")
+// 		log.WithField("account", username).Error(err)
+// 	}
+
+// 	entry := utils.UIDEntryFromFerry{
+// 		Username: username,
+// 		Uid:      parsedResponse.FerryOutput.Uid,
+// 	}
+
+// 	log.WithField("account", username).Info("Successfully got data from FERRY")
+// 	ferryDataChan <- &entry
+// }
+
+// // TODO Make this take a functional opt (handlerfunc) that describes how it should authenticate.  Then THIS function should initialize
+// // the FERRY client by either using HTTPS or JWT
+func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry, requestRunnerWithAuthMethodFunc func(string) (*http.Response, error)) {
 	ferryAPIConfig := struct{ URL, Port, API, Username string }{
 		URL:      viper.GetString("ferryURL"),
 		Port:     viper.GetString("ferryPort"),
@@ -42,22 +94,27 @@ func GetFERRYUIDData(httpsClient *http.Client, username string, ferryDataChan ch
 		log.Fatal(err)
 	}
 
-	resp, err := httpsClient.Get(b.String())
+	//
+
+	resp, err := requestRunnerWithAuthMethodFunc(b.String())
 	if err != nil {
 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
 		log.WithField("account", username).Error(err)
 		return
 	}
 	defer resp.Body.Close()
+
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		log.WithField("account", username).Error("Could not read body from HTTP response")
+		return
 	}
 
 	parsedResponse := ferryUIDResponse{}
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
 		log.WithField("account", username).Error("Could not unmarshal FERRY response")
 		log.WithField("account", username).Error(err)
+		return
 	}
 
 	entry := utils.UIDEntryFromFerry{
@@ -67,4 +124,87 @@ func GetFERRYUIDData(httpsClient *http.Client, username string, ferryDataChan ch
 
 	log.WithField("account", username).Info("Successfully got data from FERRY")
 	ferryDataChan <- &entry
+}
+
+// TODO WithTLSAuth should take the necessary strings, initialize the client, prepare and send the request, and return the response as is
+// TODO Similarly, WithTokenAuth should get a bearer token, initialize the client, prepare and send the request using the bearer token in the
+// header, and return the response text as is.
+// We then pass this into GetFERRYUIDData so the function call looks like GetFERRYUIDData(WithTokenAuth, username)
+// Each of these funcs may need to be wrapped so we take the necessary parameters and return a func() *http.Response
+//
+func WithTLSAuth(hostCert, hostKey, caPath string) func(string) (*http.Response, error) {
+	return func(url string) (*http.Response, error) {
+		caCertSlice := make([]string, 0)
+		caCertPool := x509.NewCertPool()
+
+		// Adapted from  https://gist.github.com/michaljemala/d6f4e01c4834bf47a9c4
+		// Load host cert
+		// TODO review if these errors should be Fatal or just Error
+		cert, err := tls.LoadX509KeyPair(hostCert, hostKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Load CA certs
+		caFiles, err := ioutil.ReadDir(caPath)
+		if err != nil {
+			log.WithField("caPath", caPath).Fatal(err)
+
+		}
+		for _, f := range caFiles {
+			if filepath.Ext(f.Name()) == ".pem" {
+				filenameToAdd := path.Join(caPath, f.Name())
+				caCertSlice = append(caCertSlice, filenameToAdd)
+			}
+		}
+		for _, f := range caCertSlice {
+			caCert, err := ioutil.ReadFile(f)
+			if err != nil {
+				log.WithField("filename", f).Warn(err)
+			}
+			caCertPool.AppendCertsFromPEM(caCert)
+		}
+		// Setup HTTPS client
+		tlsConfig := &tls.Config{
+			Certificates:  []tls.Certificate{cert},
+			RootCAs:       caCertPool,
+			Renegotiation: tls.RenegotiateFreelyAsClient,
+		}
+
+		transport := &http.Transport{TLSClientConfig: tlsConfig}
+		client := &http.Client{Transport: transport}
+		resp, err := client.Get(url)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"url":        url,
+				"verb":       "GET",
+				"authMethod": "cert",
+			}).Error("Error executing HTTP request")
+			log.WithField("url", url).Error(err)
+		}
+		return resp, err
+	}
+}
+
+// TODO
+// Figure out what info we need here, like maybe htgettoken executable path,
+// kerberos info to run kinit on, maybe viper config if this is moved into executable package
+// main
+func WithJWTAuth(url string) func() (*http.Response, error) {
+	return func() (*http.Response, error) {
+		// Initialize request like this here, and attach the bearer token header
+		// req, err := http.NewRequest("GET", b.String(), nil)
+		// if err != nil {
+		// 	log.WithField("account", username).Error("Could not initialize HTTP request")
+		// }
+		// // resp, err := httpsClient.Get(b.String())
+		// resp, err := httpsClient.Do(req)
+		// if err != nil {
+		// 	log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
+		// 	log.WithField("account", username).Error(err)
+		// 	return
+		// }
+		return &http.Response{}, nil
+	}
+	return nil
 }

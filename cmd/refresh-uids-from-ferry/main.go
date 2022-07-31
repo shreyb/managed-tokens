@@ -122,7 +122,7 @@ func main() {
 
 	// FERRY vars
 	ferryData := make([]*utils.UIDEntryFromFerry, 0)
-	ferryClient := utils.InitializeHTTPSClient(viper.GetString("hostCert"), viper.GetString("hostKey"), viper.GetString("caPath"))
+	// ferryClient := utils.InitializeHTTPSClient(viper.GetString("hostCert"), viper.GetString("hostKey"), viper.GetString("caPath"))
 	ferryDataChan := make(chan *utils.UIDEntryFromFerry) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
 	ferryDataWg := new(sync.WaitGroup)                   // WaitGroup to make sure we don't close ferryDataChan before all data is sent
 	aggFERRYDataDone := make(chan struct{})              // Channel to close when FERRY data aggregation is done
@@ -146,7 +146,15 @@ func main() {
 			ferryDataWg.Add(1)
 			go func(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry) {
 				defer ferryDataWg.Done()
-				worker.GetFERRYUIDData(ferryClient, username, ferryDataChan)
+				worker.GetFERRYUIDData(
+					username,
+					ferryDataChan,
+					worker.WithTLSAuth(
+						viper.GetString("hostCert"),
+						viper.GetString("hostKey"),
+						viper.GetString("caPath"),
+					),
+				)
 			}(username, ferryDataChan)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
