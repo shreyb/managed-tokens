@@ -121,16 +121,15 @@ func main() {
 	}
 
 	// FERRY vars
-	ferryData := make([]*utils.UIDEntryFromFerry, 0)
-	// ferryClient := utils.InitializeHTTPSClient(viper.GetString("hostCert"), viper.GetString("hostKey"), viper.GetString("caPath"))
-	ferryDataChan := make(chan *utils.UIDEntryFromFerry) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
-	ferryDataWg := new(sync.WaitGroup)                   // WaitGroup to make sure we don't close ferryDataChan before all data is sent
-	aggFERRYDataDone := make(chan struct{})              // Channel to close when FERRY data aggregation is done
+	ferryData := make([]*worker.UIDEntryFromFerry, 0)
+	ferryDataChan := make(chan *worker.UIDEntryFromFerry) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
+	ferryDataWg := new(sync.WaitGroup)                    // WaitGroup to make sure we don't close ferryDataChan before all data is sent
+	aggFERRYDataDone := make(chan struct{})               // Channel to close when FERRY data aggregation is done
 
 	usernames := getAllAccountsFromConfig()
 
 	// Start up worker to aggregate all FERRY data
-	go func(ferryDataChan <-chan *utils.UIDEntryFromFerry, aggFERRYDataDone chan<- struct{}) {
+	go func(ferryDataChan <-chan *worker.UIDEntryFromFerry, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
 		for ferryDatum := range ferryDataChan {
 			ferryData = append(ferryData, ferryDatum)
@@ -142,7 +141,7 @@ func main() {
 		defer close(ferryDataChan)
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
-			go func(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry) {
+			go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
 				defer ferryDataWg.Done()
 				entry, err := worker.GetFERRYUIDData(
 					username,
@@ -178,7 +177,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := utils.InsertUidsIntoTableFromFERRY(db, ferryData); err != nil {
+	// Convert type of ferryData to []FerryDatum
+	ferryDataConverted := make([]utils.FerryDatum, 0, len(ferryData))
+	for _, entry := range ferryData {
+		ferryDataConverted = append(ferryDataConverted, entry)
+	}
+
+	if err := utils.InsertUidsIntoTableFromFERRY(db, ferryDataConverted); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}
 

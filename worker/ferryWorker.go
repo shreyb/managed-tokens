@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -9,11 +10,26 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-
-	"github.com/shreyb/managed-tokens/utils"
 )
 
 var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.URL}}:{{.Port}}/{{.API}}?username={{.Username}}"))
+
+type UIDEntryFromFerry struct {
+	username string
+	uid      int
+}
+
+func (u *UIDEntryFromFerry) String() string {
+	return fmt.Sprintf("Username: %s, Uid: %d", u.username, u.uid)
+}
+
+func (u *UIDEntryFromFerry) Username() string {
+	return u.username
+}
+
+func (u *UIDEntryFromFerry) Uid() int {
+	return u.uid
+}
 
 type ferryUIDResponse struct {
 	FerryStatus string   `json:"ferry_status"`
@@ -28,9 +44,9 @@ type ferryUIDResponse struct {
 	} `json:"ferry_output"`
 }
 
-func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFerry,
-	requestRunnerWithAuthMethodFunc func(url, verb string) (*http.Response, error)) (*utils.UIDEntryFromFerry, error) {
-	entry := utils.UIDEntryFromFerry{}
+func GetFERRYUIDData(username string, ferryDataChan chan<- *UIDEntryFromFerry,
+	requestRunnerWithAuthMethodFunc func(url, verb string) (*http.Response, error)) (*UIDEntryFromFerry, error) {
+	entry := UIDEntryFromFerry{}
 
 	ferryAPIConfig := struct{ URL, Port, API, Username string }{
 		URL:      viper.GetString("ferryURL"),
@@ -66,8 +82,8 @@ func GetFERRYUIDData(username string, ferryDataChan chan<- *utils.UIDEntryFromFe
 		return &entry, err
 	}
 
-	entry.Username = username
-	entry.Uid = parsedResponse.FerryOutput.Uid
+	entry.username = username
+	entry.uid = parsedResponse.FerryOutput.Uid
 
 	log.WithField("account", username).Info("Successfully got data from FERRY")
 	return &entry, nil
