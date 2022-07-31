@@ -147,7 +147,7 @@ func main() {
 				entry, err := worker.GetFERRYUIDData(
 					username,
 					ferryDataChan,
-					worker.WithTLSAuth(
+					withTLSAuth(
 						viper.GetString("hostCert"),
 						viper.GetString("hostKey"),
 						viper.GetString("caPath"),
