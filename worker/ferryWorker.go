@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
-var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.URL}}:{{.Port}}/{{.API}}?username={{.Username}}"))
+var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.Hostname}}:{{.Port}}/{{.API}}?username={{.Username}}"))
 
 type UIDEntryFromFerry struct {
 	username string
@@ -44,13 +44,13 @@ type ferryUIDResponse struct {
 	} `json:"ferry_output"`
 }
 
-func GetFERRYUIDData(username string, ferryDataChan chan<- *UIDEntryFromFerry,
+func GetFERRYUIDData(username string, ferryHost string, ferryPort int, ferryDataChan chan<- *UIDEntryFromFerry,
 	requestRunnerWithAuthMethodFunc func(url, verb string) (*http.Response, error)) (*UIDEntryFromFerry, error) {
 	entry := UIDEntryFromFerry{}
 
-	ferryAPIConfig := struct{ URL, Port, API, Username string }{
-		URL:      viper.GetString("ferryURL"),
-		Port:     viper.GetString("ferryPort"),
+	ferryAPIConfig := struct{ Hostname, Port, API, Username string }{
+		Hostname: ferryHost,
+		Port:     strconv.Itoa(ferryPort),
 		API:      "getUserInfo",
 		Username: username,
 	}
@@ -79,6 +79,12 @@ func GetFERRYUIDData(username string, ferryDataChan chan<- *UIDEntryFromFerry,
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
 		log.WithField("account", username).Error("Could not unmarshal FERRY response")
 		log.WithField("account", username).Error(err)
+		return &entry, err
+	}
+
+	if parsedResponse.FerryStatus == "failure" {
+		log.WithField("account", username).Error("FERRY server error")
+		log.Error(parsedResponse.FerryError)
 		return &entry, err
 	}
 
