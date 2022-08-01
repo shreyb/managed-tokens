@@ -14,14 +14,15 @@ import (
 	"github.com/shreyb/managed-tokens/service"
 )
 
-var condorExecutables = map[string]string{
+var vaultExecutables = map[string]string{
 	"condor_vault_storer": "",
 	"condor_store_cred":   "",
+	"htgettoken":          "",
 }
 
 func init() {
 	os.Setenv("PATH", "/usr/bin:/usr/sbin")
-	if err := CheckForExecutables(condorExecutables); err != nil {
+	if err := CheckForExecutables(vaultExecutables); err != nil {
 		log.Fatal("Could not find path to condor executables")
 	}
 }
@@ -73,10 +74,34 @@ func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 	return nil
 }
 
+func GetToken(sc *service.Config) error {
+	if err := SwitchKerberosCache(sc); err != nil {
+		log.WithFields(log.Fields{
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
+		}).Error("Could not switch kerberos caches")
+		return err
+	}
+
+	htgettokenCmd := exec.Command(vaultExecutables["htgettoken"], "-i", sc.Service.Name())
+	htgettokenCmd = EnvironmentWrappedCommand(htgettokenCmd, &sc.CommandEnvironment)
+
+	log.WithField("service", sc.Service.Name()).Info("Running htgettoken to get vault and bearer tokens")
+
+	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
+		log.WithField("service", sc.Service.Name()).Error("Could not get vault token")
+		log.WithField("service", sc.Service.Name()).Error(stdoutStderr)
+		return err
+	}
+
+	log.WithField("service", sc.Service.Name()).Info("Successfully got vault token")
+	return nil
+}
+
 func getTokensandStoreinVault(sc *service.Config, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
-	getTokensAndStoreInVaultCmd := exec.Command(condorExecutables["condor_vault_storer"], sc.Service.Name())
+	getTokensAndStoreInVaultCmd := exec.Command(vaultExecutables["condor_vault_storer"], sc.Service.Name())
 	getTokensAndStoreInVaultCmd = EnvironmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{

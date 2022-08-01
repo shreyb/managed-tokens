@@ -147,9 +147,9 @@ func main() {
 					username,
 					ferryDataChan,
 					withTLSAuth(
-						viper.GetString("hostCert"),
-						viper.GetString("hostKey"),
-						viper.GetString("caPath"),
+						viper.GetString("ferry.hostCert"),
+						viper.GetString("ferry.hostKey"),
+						viper.GetString("ferry.caPath"),
 					),
 				)
 				if err != nil {
