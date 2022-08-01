@@ -49,8 +49,8 @@ func init() {
 
 	// Get config file
 	// Check for override
-	if viper.GetString("configfile") != "" {
-		viper.SetConfigFile(viper.GetString("configfile"))
+	if config := viper.GetString("configfile"); config != "" {
+		viper.SetConfigFile(config)
 	} else {
 		viper.SetConfigName(configFile)
 	}
