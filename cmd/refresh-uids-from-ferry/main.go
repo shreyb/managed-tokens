@@ -38,13 +38,13 @@ func init() {
 
 	// Get config file
 	// Check for override
-	if viper.GetString("configfile") != "" {
-		viper.SetConfigFile(viper.GetString("configfile"))
+	log.Info(viper.GetString("configfile"))
+	if config := viper.GetString("configfile"); config != "" {
+		viper.SetConfigFile(config)
 	} else {
 		viper.SetConfigName(configFile)
 	}
 
-	viper.SetConfigName(configFile)
 	viper.AddConfigPath("/etc/managed-tokens/")
 	viper.AddConfigPath("$HOME/.managed-tokens/")
 	viper.AddConfigPath(".")
@@ -141,16 +141,16 @@ func main() {
 		defer close(ferryDataChan)
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
-			go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
+			func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
+				// go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
 				defer ferryDataWg.Done()
 				entry, err := worker.GetFERRYUIDData(
 					username,
+					viper.GetString("ferry.host"),
+					viper.GetInt("ferry.port"),
 					ferryDataChan,
-					withTLSAuth(
-						viper.GetString("ferry.hostCert"),
-						viper.GetString("ferry.hostKey"),
-						viper.GetString("ferry.caPath"),
-					),
+					withTLSAuth(),
+					// withKerberosJWTAuth(),
 				)
 				if err != nil {
 					log.WithField("username", username).Error("Could not get FERRY UID data")
@@ -163,6 +163,10 @@ func main() {
 	}()
 	// Wait until FERRY data aggregation is done before we insert anything into DB
 	<-aggFERRYDataDone
+
+	if len(ferryData) == 0 {
+		log.Fatal("No data collected from FERRY.  Exiting")
+	}
 
 	if viper.GetBool("test") {
 		log.Info("Finished gathering data from FERRY")

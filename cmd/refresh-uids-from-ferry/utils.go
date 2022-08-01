@@ -3,9 +3,11 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
 	"strings"
@@ -37,7 +39,7 @@ func getAllAccountsFromConfig() []string {
 // withTLSAuth uses the passed in certificate ane key paths (hostCert, hostKey), and
 // path to a directory of CA certificates (caPath), to return a func that initializes
 // a TLS-secured *http.Client, send an HTTP request to a url, and returns the *http.Response object
-func withTLSAuth(hostCert, hostKey, caPath string) func(string, string) (*http.Response, error) {
+func withTLSAuth() func(string, string) (*http.Response, error) {
 	return func(url, verb string) (*http.Response, error) {
 		caCertSlice := make([]string, 0)
 		caCertPool := x509.NewCertPool()
@@ -45,20 +47,23 @@ func withTLSAuth(hostCert, hostKey, caPath string) func(string, string) (*http.R
 		// Adapted from  https://gist.github.com/michaljemala/d6f4e01c4834bf47a9c4
 		// Load host cert
 		// TODO review if these errors should be Fatal or just Error
-		cert, err := tls.LoadX509KeyPair(hostCert, hostKey)
+		cert, err := tls.LoadX509KeyPair(
+			viper.GetString("ferry.hostCert"),
+			viper.GetString("ferry.hostKey"),
+		)
 		if err != nil {
 			log.Fatal(err)
 		}
 
 		// Load CA certs
-		caFiles, err := ioutil.ReadDir(caPath)
+		caFiles, err := ioutil.ReadDir(viper.GetString("ferry.caPath"))
 		if err != nil {
-			log.WithField("caPath", caPath).Fatal(err)
+			log.WithField("caPath", viper.GetString("ferry.caPath")).Fatal(err)
 
 		}
 		for _, f := range caFiles {
 			if filepath.Ext(f.Name()) == ".pem" {
-				filenameToAdd := path.Join(caPath, f.Name())
+				filenameToAdd := path.Join(viper.GetString("ferry.caPath"), f.Name())
 				caCertSlice = append(caCertSlice, filenameToAdd)
 			}
 		}
@@ -101,22 +106,12 @@ func withTLSAuth(hostCert, hostKey, caPath string) func(string, string) (*http.R
 	}
 }
 
-// TODO Similarly, WithTokenAuth should get a bearer token, initialize the client, prepare and send the request using the bearer token in the
-// header, and return the response text as is.
-// We then pass this into GetFERRYUIDData so the function call looks like GetFERRYUIDData(WithTokenAuth, username)
-// Each of these funcs may need to be wrapped so we take the necessary parameters and return a func() *http.Response
-//
-// TODO
-// Figure out what info we need here, like maybe htgettoken executable path,
-// kerberos info to run kinit on, maybe viper config if this is moved into executable package
-// main
-
 func withKerberosJWTAuth() func(string, string) (*http.Response, error) {
 	return func(url, verb string) (*http.Response, error) {
 		// TODO go through this func and figure out if errors should be fatals or errors
 		var serviceName string
 
-		if viper.GetString("viper.serviceRole") != "" {
+		if viper.GetString("ferry.serviceRole") != "" {
 			serviceName = viper.GetString("ferry.serviceExperiment") + "_" + viper.GetString("ferry.serviceRole")
 		} else {
 			serviceName = viper.GetString("ferry.serviceExperiment")
@@ -136,46 +131,49 @@ func withKerberosJWTAuth() func(string, string) (*http.Response, error) {
 			log.Info("Cleared kerberos cache")
 		}()
 
-		// Tempfile for bearer token
-		bearerTokenFile, err := ioutil.TempFile("", "managed-tokens")
-		if err != nil {
-			log.Error("Could not create tempfile to store bearer token")
-			return &http.Response{}, err
-		}
-		defer func() {
-			os.Remove(bearerTokenFile.Name())
-			log.Info("Removed bearer token")
-		}()
-
 		serviceConfig, err := service.NewConfig(
 			s,
 			setkrb5ccname(krb5ccname),
 			setKeytabPath(),
-			setUserPrincipalAndHtgettokenopts(bearerTokenFile.Name()),
+			setUserPrincipalAndHtgettokenopts(),
 		)
 		if err != nil {
 			log.Error("Could not create new service configuration")
 			return &http.Response{}, err
 		}
 
-		// Get kerberos ticket and check it
-		if err := utils.GetKerberosTicket(serviceConfig); err != nil {
-			log.Error("Could not get kerberos ticket to generate JWT")
-			return &http.Response{}, err
-		}
-		if err := utils.CheckKerberosPrincipal(serviceConfig); err != nil {
-			log.Error("Verification of kerberos ticket failed")
-			return &http.Response{}, err
+		// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
+		if err := utils.SwitchKerberosCache(serviceConfig); err != nil {
+			log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
+			if err := utils.GetKerberosTicket(serviceConfig); err != nil {
+				log.Error("Could not get kerberos ticket to generate JWT")
+				return &http.Response{}, err
+			}
+			if err := utils.CheckKerberosPrincipal(serviceConfig); err != nil {
+				log.Error("Verification of kerberos ticket failed")
+				return &http.Response{}, err
+			}
 		}
 
-		// Get our token
-		if err := utils.GetToken(serviceConfig); err != nil {
+		// Get our bearer token and locate it
+		if err := utils.GetToken(serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {
 			log.Error("Could not get token to authenticate to FERRY")
 			return &http.Response{}, err
 		}
 
-		// Get bearer token file.  Maybe vaildate with jwt library? TODO
-		bearerBytes, err := ioutil.ReadFile(bearerTokenFile.Name())
+		bearerTokenDefaultLocation, err := getBearerTokenDefaultLocation()
+		if err != nil {
+			log.Error("Could not get default location for bearer tokens")
+			return &http.Response{}, err
+		}
+		defer func() {
+			if err := os.Remove(bearerTokenDefaultLocation); err != nil {
+				log.Error("Could not remove bearer token file")
+			}
+			log.Info("Removed bearer token file")
+		}()
+
+		bearerBytes, err := ioutil.ReadFile(bearerTokenDefaultLocation)
 		if err != nil {
 			log.Error("Could not open bearer token file for reading")
 			log.Error(err)
@@ -189,7 +187,10 @@ func withKerberosJWTAuth() func(string, string) (*http.Response, error) {
 			return &http.Response{}, err
 		}
 
-		bearerHeader := "Bearer " + string(bearerBytes[:])
+		tokenStringRaw := string(bearerBytes[:])
+		tokenString := strings.TrimSuffix(tokenStringRaw, "\n")
+
+		bearerHeader := "Bearer " + tokenString
 
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -197,19 +198,13 @@ func withKerberosJWTAuth() func(string, string) (*http.Response, error) {
 			return &http.Response{}, err
 		}
 		req.Header.Add("Authorization", bearerHeader)
-		client := &http.Client{}
-		resp, err := client.Do(req)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			log.Error("Could not send request")
 			log.Error(err)
 			return &http.Response{}, err
 		}
 
-		// kinit
-		// set command environment with credkey, kerb cache, htgettokenopts w/ outfile
-		// htgettoken -a fermicloud543.fnal.gov -i dune_production
-		// Read bearer token into header
-		// Initialize request like this here, and attach the bearer token header
 		return resp, nil
 	}
 }
@@ -224,23 +219,46 @@ func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
 
 func setKeytabPath() func(sc *service.Config) error {
 	return func(sc *service.Config) error {
-		sc.KeytabPath = viper.GetString("serviceKeytabPath")
+		sc.KeytabPath = viper.GetString("ferry.serviceKeytabPath")
 		return nil
 	}
 }
 
-func setUserPrincipalAndHtgettokenopts(bearerTokenFile string) func(sc *service.Config) error {
+func setUserPrincipalAndHtgettokenopts() func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.UserPrincipal = viper.GetString("ferry.serviceKerberosPrincipal")
 
 		credKey := strings.ReplaceAll(sc.UserPrincipal, "@FNAL.GOV", "")
 		// TODO Make htgettokenopts configurable
 		htgettokenOptsRaw := []string{
+			// "--vaultserver=" + viper.GetString("ferry.vaultServer"),
+			// "--outfile=" + bearerTokenFile,
 			"--credkey=" + credKey,
-			"--outfile=" + bearerTokenFile,
-			"--vaultserver=" + viper.GetString("ferry.vaultServer"),
 		}
 		sc.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
 		return nil
 	}
+}
+
+// Other utils
+func getBearerTokenDefaultLocation() (string, error) {
+	var location string
+	if location = os.Getenv("BEARER_TOKEN_FILE"); location != "" {
+		return location, nil
+	}
+
+	var tempDir string
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Error("Could not get current user")
+		return location, err
+	}
+	currentUID := currentUser.Uid
+	filename := fmt.Sprintf("bt_u%s", currentUID)
+
+	if tempDir = os.Getenv("XDG_RUNTIME_DIR"); tempDir == "" {
+		tempDir = os.TempDir()
+	}
+
+	return path.Join(tempDir, filename), nil
 }

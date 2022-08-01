@@ -74,7 +74,7 @@ func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 	return nil
 }
 
-func GetToken(sc *service.Config) error {
+func GetToken(sc *service.Config, vaultServer string) error {
 	if err := SwitchKerberosCache(sc); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
@@ -83,14 +83,25 @@ func GetToken(sc *service.Config) error {
 		return err
 	}
 
-	htgettokenCmd := exec.Command(vaultExecutables["htgettoken"], "-i", sc.Service.Name())
+	htgettokenArgs := []string{
+		"-a",
+		vaultServer,
+		"-i",
+		sc.Service.Experiment(),
+	}
+
+	if sc.Service.Role() != service.DefaultRole {
+		htgettokenArgs = append(htgettokenArgs, []string{"-r", sc.Service.Role()}...)
+	}
+
+	htgettokenCmd := exec.Command(vaultExecutables["htgettoken"], htgettokenArgs...)
 	htgettokenCmd = EnvironmentWrappedCommand(htgettokenCmd, &sc.CommandEnvironment)
 
 	log.WithField("service", sc.Service.Name()).Info("Running htgettoken to get vault and bearer tokens")
 
 	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
 		log.WithField("service", sc.Service.Name()).Error("Could not get vault token")
-		log.WithField("service", sc.Service.Name()).Error(stdoutStderr)
+		log.WithField("service", sc.Service.Name()).Error(string(stdoutStderr[:]))
 		return err
 	}
 

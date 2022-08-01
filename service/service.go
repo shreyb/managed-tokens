@@ -1,13 +1,14 @@
 package service
 
 import (
-	"errors"
 	"regexp"
 
 	log "github.com/sirupsen/logrus"
 )
 
-var servicePattern = regexp.MustCompile(`([[:alnum:]]+)_([[:alnum:]]+)`)
+const DefaultRole string = "Analysis"
+
+var serviceWithRolePattern = regexp.MustCompile(`([[:alnum:]]+)_([[:alnum:]]+)`)
 
 type Service interface {
 	Experiment() string
@@ -17,21 +18,23 @@ type Service interface {
 
 func NewService(serviceName string) (Service, error) {
 	s := &service{}
-	matches := servicePattern.FindStringSubmatch(serviceName)
-	if len(matches) < 3 {
-		msg := "could not parse experiment and role from service"
-		log.WithField("service", serviceName).Error(msg)
-		return s, errors.New(msg)
+
+	s.name = serviceName
+	matches := serviceWithRolePattern.FindStringSubmatch(serviceName)
+	if len(matches) == 3 {
+		s.experiment = matches[1]
+		s.role = matches[2]
+	} else {
+		log.WithField("service", serviceName).Infof("Service does not include role.  Setting role to defaultRole %s", DefaultRole)
+		s.experiment = serviceName
+		s.role = DefaultRole
 	}
 
 	log.WithFields(log.Fields{
-		"service":    serviceName,
-		"experiment": matches[1],
-		"role":       matches[2],
+		"service":    s.name,
+		"experiment": s.experiment,
+		"role":       s.role,
 	}).Debug("Parsed experiment and role from service")
-	s.name = serviceName
-	s.experiment = matches[1]
-	s.role = matches[2]
 
 	return s, nil
 }
