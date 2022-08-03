@@ -106,106 +106,64 @@ func withTLSAuth() func(string, string) (*http.Response, error) {
 	}
 }
 
-func withKerberosJWTAuth() func(string, string) (*http.Response, error) {
-	return func(url, verb string) (*http.Response, error) {
-		// TODO go through this func and figure out if errors should be fatals or errors
-		var serviceName string
-
-		if viper.GetString("ferry.serviceRole") != "" {
-			serviceName = viper.GetString("ferry.serviceExperiment") + "_" + viper.GetString("ferry.serviceRole")
-		} else {
-			serviceName = viper.GetString("ferry.serviceExperiment")
-		}
-		s, err := service.NewService(serviceName)
-		if err != nil {
-			log.WithField("service", serviceName).Fatal("Could not initialize service object")
-		}
-
-		// Get krb5ccname directory
-		krb5ccname, err := ioutil.TempDir("", "managed-tokens")
-		if err != nil {
-			log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
-		}
-		defer func() {
-			os.RemoveAll(krb5ccname)
-			log.Info("Cleared kerberos cache")
-		}()
-
-		serviceConfig, err := service.NewConfig(
-			s,
-			setkrb5ccname(krb5ccname),
-			setKeytabPath(),
-			setUserPrincipalAndHtgettokenopts(),
-		)
-		if err != nil {
-			log.Error("Could not create new service configuration")
-			return &http.Response{}, err
-		}
-
-		// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
-		if err := utils.SwitchKerberosCache(serviceConfig); err != nil {
-			log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
-			if err := utils.GetKerberosTicket(serviceConfig); err != nil {
-				log.Error("Could not get kerberos ticket to generate JWT")
+func withKerberosJWTAuth(serviceConfig *service.Config) func() func(string, string) (*http.Response, error) {
+	// This returns a func that returns a func. This was done to have withKerberosJWTAuth(serviceConfig) have the same
+	// return type as withTLSAuth.
+	return func() func(string, string) (*http.Response, error) {
+		return func(url, verb string) (*http.Response, error) {
+			// TODO go through this func and figure out if errors should be fatals or errors
+			// Get our bearer token and locate it
+			if err := utils.GetToken(serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {
+				log.Error("Could not get token to authenticate to FERRY")
 				return &http.Response{}, err
 			}
-			if err := utils.CheckKerberosPrincipal(serviceConfig); err != nil {
-				log.Error("Verification of kerberos ticket failed")
+
+			bearerTokenDefaultLocation, err := getBearerTokenDefaultLocation()
+			if err != nil {
+				log.Error("Could not get default location for bearer tokens")
 				return &http.Response{}, err
 			}
-		}
+			defer func() {
+				if err := os.Remove(bearerTokenDefaultLocation); err != nil {
+					log.Error("Could not remove bearer token file")
+				}
+				log.Info("Removed bearer token file")
+			}()
 
-		// Get our bearer token and locate it
-		if err := utils.GetToken(serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {
-			log.Error("Could not get token to authenticate to FERRY")
-			return &http.Response{}, err
-		}
-
-		bearerTokenDefaultLocation, err := getBearerTokenDefaultLocation()
-		if err != nil {
-			log.Error("Could not get default location for bearer tokens")
-			return &http.Response{}, err
-		}
-		defer func() {
-			if err := os.Remove(bearerTokenDefaultLocation); err != nil {
-				log.Error("Could not remove bearer token file")
+			bearerBytes, err := ioutil.ReadFile(bearerTokenDefaultLocation)
+			if err != nil {
+				log.Error("Could not open bearer token file for reading")
+				log.Error(err)
+				return &http.Response{}, err
 			}
-			log.Info("Removed bearer token file")
-		}()
 
-		bearerBytes, err := ioutil.ReadFile(bearerTokenDefaultLocation)
-		if err != nil {
-			log.Error("Could not open bearer token file for reading")
-			log.Error(err)
-			return &http.Response{}, err
+			// Validate token
+			if _, err := jwt.Parse(bearerBytes); err != nil {
+				log.Error("Token validation failed: not a valid bearer (JWT) token")
+				log.Error(err)
+				return &http.Response{}, err
+			}
+
+			tokenStringRaw := string(bearerBytes[:])
+			tokenString := strings.TrimSuffix(tokenStringRaw, "\n")
+
+			bearerHeader := "Bearer " + tokenString
+
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				log.Error("Could not initialize HTTP request")
+				return &http.Response{}, err
+			}
+			req.Header.Add("Authorization", bearerHeader)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				log.Error("Could not send request")
+				log.Error(err)
+				return &http.Response{}, err
+			}
+
+			return resp, nil
 		}
-
-		// Validate token
-		if _, err := jwt.Parse(bearerBytes); err != nil {
-			log.Error("Token validation failed: not a valid bearer (JWT) token")
-			log.Error(err)
-			return &http.Response{}, err
-		}
-
-		tokenStringRaw := string(bearerBytes[:])
-		tokenString := strings.TrimSuffix(tokenStringRaw, "\n")
-
-		bearerHeader := "Bearer " + tokenString
-
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			log.Error("Could not initialize HTTP request")
-			return &http.Response{}, err
-		}
-		req.Header.Add("Authorization", bearerHeader)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			log.Error("Could not send request")
-			log.Error(err)
-			return &http.Response{}, err
-		}
-
-		return resp, nil
 	}
 }
 
@@ -261,4 +219,50 @@ func getBearerTokenDefaultLocation() (string, error) {
 	}
 
 	return path.Join(tempDir, filename), nil
+}
+
+func newFERRYServiceConfigWithKerberosAuth() (*service.Config, error) {
+	var serviceName string
+
+	if viper.GetString("ferry.serviceRole") != "" {
+		serviceName = viper.GetString("ferry.serviceExperiment") + "_" + viper.GetString("ferry.serviceRole")
+	} else {
+		serviceName = viper.GetString("ferry.serviceExperiment")
+	}
+	s, err := service.NewService(serviceName)
+	if err != nil {
+		log.WithField("service", serviceName).Fatal("Could not initialize service object")
+		return &service.Config{}, err
+	}
+
+	// Get krb5ccname directory
+	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
+	if err != nil {
+		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+	}
+
+	serviceConfig, err := service.NewConfig(
+		s,
+		setkrb5ccname(krb5ccname),
+		setKeytabPath(),
+		setUserPrincipalAndHtgettokenopts(),
+	)
+	if err != nil {
+		log.Error("Could not create new service configuration")
+		return &service.Config{}, err
+	}
+
+	// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
+	if err := utils.SwitchKerberosCache(serviceConfig); err != nil {
+		log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
+		if err := utils.GetKerberosTicket(serviceConfig); err != nil {
+			log.Error("Could not get kerberos ticket to generate JWT")
+			return &service.Config{}, err
+		}
+		if err := utils.CheckKerberosPrincipal(serviceConfig); err != nil {
+			log.Error("Verification of kerberos ticket failed")
+			return &service.Config{}, err
+		}
+	}
+	return serviceConfig, nil
 }

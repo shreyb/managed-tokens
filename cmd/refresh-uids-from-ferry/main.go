@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -32,6 +33,7 @@ func init() {
 	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
+	pflag.String("authmethod", "tls", "Choose method for authentication to FERRY.  Currently-supported choices are \"tls\" and \"jwt\"")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -139,6 +141,27 @@ func main() {
 	// Start workers to get data from FERRY
 	func() {
 		defer close(ferryDataChan)
+
+		// Pick our authentication method
+		var authFunc func() func(string, string) (*http.Response, error)
+		switch viper.GetString("authmethod") {
+		case "tls":
+			authFunc = withTLSAuth
+			log.Debug("Using TLS to authenticate to FERRY")
+		case "jwt":
+			sc, err := newFERRYServiceConfigWithKerberosAuth()
+			if err != nil {
+				log.Error("Could not create service config to authenticate to FERRY with a JWT. Exiting")
+				os.Exit(1)
+			}
+			defer func() {
+				os.RemoveAll(sc.Krb5ccname)
+				log.Info("Cleared kerberos cache")
+			}()
+			authFunc = withKerberosJWTAuth(sc)
+			log.Debug("Using JWT to authenticate to FERRY")
+		}
+
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
 			func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
@@ -149,8 +172,7 @@ func main() {
 					viper.GetString("ferry.host"),
 					viper.GetInt("ferry.port"),
 					ferryDataChan,
-					withTLSAuth(),
-					// withKerberosJWTAuth(),
+					authFunc(),
 				)
 				if err != nil {
 					log.WithField("username", username).Error("Could not get FERRY UID data")
