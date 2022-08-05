@@ -220,7 +220,6 @@ func main() {
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
 
 	// Channels and worker for getting/storing vault token
-	// TODO Implement ChannelGroup for storeToken and pushToken workers
 	condorVaultChans := worker.NewChannelsForWorkers(len(serviceConfigs))
 	go worker.StoreAndGetTokenWorker(condorVaultChans)
 	LoadServiceConfigsIntoChannel(condorVaultChans.GetServiceConfigChan(), serviceConfigs)
@@ -245,10 +244,22 @@ func main() {
 		return
 	}
 
-	// TODO Ping all nodes concurrently, receive status in notifications Manager, and don't start pushing
-	// Tokens until all of those are done
+	// Ping all nodes concurrently, receive status in notifications Manager, and don't start pushing
+	// tokens until all of those are done
 
-	// Send to nodes
+	// Channels and worker for pinging nodes
+	pingChans := worker.NewChannelsForWorkers(len(serviceConfigs))
+	go worker.PingAggregatorWorker(pingChans)
+	LoadServiceConfigsIntoChannel(pingChans.GetServiceConfigChan(), serviceConfigs)
+
+	for pingSuccess := range pingChans.GetSuccessChan() {
+		if !pingSuccess.GetSuccess() {
+			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
+			log.WithField("service", pingSuccess.GetServiceName()).Error(msg)
+		}
+	}
+
+	// Send tokens to nodes
 
 	// Channels and worker for pushing tokens
 	pushChans := worker.NewChannelsForWorkers(len(serviceConfigs))
