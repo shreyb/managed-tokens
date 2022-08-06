@@ -201,7 +201,7 @@ func main() {
 					setCondorCollectorHost(serviceConfigPath),
 					setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, s.Experiment()),
 					setKeytabOverride(serviceConfigPath),
-					setDesiredUIByOverrideOrLookup(serviceConfigPath),
+					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
 				)

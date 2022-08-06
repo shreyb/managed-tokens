@@ -129,7 +129,7 @@ func main() {
 	defer db.Close()
 
 	if newDB {
-		if err = utils.CreateUidsTableInDB(db); err != nil {
+		if err = utils.CreateUidsTableInDB(ctx, db); err != nil {
 			log.Fatal("Error creating UID table in database")
 		}
 	}
@@ -221,12 +221,12 @@ func main() {
 		ferryDataConverted = append(ferryDataConverted, entry)
 	}
 
-	if err := utils.InsertUidsIntoTableFromFERRY(db, ferryDataConverted); err != nil {
+	if err := utils.InsertUidsIntoTableFromFERRY(ctx, db, ferryDataConverted); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}
 
 	// Confirm and verify that INSERT was successful
-	count, err := utils.ConfirmUIDsInTable(db)
+	count, err := utils.ConfirmUIDsInTable(ctx, db)
 	if err != nil {
 		log.Fatal("Error running verification of INSERT")
 	}

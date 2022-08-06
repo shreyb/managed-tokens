@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"html/template"
@@ -100,7 +101,7 @@ func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error 
 	}
 }
 
-func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*service.Config) error {
+func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath string) func(*service.Config) error {
 	return func(sc *service.Config) error {
 		if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
 			sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
@@ -126,7 +127,7 @@ func setDesiredUIByOverrideOrLookup(serviceConfigPath string) func(*service.Conf
 				}
 				defer db.Close()
 
-				uid, err = utils.GetUIDByUsername(db, username)
+				uid, err = utils.GetUIDByUsername(ctx, db, username)
 				if err != nil {
 					log.Error("Could not get UID by username")
 					return

@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"context"
 	"database/sql"
 	"strconv"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -38,8 +40,12 @@ type FerryUIDDatum interface {
 	Uid() int
 }
 
-func CreateUidsTableInDB(db *sql.DB) error {
+func CreateUidsTableInDB(ctx context.Context, db *sql.DB) error {
 	_, err := db.Exec(createUIDTableStatement)
+	if ctx.Err() == context.DeadlineExceeded {
+		log.Error("Context timeout")
+		return ctx.Err()
+	}
 	if err != nil {
 		log.Error(err)
 		return err
@@ -49,9 +55,13 @@ func CreateUidsTableInDB(db *sql.DB) error {
 	return nil
 }
 
-func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryUIDDatum) error {
+func InsertUidsIntoTableFromFERRY(ctx context.Context, db *sql.DB, ferryData []FerryUIDDatum) error {
 	tx, err := db.Begin()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return ctx.Err()
+		}
 		log.Error(err)
 		log.Error("Could not open transaction to database")
 		return err
@@ -59,6 +69,10 @@ func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryUIDDatum) error {
 
 	insertStatement, err := tx.Prepare(insertIntoUIDTableStatement)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return ctx.Err()
+		}
 		log.Error(err)
 		log.Error("Could not prepare INSERT statement to database")
 		return err
@@ -68,6 +82,10 @@ func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryUIDDatum) error {
 	for _, datum := range ferryData {
 		_, err := insertStatement.Exec(datum.Username(), datum.Uid(), datum.Uid())
 		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Error("Context timeout")
+				return ctx.Err()
+			}
 			log.Error(err)
 			log.Error("Could not insert FERRY data into database")
 			return err
@@ -76,6 +94,10 @@ func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryUIDDatum) error {
 
 	err = tx.Commit()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return ctx.Err()
+		}
 		log.Error(err)
 		log.Error("Could not commit transaction to database.  Rolling back.")
 		return err
@@ -85,13 +107,17 @@ func InsertUidsIntoTableFromFERRY(db *sql.DB, ferryData []FerryUIDDatum) error {
 	return nil
 }
 
-func ConfirmUIDsInTable(db *sql.DB) (int, error) {
+func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) (int, error) {
 	var username string
 	var uid int
 	var rowsCount int
 	rowsOut := make([][]string, 0)
 	rows, err := db.Query(confirmUIDsInTableStatement)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return rowsCount, ctx.Err()
+		}
 		log.Error("Error running SELECT query against database")
 		log.Error(err)
 		return rowsCount, err
@@ -100,6 +126,10 @@ func ConfirmUIDsInTable(db *sql.DB) (int, error) {
 	for rows.Next() {
 		err := rows.Scan(&username, &uid)
 		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.Error("Context timeout")
+				return rowsCount, ctx.Err()
+			}
 			log.Error("Error retrieving results of SELECT query")
 			log.Error(err)
 			return rowsCount, err
@@ -119,11 +149,18 @@ func ConfirmUIDsInTable(db *sql.DB) (int, error) {
 	return rowsCount, nil
 }
 
-func GetUIDByUsername(db *sql.DB, username string) (int, error) {
+func GetUIDByUsername(ctx context.Context, db *sql.DB, username string) (int, error) {
 	var uid int
+	// Using a derived context here since this lookup should literally take microseconds.
+	queryContext, queryCancel := context.WithTimeout(ctx, time.Duration(2*time.Second))
+	defer queryCancel()
 
 	stmt, err := db.Prepare(getUIDbyUsernameStatement)
 	if err != nil {
+		if queryContext.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return uid, queryContext.Err()
+		}
 		log.Error("Could not prepare query to get UID")
 		log.Error(err)
 		return uid, err
@@ -132,6 +169,10 @@ func GetUIDByUsername(db *sql.DB, username string) (int, error) {
 
 	err = stmt.QueryRow(username).Scan(&uid)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return uid, ctx.Err()
+		}
 		log.Error("Could not execute query to get UID")
 		log.Error(err)
 		return uid, err
