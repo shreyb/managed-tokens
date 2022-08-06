@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/rifflock/lfshook"
@@ -96,6 +98,16 @@ func main() {
 	var dbLocation string
 	var newDB bool
 	var db *sql.DB
+	var globalTimeout time.Duration
+	globalTimeout, err := time.ParseDuration(viper.GetString("timeouts.globalTimeout"))
+	if err != nil {
+		log.Error("Could not parse global timeout.  Using default value of 300s")
+		globalTimeout = time.Duration(300 * time.Second)
+	}
+
+	// Global context
+	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
+	defer cancel()
 
 	// Open connection to the SQLite database where UID info will be stored
 	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
@@ -109,7 +121,7 @@ func main() {
 		newDB = true
 	}
 
-	db, err := sql.Open("sqlite3", dbLocation)
+	db, err = sql.Open("sqlite3", dbLocation)
 	if err != nil {
 		log.Error("Could not open the UID database file")
 		log.Fatal(err)
@@ -149,7 +161,7 @@ func main() {
 			authFunc = withTLSAuth
 			log.Debug("Using TLS to authenticate to FERRY")
 		case "jwt":
-			sc, err := newFERRYServiceConfigWithKerberosAuth()
+			sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 			if err != nil {
 				log.Error("Could not create service config to authenticate to FERRY with a JWT. Exiting")
 				os.Exit(1)
@@ -219,7 +231,7 @@ func main() {
 		log.Fatal("Error running verification of INSERT")
 	}
 	if count != len(ferryData) {
-		log.Fatal("Verification of INSERT failed.  Expected %d total UID rows, got %d", len(ferryData), count)
+		log.Fatalf("Verification of INSERT failed.  Expected %d total UID rows, got %d", len(ferryData), count)
 	}
 	//TODO Make this a debug
 	log.Info("Verified INSERT. Done")

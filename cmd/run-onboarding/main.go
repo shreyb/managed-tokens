@@ -4,8 +4,10 @@ import (
 
 	// "os/user"
 
+	"context"
 	"io/ioutil"
 	"os"
+	"time"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
@@ -97,8 +99,19 @@ func init() {
 
 func main() {
 	var serviceConfig *service.Config
+	var globalTimeout time.Duration
+	globalTimeout, err := time.ParseDuration(viper.GetString("timeouts.globalTimeout"))
+	if err != nil {
+		log.Error("Could not parse global timeout.  Using default value of 300s")
+		globalTimeout = time.Duration(300 * time.Second)
+	}
+
+	// Global context
+	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
+	defer cancel()
 	// TODO delete any generated vault token
 
+	// Temporary directory for kerberos caches
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
@@ -108,15 +121,10 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
-	// All my channels
-	// serviceConfigsForKinit := make(chan *service.Config, 1)
-	// kerberosTicketsDone := make(chan worker.SuccessReporter)
-	kerberosChannels := worker.NewChannelsForWorkers(1)
-	// go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
 	// Get Kerberos tickets
-	go worker.GetKerberosTicketsWorker(kerberosChannels)
-
-	// go worker.GetKerberosTicketsWorker(serviceConfigsForKinit, kerberosTicketsDone)
+	// Channels and worker for getting kerberos tickets
+	kerberosChannels := worker.NewChannelsForWorkers(1)
+	go worker.GetKerberosTicketsWorker(ctx, kerberosChannels)
 
 	func() {
 		defer close(kerberosChannels.GetServiceConfigChan())

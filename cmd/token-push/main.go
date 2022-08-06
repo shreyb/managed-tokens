@@ -153,6 +153,8 @@ func main() {
 		log.Error("Could not parse global timeout.  Using default value of 300s")
 		globalTimeout = time.Duration(300 * time.Second)
 	}
+
+	// Global context
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 

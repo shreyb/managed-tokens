@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -221,7 +222,7 @@ func getBearerTokenDefaultLocation() (string, error) {
 	return path.Join(tempDir, filename), nil
 }
 
-func newFERRYServiceConfigWithKerberosAuth() (*service.Config, error) {
+func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config, error) {
 	var serviceName string
 
 	if viper.GetString("ferry.serviceRole") != "" {
@@ -253,13 +254,13 @@ func newFERRYServiceConfigWithKerberosAuth() (*service.Config, error) {
 	}
 
 	// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
-	if err := utils.SwitchKerberosCache(serviceConfig); err != nil {
+	if err := utils.SwitchKerberosCache(ctx, serviceConfig); err != nil {
 		log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
-		if err := utils.GetKerberosTicket(serviceConfig); err != nil {
+		if err := utils.GetKerberosTicket(ctx, serviceConfig); err != nil {
 			log.Error("Could not get kerberos ticket to generate JWT")
 			return &service.Config{}, err
 		}
-		if err := utils.CheckKerberosPrincipal(serviceConfig); err != nil {
+		if err := utils.CheckKerberosPrincipal(ctx, serviceConfig); err != nil {
 			log.Error("Verification of kerberos ticket failed")
 			return &service.Config{}, err
 		}
