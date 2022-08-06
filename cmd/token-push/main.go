@@ -264,7 +264,7 @@ func main() {
 
 	// Channels and worker for pinging nodes
 	pingChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	go worker.PingAggregatorWorker(pingChans)
+	go worker.PingAggregatorWorker(ctx, pingChans)
 	LoadServiceConfigsIntoChannel(pingChans.GetServiceConfigChan(), serviceConfigs)
 
 	for pingSuccess := range pingChans.GetSuccessChan() {

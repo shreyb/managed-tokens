@@ -4,11 +4,14 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
+
+const pingTimeoutStr string = "10s"
 
 type pingSuccess struct {
 	serviceName string
@@ -23,10 +26,15 @@ func (p *pingSuccess) GetSuccess() bool {
 	return p.success
 }
 
-func PingAggregatorWorker(chans ChannelsForWorkers) {
+func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	var wg sync.WaitGroup
 	defer wg.Wait()
+
+	pingTimeout, err := time.ParseDuration(pingTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse ping tokens timeout duration")
+	}
 
 	for sc := range chans.GetServiceConfigChan() {
 		wg.Add(1)
@@ -46,9 +54,9 @@ func PingAggregatorWorker(chans ChannelsForWorkers) {
 				nodes = append(nodes, utils.NewNode(node))
 			}
 
-			//TODO Change this context
-			ctx := context.Background()
-			pingStatus := utils.PingAllNodes(ctx, nodes...)
+			pingContext, pingCancel := context.WithTimeout(ctx, pingTimeout)
+			defer pingCancel()
+			pingStatus := utils.PingAllNodes(pingContext, nodes...)
 
 			failedNodes := make([]utils.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
