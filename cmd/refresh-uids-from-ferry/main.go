@@ -170,7 +170,7 @@ func main() {
 				os.RemoveAll(sc.Krb5ccname)
 				log.Info("Cleared kerberos cache")
 			}()
-			authFunc = withKerberosJWTAuth(sc)
+			authFunc = withKerberosJWTAuth(ctx, sc)
 			log.Debug("Using JWT to authenticate to FERRY")
 		}
 

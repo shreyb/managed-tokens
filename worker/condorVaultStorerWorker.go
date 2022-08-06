@@ -1,11 +1,16 @@
 package worker
 
 import (
+	"context"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 )
+
+const vaultTimeoutStr string = "60s"
 
 type vaultStorerSuccess struct {
 	serviceName string
@@ -20,10 +25,17 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 	return v.success
 }
 
-func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
+func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	var interactive bool
+	vaultTimeout, err := time.ParseDuration(vaultTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse vault storer timeout duration")
+	}
 	for sc := range chans.GetServiceConfigChan() {
+		vaultContext, vaultCancel := context.WithTimeout(ctx, vaultTimeout)
+		defer vaultCancel()
+
 		success := &vaultStorerSuccess{
 			serviceName: sc.Service.Name(),
 		}
@@ -33,7 +45,7 @@ func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- v
 			}(success)
 
-			if err := utils.StoreAndGetTokens(sc, interactive); err != nil {
+			if err := utils.StoreAndGetTokens(vaultContext, sc, interactive); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -45,7 +57,15 @@ func StoreAndGetTokenWorker(chans ChannelsForWorkers) {
 	}
 }
 
-func StoreAndGetRefreshAndVaultTokens(sc *service.Config) error {
+func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) error {
 	interactive := true
-	return utils.StoreAndGetTokens(sc, interactive)
+
+	vaultTimeout, err := time.ParseDuration(vaultTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse vault storer timeout duration")
+	}
+	vaultContext, vaultCancel := context.WithTimeout(ctx, vaultTimeout)
+	defer vaultCancel()
+
+	return utils.StoreAndGetTokens(vaultContext, sc, interactive)
 }

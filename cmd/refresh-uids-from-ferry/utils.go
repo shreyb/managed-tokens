@@ -107,14 +107,14 @@ func withTLSAuth() func(string, string) (*http.Response, error) {
 	}
 }
 
-func withKerberosJWTAuth(serviceConfig *service.Config) func() func(string, string) (*http.Response, error) {
+func withKerberosJWTAuth(ctx context.Context, serviceConfig *service.Config) func() func(string, string) (*http.Response, error) {
 	// This returns a func that returns a func. This was done to have withKerberosJWTAuth(serviceConfig) have the same
 	// return type as withTLSAuth.
 	return func() func(string, string) (*http.Response, error) {
 		return func(url, verb string) (*http.Response, error) {
 			// TODO go through this func and figure out if errors should be fatals or errors
 			// Get our bearer token and locate it
-			if err := utils.GetToken(serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {
+			if err := utils.GetToken(ctx, serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {
 				log.Error("Could not get token to authenticate to FERRY")
 				return &http.Response{}, err
 			}

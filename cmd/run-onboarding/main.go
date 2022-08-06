@@ -169,7 +169,7 @@ func main() {
 		}
 	}
 
-	if err := worker.StoreAndGetRefreshAndVaultTokens(serviceConfig); err != nil {
+	if err := worker.StoreAndGetRefreshAndVaultTokens(ctx, serviceConfig); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": serviceConfig.Service.Experiment(),
 			"role":       serviceConfig.Service.Role(),

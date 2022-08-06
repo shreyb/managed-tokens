@@ -236,7 +236,7 @@ func main() {
 
 	// Channels and worker for getting/storing vault token
 	condorVaultChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	go worker.StoreAndGetTokenWorker(condorVaultChans)
+	go worker.StoreAndGetTokenWorker(ctx, condorVaultChans)
 	LoadServiceConfigsIntoChannel(condorVaultChans.GetServiceConfigChan(), serviceConfigs)
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,

@@ -28,11 +28,17 @@ func init() {
 	}
 }
 
-func StoreAndGetTokens(sc *service.Config, interactive bool) error {
+func StoreAndGetTokens(ctx context.Context, sc *service.Config, interactive bool) error {
 	// kswitch
 	// TODO:  Change this to passed in context later
-	ctx := context.Background()
 	if err := SwitchKerberosCache(ctx, sc); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -41,7 +47,14 @@ func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 	}
 
 	// Get token and store it in vault
-	if err := getTokensandStoreinVault(sc, interactive); err != nil {
+	if err := getTokensandStoreinVault(ctx, sc, interactive); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -77,10 +90,16 @@ func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 	return nil
 }
 
-func GetToken(sc *service.Config, vaultServer string) error {
+func GetToken(ctx context.Context, sc *service.Config, vaultServer string) error {
 	// TODO:  CHange this to passed in context later
-	ctx := context.Background()
 	if err := SwitchKerberosCache(ctx, sc); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -100,7 +119,7 @@ func GetToken(sc *service.Config, vaultServer string) error {
 		htgettokenArgs = append(htgettokenArgs, []string{"-r", sc.Service.Role()}...)
 	}
 
-	htgettokenCmd := exec.Command(vaultExecutables["htgettoken"], htgettokenArgs...)
+	htgettokenCmd := exec.CommandContext(ctx, vaultExecutables["htgettoken"], htgettokenArgs...)
 	htgettokenCmd = EnvironmentWrappedCommand(htgettokenCmd, &sc.CommandEnvironment)
 	// Get rid of all this when it works
 	htgettokenCmd.Stdout = os.Stdout
@@ -108,27 +127,27 @@ func GetToken(sc *service.Config, vaultServer string) error {
 	log.Debug(htgettokenCmd.Args)
 
 	log.WithField("service", sc.Service.Name()).Info("Running htgettoken to get vault and bearer tokens")
-
-	err := htgettokenCmd.Start()
-	if err != nil {
+	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
+		log.WithField("service", sc.Service.Name()).Error("Could not get vault token")
+		log.WithField("service", sc.Service.Name()).Error(string(stdoutStderr[:]))
+		return err
 	}
-	err = htgettokenCmd.Wait()
-	if err != nil {
-	}
-	// if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
-	// 	log.WithField("service", sc.Service.Name()).Error("Could not get vault token")
-	// 	log.WithField("service", sc.Service.Name()).Error(string(stdoutStderr[:]))
-	// 	return err
-	// }
 
 	log.WithField("service", sc.Service.Name()).Info("Successfully got vault token")
 	return nil
 }
 
-func getTokensandStoreinVault(sc *service.Config, interactive bool) error {
+func getTokensandStoreinVault(ctx context.Context, sc *service.Config, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
-	getTokensAndStoreInVaultCmd := exec.Command(vaultExecutables["condor_vault_storer"], sc.Service.Name())
+	getTokensAndStoreInVaultCmd := exec.CommandContext(ctx, vaultExecutables["condor_vault_storer"], sc.Service.Name())
 	getTokensAndStoreInVaultCmd = EnvironmentWrappedCommand(getTokensAndStoreInVaultCmd, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
@@ -142,12 +161,26 @@ func getTokensandStoreinVault(sc *service.Config, interactive bool) error {
 		getTokensAndStoreInVaultCmd.Stderr = os.Stderr
 
 		if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Error("Context timeout")
+				return ctx.Err()
+			}
 			log.WithFields(log.Fields{
 				"experiment": sc.Service.Experiment(),
 				"role":       sc.Service.Role(),
 			}).Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
 		}
 		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Error("Context timeout")
+				return ctx.Err()
+			}
 			log.WithFields(log.Fields{
 				"experiment": sc.Service.Experiment(),
 				"role":       sc.Service.Role(),
@@ -156,6 +189,13 @@ func getTokensandStoreinVault(sc *service.Config, interactive bool) error {
 		}
 	} else {
 		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Error("Context timeout")
+				return ctx.Err()
+			}
 			log.WithFields(log.Fields{
 				"experiment": sc.Service.Experiment(),
 				"role":       sc.Service.Role(),
