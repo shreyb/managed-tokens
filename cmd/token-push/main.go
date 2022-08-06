@@ -278,7 +278,7 @@ func main() {
 
 	// Channels and worker for pushing tokens
 	pushChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	go worker.PushTokensWorker(pushChans)
+	go worker.PushTokensWorker(ctx, pushChans)
 	LoadServiceConfigsIntoChannel(pushChans.GetServiceConfigChan(), serviceConfigs)
 
 	// Aggregate the successes

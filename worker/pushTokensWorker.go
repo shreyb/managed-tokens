@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os/user"
+	"time"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
+
+const pushTimeoutStr string = "30s"
 
 type pushTokenSuccess struct {
 	serviceName string
@@ -23,8 +26,13 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 	return v.success
 }
 
-func PushTokensWorker(chans ChannelsForWorkers) {
+func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
+	pushTimeout, err := time.ParseDuration(pushTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse push tokens timeout duration")
+	}
+
 	for sc := range chans.GetServiceConfigChan() {
 		pushSuccess := &pushTokenSuccess{
 			serviceName: sc.Service.Name(),
@@ -68,7 +76,9 @@ func PushTokensWorker(chans ChannelsForWorkers) {
 			numFailures := 0
 			for _, destinationNode := range sc.Nodes {
 				for _, destinationFilename := range destinationFilenames {
-					if err := pushToNodes(sc, sourceFilename, destinationNode, destinationFilename); err != nil {
+					pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+					defer pushCancel()
+					if err := pushToNodes(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
 						log.WithFields(log.Fields{
 							"experiment": sc.Service.Experiment(),
 							"role":       sc.Service.Role(),
@@ -86,7 +96,7 @@ func PushTokensWorker(chans ChannelsForWorkers) {
 	}
 }
 
-func pushToNodes(sc *service.Config, sourceFile, node, destinationFile string) error {
+func pushToNodes(ctx context.Context, sc *service.Config, sourceFile, node, destinationFile string) error {
 	rsyncConfig := utils.NewRsyncSetup(
 		sc.Account,
 		node,
@@ -95,7 +105,7 @@ func pushToNodes(sc *service.Config, sourceFile, node, destinationFile string) e
 		&sc.CommandEnvironment,
 	)
 
-	if err := rsyncConfig.CopyToDestination(sourceFile); err != nil {
+	if err := rsyncConfig.CopyToDestination(ctx, sourceFile); err != nil {
 		log.WithFields(log.Fields{
 			"experiment":          sc.Service.Experiment(),
 			"role":                sc.Service.Role(),

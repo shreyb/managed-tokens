@@ -37,9 +37,7 @@ func NewRsyncSetup(account, node, destination, sshOptions string, env service.En
 	}
 }
 
-//func (r *rsyncSetup) CopyToDestination() TODO : Add context
-func (r *rsyncSetup) CopyToDestination(source string) error {
-	ctx := context.Background()
+func (r *rsyncSetup) CopyToDestination(ctx context.Context, source string) error {
 	return r.copyToDestination(ctx, source)
 }
 
