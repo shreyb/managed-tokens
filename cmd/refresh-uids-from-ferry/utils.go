@@ -40,78 +40,80 @@ func getAllAccountsFromConfig() []string {
 // withTLSAuth uses the passed in certificate ane key paths (hostCert, hostKey), and
 // path to a directory of CA certificates (caPath), to return a func that initializes
 // a TLS-secured *http.Client, send an HTTP request to a url, and returns the *http.Response object
-func withTLSAuth() func(string, string) (*http.Response, error) {
-	return func(url, verb string) (*http.Response, error) {
-		caCertSlice := make([]string, 0)
-		caCertPool := x509.NewCertPool()
+func withTLSAuth(ctx context.Context) func(context.Context) func(context.Context, string, string) (*http.Response, error) {
+	return func(context.Context) func(context.Context, string, string) (*http.Response, error) {
+		return func(ctx context.Context, url, verb string) (*http.Response, error) {
+			caCertSlice := make([]string, 0)
+			caCertPool := x509.NewCertPool()
 
-		// Adapted from  https://gist.github.com/michaljemala/d6f4e01c4834bf47a9c4
-		// Load host cert
-		// TODO review if these errors should be Fatal or just Error
-		cert, err := tls.LoadX509KeyPair(
-			viper.GetString("ferry.hostCert"),
-			viper.GetString("ferry.hostKey"),
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Load CA certs
-		caFiles, err := ioutil.ReadDir(viper.GetString("ferry.caPath"))
-		if err != nil {
-			log.WithField("caPath", viper.GetString("ferry.caPath")).Fatal(err)
-
-		}
-		for _, f := range caFiles {
-			if filepath.Ext(f.Name()) == ".pem" {
-				filenameToAdd := path.Join(viper.GetString("ferry.caPath"), f.Name())
-				caCertSlice = append(caCertSlice, filenameToAdd)
-			}
-		}
-		for _, f := range caCertSlice {
-			caCert, err := ioutil.ReadFile(f)
+			// Adapted from  https://gist.github.com/michaljemala/d6f4e01c4834bf47a9c4
+			// Load host cert
+			// TODO review if these errors should be Fatal or just Error
+			cert, err := tls.LoadX509KeyPair(
+				viper.GetString("ferry.hostCert"),
+				viper.GetString("ferry.hostKey"),
+			)
 			if err != nil {
-				log.WithField("filename", f).Warn(err)
+				log.Fatal(err)
 			}
-			caCertPool.AppendCertsFromPEM(caCert)
-		}
 
-		// Setup HTTPS client
-		tlsConfig := &tls.Config{
-			Certificates:  []tls.Certificate{cert},
-			RootCAs:       caCertPool,
-			Renegotiation: tls.RenegotiateFreelyAsClient,
-		}
-		transport := &http.Transport{TLSClientConfig: tlsConfig}
-		client := &http.Client{Transport: transport}
+			// Load CA certs
+			caFiles, err := ioutil.ReadDir(viper.GetString("ferry.caPath"))
+			if err != nil {
+				log.WithField("caPath", viper.GetString("ferry.caPath")).Fatal(err)
 
-		// Now send the request
-		if verb == "" {
-			// Default value for HTTP verb
-			verb = "GET"
+			}
+			for _, f := range caFiles {
+				if filepath.Ext(f.Name()) == ".pem" {
+					filenameToAdd := path.Join(viper.GetString("ferry.caPath"), f.Name())
+					caCertSlice = append(caCertSlice, filenameToAdd)
+				}
+			}
+			for _, f := range caCertSlice {
+				caCert, err := ioutil.ReadFile(f)
+				if err != nil {
+					log.WithField("filename", f).Warn(err)
+				}
+				caCertPool.AppendCertsFromPEM(caCert)
+			}
+
+			// Setup HTTPS client
+			tlsConfig := &tls.Config{
+				Certificates:  []tls.Certificate{cert},
+				RootCAs:       caCertPool,
+				Renegotiation: tls.RenegotiateFreelyAsClient,
+			}
+			transport := &http.Transport{TLSClientConfig: tlsConfig}
+			client := &http.Client{Transport: transport}
+
+			// Now send the request
+			if verb == "" {
+				// Default value for HTTP verb
+				verb = "GET"
+			}
+			req, err := http.NewRequest(strings.ToUpper(verb), url, nil)
+			if err != nil {
+				log.WithField("account", url).Error("Could not initialize HTTP request")
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"url":        url,
+					"verb":       "GET",
+					"authMethod": "cert",
+				}).Error("Error executing HTTP request")
+				log.WithField("url", url).Error(err)
+			}
+			return resp, err
 		}
-		req, err := http.NewRequest(strings.ToUpper(verb), url, nil)
-		if err != nil {
-			log.WithField("account", url).Error("Could not initialize HTTP request")
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"url":        url,
-				"verb":       "GET",
-				"authMethod": "cert",
-			}).Error("Error executing HTTP request")
-			log.WithField("url", url).Error(err)
-		}
-		return resp, err
 	}
 }
 
-func withKerberosJWTAuth(ctx context.Context, serviceConfig *service.Config) func() func(string, string) (*http.Response, error) {
-	// This returns a func that returns a func. This was done to have withKerberosJWTAuth(serviceConfig) have the same
+func withKerberosJWTAuth(ctx context.Context, serviceConfig *service.Config) func(context.Context) func(context.Context, string, string) (*http.Response, error) {
+	// This returns a func that returns a func. This was done to have withKerberosJWTAuth(ctx, serviceConfig) have the same
 	// return type as withTLSAuth.
-	return func() func(string, string) (*http.Response, error) {
-		return func(url, verb string) (*http.Response, error) {
+	return func(context.Context) func(context.Context, string, string) (*http.Response, error) {
+		return func(ctx context.Context, url, verb string) (*http.Response, error) {
 			// TODO go through this func and figure out if errors should be fatals or errors
 			// Get our bearer token and locate it
 			if err := utils.GetToken(ctx, serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {

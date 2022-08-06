@@ -155,10 +155,10 @@ func main() {
 		defer close(ferryDataChan)
 
 		// Pick our authentication method
-		var authFunc func() func(string, string) (*http.Response, error)
+		var authFunc func(context.Context) func(context.Context, string, string) (*http.Response, error)
 		switch viper.GetString("authmethod") {
 		case "tls":
-			authFunc = withTLSAuth
+			authFunc = withTLSAuth(ctx)
 			log.Debug("Using TLS to authenticate to FERRY")
 		case "jwt":
 			sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
@@ -180,11 +180,12 @@ func main() {
 				// go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
 				defer ferryDataWg.Done()
 				entry, err := worker.GetFERRYUIDData(
+					ctx,
 					username,
 					viper.GetString("ferry.host"),
 					viper.GetInt("ferry.port"),
 					ferryDataChan,
-					authFunc(),
+					authFunc(ctx),
 				)
 				if err != nil {
 					log.WithField("username", username).Error("Could not get FERRY UID data")

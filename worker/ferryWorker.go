@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -44,8 +45,9 @@ type ferryUIDResponse struct {
 	} `json:"ferry_output"`
 }
 
-func GetFERRYUIDData(username string, ferryHost string, ferryPort int, ferryDataChan chan<- *UIDEntryFromFerry,
-	requestRunnerWithAuthMethodFunc func(url, verb string) (*http.Response, error)) (*UIDEntryFromFerry, error) {
+func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
+	ferryDataChan chan<- *UIDEntryFromFerry,
+	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error)) (*UIDEntryFromFerry, error) {
 	entry := UIDEntryFromFerry{}
 
 	ferryAPIConfig := struct{ Hostname, Port, API, Username string }{
@@ -61,7 +63,7 @@ func GetFERRYUIDData(username string, ferryHost string, ferryPort int, ferryData
 		log.Fatal(err)
 	}
 
-	resp, err := requestRunnerWithAuthMethodFunc(b.String(), "GET")
+	resp, err := requestRunnerWithAuthMethodFunc(ctx, b.String(), "GET")
 	if err != nil {
 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
 		log.WithField("account", username).Error(err)
