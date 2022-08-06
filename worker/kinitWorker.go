@@ -1,9 +1,14 @@
 package worker
 
 import (
+	"context"
+	"time"
+
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
+
+const kerberosTimeoutStr string = "20s"
 
 type kinitSuccess struct {
 	serviceName string
@@ -18,8 +23,12 @@ func (v *kinitSuccess) GetSuccess() bool {
 	return v.success
 }
 
-func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
+func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
+	kerberosTimeout, err := time.ParseDuration(kerberosTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse kerberos timeout duration")
+	}
 	for sc := range chans.GetServiceConfigChan() {
 		success := &kinitSuccess{
 			serviceName: sc.Service.Name(),
@@ -30,7 +39,10 @@ func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- k
 			}(success)
 
-			if err := utils.GetKerberosTicket(sc); err != nil {
+			kerbContext, kerbCancel := context.WithTimeout(ctx, kerberosTimeout)
+			defer kerbCancel()
+
+			if err := utils.GetKerberosTicket(kerbContext, sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -38,7 +50,7 @@ func GetKerberosTicketsWorker(chans ChannelsForWorkers) {
 				return
 			}
 
-			if err := utils.CheckKerberosPrincipal(sc); err != nil {
+			if err := utils.CheckKerberosPrincipal(kerbContext, sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),

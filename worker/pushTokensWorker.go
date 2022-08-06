@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"os/user"
 
@@ -35,7 +36,9 @@ func PushTokensWorker(chans ChannelsForWorkers) {
 			}(pushSuccess)
 
 			// kswitch
-			if err := utils.SwitchKerberosCache(sc); err != nil {
+			// TODO Use the passed in context later
+			ctx := context.Background()
+			if err := utils.SwitchKerberosCache(ctx, sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),

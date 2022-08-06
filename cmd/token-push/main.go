@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -144,8 +146,19 @@ func init() {
 func main() {
 	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
-	successfulServices := make(map[string]bool)
+	// TODO Maybe keep all of these defaults in a single var declaration of time.Durations?
+	var globalTimeout time.Duration
+	globalTimeout, err := time.ParseDuration(viper.GetString("timeouts.globalTimeout"))
+	if err != nil {
+		log.Error("Could not parse global timeout.  Using default value of 300s")
+		globalTimeout = time.Duration(300 * time.Second)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
+	defer cancel()
 
+	successfulServices := make(map[string]bool) // Map of services for which all processes were successful
+
+	// Create temporary dir for all kerberos caches to live in
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
@@ -165,7 +178,7 @@ func main() {
 
 	// Channels and worker for getting kerberos tickets
 	kerberosChannels := worker.NewChannelsForWorkers(len(services))
-	go worker.GetKerberosTicketsWorker(kerberosChannels)
+	go worker.GetKerberosTicketsWorker(ctx, kerberosChannels)
 
 	// Set up our serviceConfigs and get kerberos tickets for each
 	func() {

@@ -1,12 +1,12 @@
 For all TODOs that are more general
 
-* Ping nodes
+* Contexts EVERYWHERE
 * Put notifications in 
 * See if we can get tokens into temp files rather than the standard locations
-* Contexts EVERYWHERE
 * Interface a bunch of things if possible
 * Check all the errors to make sure they're the right level, and useful
 * Write unit tests
+* Metrics for Prometheus
 * RPM stuff
     * In addition to managed-proxies stuff, make sure that we create /var/lib/managed-tokens owned by rexbatch
 * In-code documentation

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -29,7 +30,9 @@ func init() {
 
 func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 	// kswitch
-	if err := SwitchKerberosCache(sc); err != nil {
+	// TODO:  Change this to passed in context later
+	ctx := context.Background()
+	if err := SwitchKerberosCache(ctx, sc); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -75,7 +78,9 @@ func StoreAndGetTokens(sc *service.Config, interactive bool) error {
 }
 
 func GetToken(sc *service.Config, vaultServer string) error {
-	if err := SwitchKerberosCache(sc); err != nil {
+	// TODO:  CHange this to passed in context later
+	ctx := context.Background()
+	if err := SwitchKerberosCache(ctx, sc); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -84,6 +89,7 @@ func GetToken(sc *service.Config, vaultServer string) error {
 	}
 
 	htgettokenArgs := []string{
+		"-d",
 		"-a",
 		vaultServer,
 		"-i",
@@ -96,14 +102,24 @@ func GetToken(sc *service.Config, vaultServer string) error {
 
 	htgettokenCmd := exec.Command(vaultExecutables["htgettoken"], htgettokenArgs...)
 	htgettokenCmd = EnvironmentWrappedCommand(htgettokenCmd, &sc.CommandEnvironment)
+	// Get rid of all this when it works
+	htgettokenCmd.Stdout = os.Stdout
+	htgettokenCmd.Stderr = os.Stderr
+	log.Debug(htgettokenCmd.Args)
 
 	log.WithField("service", sc.Service.Name()).Info("Running htgettoken to get vault and bearer tokens")
 
-	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
-		log.WithField("service", sc.Service.Name()).Error("Could not get vault token")
-		log.WithField("service", sc.Service.Name()).Error(string(stdoutStderr[:]))
-		return err
+	err := htgettokenCmd.Start()
+	if err != nil {
 	}
+	err = htgettokenCmd.Wait()
+	if err != nil {
+	}
+	// if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
+	// 	log.WithField("service", sc.Service.Name()).Error("Could not get vault token")
+	// 	log.WithField("service", sc.Service.Name()).Error(string(stdoutStderr[:]))
+	// 	return err
+	// }
 
 	log.WithField("service", sc.Service.Name()).Info("Successfully got vault token")
 	return nil

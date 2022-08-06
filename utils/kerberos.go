@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -32,7 +33,7 @@ func init() {
 	}
 }
 
-func GetKerberosTicket(sc *service.Config) error {
+func GetKerberosTicket(ctx context.Context, sc *service.Config) error {
 	// Kinit
 	cArgs := struct{ KeytabPath, UserPrincipal string }{
 		KeytabPath:    sc.KeytabPath,
@@ -59,10 +60,17 @@ func GetKerberosTicket(sc *service.Config) error {
 		return errors.New(err)
 	}
 
-	createKerberosTicket := exec.Command(kerberosExecutables["kinit"], args...)
+	createKerberosTicket := exec.CommandContext(ctx, kerberosExecutables["kinit"], args...)
 	createKerberosTicket = KerberosEnvironmentWrappedCommand(createKerberosTicket, &sc.CommandEnvironment)
 	log.Info("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -76,9 +84,9 @@ func GetKerberosTicket(sc *service.Config) error {
 	return nil
 }
 
-func CheckKerberosPrincipal(sc *service.Config) error {
+func CheckKerberosPrincipal(ctx context.Context, sc *service.Config) error {
 	// Verify principal matches config principal
-	checkForKerberosTicket := exec.Command(kerberosExecutables["klist"])
+	checkForKerberosTicket := exec.CommandContext(ctx, kerberosExecutables["klist"])
 	checkForKerberosTicket = KerberosEnvironmentWrappedCommand(checkForKerberosTicket, &sc.CommandEnvironment)
 
 	log.WithFields(log.Fields{
@@ -86,6 +94,13 @@ func CheckKerberosPrincipal(sc *service.Config) error {
 		"role":       sc.Service.Role(),
 	}).Info("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
@@ -130,7 +145,7 @@ func CheckKerberosPrincipal(sc *service.Config) error {
 	return nil
 }
 
-func SwitchKerberosCache(sc *service.Config) error {
+func SwitchKerberosCache(ctx context.Context, sc *service.Config) error {
 	// kswitch
 	cArgs := struct{ UserPrincipal string }{
 		UserPrincipal: sc.UserPrincipal,
@@ -156,9 +171,16 @@ func SwitchKerberosCache(sc *service.Config) error {
 		return errors.New(err)
 	}
 
-	switchkCache := exec.Command(kerberosExecutables["kswitch"], args...)
+	switchkCache := exec.CommandContext(ctx, kerberosExecutables["kswitch"], args...)
 	switchkCache = KerberosEnvironmentWrappedCommand(switchkCache, &sc.CommandEnvironment)
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			}).Error("Context timeout")
+			return ctx.Err()
+		}
 		log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
 			"role":       sc.Service.Role(),
