@@ -9,7 +9,7 @@ import (
 	"github.com/shreyb/managed-tokens/utils"
 )
 
-const vaultTimeoutStr string = "60s"
+const vaultStorerDefaultTimeoutStr string = "60s"
 
 type vaultStorerSuccess struct {
 	serviceName string
@@ -28,7 +28,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	var interactive bool
 
-	vaultStorerTimeout, err := getProperTimeoutFromContext(ctx, vaultTimeoutStr)
+	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse vault storer timeout")
 	}
@@ -61,7 +61,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) error {
 	interactive := true
 
-	vaultStorerTimeout, err := getProperTimeoutFromContext(ctx, vaultTimeoutStr)
+	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse vault storer timeout")
 	}

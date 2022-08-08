@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const pingTimeoutStr string = "10s"
+const pingDefaultTimeoutStr string = "10s"
 
 type pingSuccess struct {
 	serviceName string
@@ -30,7 +30,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	pingTimeout, err := getProperTimeoutFromContext(ctx, pingTimeoutStr)
+	pingTimeout, err := utils.GetProperTimeoutFromContext(ctx, pingDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse ping timeout")
 	}

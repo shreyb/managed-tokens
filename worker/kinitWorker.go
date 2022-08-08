@@ -7,7 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const kerberosTimeoutStr string = "20s"
+const kerberosDefaultTimeoutStr string = "20s"
 
 type kinitSuccess struct {
 	serviceName string
@@ -25,7 +25,7 @@ func (v *kinitSuccess) GetSuccess() bool {
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 
-	kerberosTimeout, err := getProperTimeoutFromContext(ctx, kerberosTimeoutStr)
+	kerberosTimeout, err := utils.GetProperTimeoutFromContext(ctx, kerberosDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse kerberos timeout")
 	}

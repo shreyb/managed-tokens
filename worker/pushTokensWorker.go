@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const pushTimeoutStr string = "30s"
+const pushDefaultTimeoutStr string = "30s"
 
 type pushTokenSuccess struct {
 	serviceName string
@@ -28,7 +28,7 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 
-	pushTimeout, err := getProperTimeoutFromContext(ctx, pushTimeoutStr)
+	pushTimeout, err := utils.GetProperTimeoutFromContext(ctx, pushDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse push timeout")
 	}
