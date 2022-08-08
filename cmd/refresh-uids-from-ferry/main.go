@@ -20,6 +20,17 @@ import (
 	"github.com/shreyb/managed-tokens/worker"
 )
 
+const globalTimeoutDefaultStr string = "300s"
+
+var (
+	timeouts          = make(map[string]time.Duration)
+	supportedTimeouts = map[string]struct{}{
+		"globaltimeout":       {},
+		"ferryrequesttimeout": {},
+		"dbtimeout":           {},
+	}
+)
+
 func init() {
 	const configFile string = "managedTokens"
 
@@ -94,15 +105,50 @@ func init() {
 
 }
 
+// Setup of timeouts, if they're set
+func init() {
+	// Save supported timeouts into timeouts map
+	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		if _, ok := supportedTimeouts[timeoutKey]; ok {
+			timeout, err := time.ParseDuration(timeoutString)
+			if err != nil {
+				log.WithField("timeoutKey", timeoutKey).Warn("Configured timeout not supported by this utility")
+			}
+			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
+			timeouts[timeoutKey] = timeout
+		}
+	}
+
+	// Verify that individual timeouts don't add to more than total timeout
+	now := time.Now()
+	timeForComponentCheck := now
+
+	for timeoutKey, timeout := range timeouts {
+		if timeoutKey != "globaltimeout" {
+			timeForComponentCheck = timeForComponentCheck.Add(timeout)
+		}
+	}
+
+	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	if timeForComponentCheck.After(timeForGlobalCheck) {
+		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+	}
+}
+
 func main() {
 	var dbLocation string
 	var newDB bool
 	var db *sql.DB
+
 	var globalTimeout time.Duration
-	globalTimeout, err := time.ParseDuration(viper.GetString("timeouts.globalTimeout"))
-	if err != nil {
-		log.Error("Could not parse global timeout.  Using default value of 300s")
-		globalTimeout = time.Duration(300 * time.Second)
+	var ok bool
+	var err error
+
+	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
+		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
+			log.Fatal("Could not parse default global timeout.")
+		}
 	}
 
 	// Global context
@@ -176,11 +222,17 @@ func main() {
 
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
-			func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
-				// go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
+
+			go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
 				defer ferryDataWg.Done()
+				var ferryRequestContext context.Context
+				if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
+					ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+				} else {
+					ferryRequestContext = ctx
+				}
 				entry, err := worker.GetFERRYUIDData(
-					ctx,
+					ferryRequestContext,
 					username,
 					viper.GetString("ferry.host"),
 					viper.GetInt("ferry.port"),
@@ -222,7 +274,13 @@ func main() {
 		ferryDataConverted = append(ferryDataConverted, entry)
 	}
 
-	if err := utils.InsertUidsIntoTableFromFERRY(ctx, db, ferryDataConverted); err != nil {
+	var dbContext context.Context
+	if timeout, ok := timeouts["dbtimeout"]; ok {
+		dbContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		dbContext = ctx
+	}
+	if err := utils.InsertUidsIntoTableFromFERRY(dbContext, db, ferryDataConverted); err != nil {
 		log.Fatal("Could not insert FERRY data into database")
 	}
 

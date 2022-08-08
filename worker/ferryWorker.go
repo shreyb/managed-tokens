@@ -10,8 +10,11 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
+
+const ferryRequestDefaultTimeoutStr string = "30s"
 
 var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.Hostname}}:{{.Port}}/{{.API}}?username={{.Username}}"))
 
@@ -50,6 +53,11 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error)) (*UIDEntryFromFerry, error) {
 	entry := UIDEntryFromFerry{}
 
+	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse ferryRequest timeout")
+	}
+
 	ferryAPIConfig := struct{ Hostname, Port, API, Username string }{
 		Hostname: ferryHost,
 		Port:     strconv.Itoa(ferryPort),
@@ -63,9 +71,15 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 		log.Fatal(err)
 	}
 
-	resp, err := requestRunnerWithAuthMethodFunc(ctx, b.String(), "GET")
+	ferryRequestCtx, ferryRequestCancel := context.WithTimeout(ctx, ferryRequestTimeout)
+	defer ferryRequestCancel()
+	resp, err := requestRunnerWithAuthMethodFunc(ferryRequestCtx, b.String(), "GET")
 	if err != nil {
 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
+		if err2 := ctx.Err(); err2 == context.DeadlineExceeded {
+			log.WithField("account", username).Error("context deadline exceeded")
+			return &entry, err2
+		}
 		log.WithField("account", username).Error(err)
 		return &entry, err
 	}

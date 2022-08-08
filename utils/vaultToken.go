@@ -91,7 +91,6 @@ func StoreAndGetTokens(ctx context.Context, sc *service.Config, interactive bool
 }
 
 func GetToken(ctx context.Context, sc *service.Config, vaultServer string) error {
-	// TODO:  CHange this to passed in context later
 	if err := SwitchKerberosCache(ctx, sc); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{
