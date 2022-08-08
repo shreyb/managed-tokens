@@ -10,11 +10,29 @@ import (
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/worker"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
-func LoadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceConfigs map[string]*service.Config) {
+func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
+	serviceConfigs map[string]*service.Config, timeoutCheckKey string) worker.ChannelsForWorkers {
+	// Channels, context, and worker for getting kerberos tickets
+	var useCtx context.Context
+	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
+	if timeout, ok := timeouts[timeoutCheckKey]; ok {
+		useCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		useCtx = ctx
+	}
+	go workerFunc(useCtx, channels)
+	if len(serviceConfigs) > 0 { // We add this check because if there are no serviceConfigs, don't load them into any channel
+		loadServiceConfigsIntoChannel(channels.GetServiceConfigChan(), serviceConfigs)
+	}
+	return channels
+}
+
+func loadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceConfigs map[string]*service.Config) {
 	defer close(chanToLoad)
 	for _, sc := range serviceConfigs {
 		chanToLoad <- sc

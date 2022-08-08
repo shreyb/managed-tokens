@@ -187,6 +187,13 @@ func init() {
 }
 
 func main() {
+	// The general order of operations is this:
+	//
+	// 1. Get kerberos tickets
+	// 2. Get and store vault tokens
+	// 3. Ping nodes to check their status
+	// 4. Push vault tokens to nodes
+
 	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	var globalTimeout time.Duration
@@ -224,15 +231,9 @@ func main() {
 
 	}(successfulServices)
 
-	// Channels, context, and worker for getting kerberos tickets
-	var kerberosCtx context.Context
-	kerberosChannels := worker.NewChannelsForWorkers(len(services))
-	if timeout, ok := timeouts["kerberostimeout"]; ok {
-		kerberosCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
-	} else {
-		kerberosCtx = ctx
-	}
-	go worker.GetKerberosTicketsWorker(kerberosCtx, kerberosChannels)
+	// 1. Get kerberos tickets
+	// Get channels and start worker for getting kerberos ticekts
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
 
 	// Set up our serviceConfigs and get kerberos tickets for each
 	func() {
@@ -284,20 +285,9 @@ func main() {
 		}
 	}
 
-	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
-
-	// Channels and worker for getting/storing vault token
-	// TODO We do this with every step.  Maybe make it a func that takes a worker, []*service.Config channels, and timeoutCheck string
-	var vaultStorerCtx context.Context
-	condorVaultChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	if timeout, ok := timeouts["vaultstorertimeout"]; ok {
-		vaultStorerCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
-	} else {
-		vaultStorerCtx = ctx
-	}
-	go worker.StoreAndGetTokenWorker(vaultStorerCtx, condorVaultChans)
-	//TODO Make this unexported
-	LoadServiceConfigsIntoChannel(condorVaultChans.GetServiceConfigChan(), serviceConfigs)
+	// 2. Get and store vault tokens
+	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorertimeout")
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
 	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
@@ -319,19 +309,9 @@ func main() {
 		return
 	}
 
-	// Ping all nodes concurrently, receive status in notifications Manager, and don't start pushing
-	// tokens until all of those are done
-
-	// Channels and worker for pinging nodes
-	var pingCtx context.Context
-	pingChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	if timeout, ok := timeouts["pingtimeout"]; ok {
-		pingCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
-	} else {
-		pingCtx = ctx
-	}
-	go worker.PingAggregatorWorker(pingCtx, pingChans)
-	LoadServiceConfigsIntoChannel(pingChans.GetServiceConfigChan(), serviceConfigs)
+	// 3. Ping nodes to check their status
+	// Get channels and start worker for pinging service nodes
+	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "pingtimeout")
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
@@ -340,18 +320,9 @@ func main() {
 		}
 	}
 
-	// Send tokens to nodes
-
-	// Channels and worker for pushing tokens
-	var pushCtx context.Context
-	pushChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	if timeout, ok := timeouts["pushtimeout"]; ok {
-		pushCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
-	} else {
-		pushCtx = ctx
-	}
-	go worker.PushTokensWorker(pushCtx, pushChans)
-	LoadServiceConfigsIntoChannel(pushChans.GetServiceConfigChan(), serviceConfigs)
+	// 4. Push vault tokens to nodes
+	// Get channels and start worker for pushing tokens to service nodes
+	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "pushtimeout")
 
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
