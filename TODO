@@ -1,6 +1,5 @@
 For all TODOs that are more general
 
-* Make timeouts configurable from config file.  Make sure that if we configure timeouts, they don't add up to more than global timeout
 * Put notifications in 
 * See if we can get tokens into temp files rather than the standard locations
 * Interface a bunch of things if possible
