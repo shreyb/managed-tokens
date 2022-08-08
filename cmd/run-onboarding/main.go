@@ -184,13 +184,7 @@ func main() {
 
 	func() {
 		defer close(kerberosChannels.GetServiceConfigChan())
-		s, err := service.NewService(viper.GetString("service"))
-		if err != nil {
-			log.WithField(
-				"service",
-				viper.GetString("service"),
-			).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
-		}
+		s := service.NewService(viper.GetString("service"))
 
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 		serviceConfig, err = service.NewConfig(

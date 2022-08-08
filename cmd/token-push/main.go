@@ -144,24 +144,12 @@ func init() {
 		for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
 			// Setup the configs
 			serviceName := viper.GetString("experiment") + "_" + role
-			service, err := service.NewService(serviceName)
-			if err != nil {
-				log.WithField(
-					"service",
-					viper.GetString("service"),
-				).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
-			}
+			service := service.NewService(serviceName)
 			services = append(services, service)
 		}
 	case viper.GetString("service") != "":
 		// Running on a single service
-		service, err := service.NewService(viper.GetString("service"))
-		if err != nil {
-			log.WithField(
-				"service",
-				viper.GetString("service"),
-			).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
-		}
+		service := service.NewService(viper.GetString("service"))
 		services = append(services, service)
 	default:
 		// Running on every configured experiment and role
@@ -170,13 +158,7 @@ func init() {
 			for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
 				// Setup the configs
 				serviceName := experiment + "_" + role
-				service, err := service.NewService(serviceName)
-				if err != nil {
-					log.WithField(
-						"service",
-						viper.GetString("service"),
-					).Fatal("Could not parse service properly.  Please ensure that the service follows the format laid out in the help text.")
-				}
+				service := service.NewService(serviceName)
 				services = append(services, service)
 			}
 		}

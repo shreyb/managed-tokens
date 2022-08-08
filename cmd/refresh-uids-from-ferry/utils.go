@@ -231,11 +231,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 	} else {
 		serviceName = viper.GetString("ferry.serviceExperiment")
 	}
-	s, err := service.NewService(serviceName)
-	if err != nil {
-		log.WithField("service", serviceName).Fatal("Could not initialize service object")
-		return &service.Config{}, err
-	}
+	s := service.NewService(serviceName)
 
 	// Get krb5ccname directory
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")

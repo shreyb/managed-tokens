@@ -16,7 +16,7 @@ type Service interface {
 	Name() string
 }
 
-func NewService(serviceName string) (Service, error) {
+func NewService(serviceName string) Service {
 	s := &service{}
 
 	s.name = serviceName
@@ -36,7 +36,7 @@ func NewService(serviceName string) (Service, error) {
 		"role":       s.role,
 	}).Debug("Parsed experiment and role from service")
 
-	return s, nil
+	return s
 }
 
 type service struct {
