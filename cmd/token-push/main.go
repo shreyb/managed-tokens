@@ -132,9 +132,6 @@ func init() {
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
 	}
-
-	// TODO Pass these in as context.Values that are scoped with each request.
-
 }
 
 // Setup of services
