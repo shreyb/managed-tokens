@@ -23,6 +23,8 @@ import (
 	"github.com/shreyb/managed-tokens/worker"
 )
 
+const globalTimeoutDefaultStr string = "300s"
+
 var (
 	services          []service.Service
 	serviceConfigs    = make(map[string]*service.Config)
@@ -187,12 +189,15 @@ func init() {
 func main() {
 	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
-	// TODO Maybe keep all of these defaults in a single var declaration of time.Durations?
 	var globalTimeout time.Duration
-	globalTimeout, err := time.ParseDuration(viper.GetString("timeouts.globalTimeout"))
-	if err != nil {
-		log.Error("Could not parse global timeout.  Using default value of 300s")
-		globalTimeout = time.Duration(300 * time.Second)
+	var ok bool
+	var err error
+
+	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
+		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
+			log.Fatal("Could not parse default global timeout.")
+		}
 	}
 
 	// Global context
@@ -219,9 +224,15 @@ func main() {
 
 	}(successfulServices)
 
-	// Channels and worker for getting kerberos tickets
+	// Channels, context, and worker for getting kerberos tickets
+	var kerberosCtx context.Context
 	kerberosChannels := worker.NewChannelsForWorkers(len(services))
-	go worker.GetKerberosTicketsWorker(ctx, kerberosChannels)
+	if timeout, ok := timeouts["kerberostimeout"]; ok {
+		kerberosCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		kerberosCtx = ctx
+	}
+	go worker.GetKerberosTicketsWorker(kerberosCtx, kerberosChannels)
 
 	// Set up our serviceConfigs and get kerberos tickets for each
 	func() {

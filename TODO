@@ -12,5 +12,6 @@ For all TODOs that are more general
 * In-code documentation
 * Check import order in all files
 * Documentation on github
+    * Configurable timeouts (note, we want production to NOT have these set.  Maybe we can comment them out in the stock file?)
 * Get a license for this repo
 * Remove this file from repo.  From this point on, all TODOs should be issues in the github repo
