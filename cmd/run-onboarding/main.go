@@ -19,6 +19,17 @@ import (
 	"github.com/spf13/viper"
 )
 
+const globalTimeoutDefaultStr string = "300s"
+
+var (
+	timeouts          = make(map[string]time.Duration)
+	supportedTimeouts = map[string]struct{}{
+		"globaltimeout":      {},
+		"kerberostimeout":    {},
+		"vaultstorertimeout": {},
+	}
+)
+
 func init() {
 	const configFile string = "managedTokens"
 
@@ -97,18 +108,57 @@ func init() {
 	}
 }
 
+// Setup of timeouts, if they're set
+func init() {
+	// Save supported timeouts into timeouts map
+	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		if _, ok := supportedTimeouts[timeoutKey]; ok {
+			timeout, err := time.ParseDuration(timeoutString)
+			if err != nil {
+				log.WithField("timeoutKey", timeoutKey).Warn("Configured timeout not supported by this utility")
+			}
+			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
+			timeouts[timeoutKey] = timeout
+		}
+	}
+
+	// Verify that individual timeouts don't add to more than total timeout
+	now := time.Now()
+	timeForComponentCheck := now
+
+	for timeoutKey, timeout := range timeouts {
+		if timeoutKey != "globaltimeout" {
+			timeForComponentCheck = timeForComponentCheck.Add(timeout)
+		}
+	}
+
+	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	if timeForComponentCheck.After(timeForGlobalCheck) {
+		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+	}
+}
+
 func main() {
+	// Order of operations:
+	// 1. Generate kerberos principal for service
+	// 2. Store (and obtain) vault tokens for service
 	var serviceConfig *service.Config
+
 	var globalTimeout time.Duration
-	globalTimeout, err := time.ParseDuration(viper.GetString("timeouts.globalTimeout"))
-	if err != nil {
-		log.Error("Could not parse global timeout.  Using default value of 300s")
-		globalTimeout = time.Duration(300 * time.Second)
+	var ok bool
+	var err error
+
+	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
+		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
+			log.Fatal("Could not parse default global timeout.")
+		}
 	}
 
 	// Global context
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
+
 	// TODO delete any generated vault token
 
 	// Temporary directory for kerberos caches
@@ -121,10 +171,16 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
-	// Get Kerberos tickets
-	// Channels and worker for getting kerberos tickets
+	// 1. Get Kerberos ticket
+	// Channel, context, and worker for getting kerberos ticket
+	var kerberosContext context.Context
+	if kerberosTimeout, ok := timeouts["kerberostimeout"]; ok {
+		kerberosContext = utils.ContextWithOverrideTimeout(ctx, kerberosTimeout)
+	} else {
+		kerberosContext = ctx
+	}
 	kerberosChannels := worker.NewChannelsForWorkers(1)
-	go worker.GetKerberosTicketsWorker(ctx, kerberosChannels)
+	go worker.GetKerberosTicketsWorker(kerberosContext, kerberosChannels)
 
 	func() {
 		defer close(kerberosChannels.GetServiceConfigChan())
@@ -169,7 +225,14 @@ func main() {
 		}
 	}
 
-	if err := worker.StoreAndGetRefreshAndVaultTokens(ctx, serviceConfig); err != nil {
+	// 2.  Get and store vault tokens for service
+	var vaultStorerContext context.Context
+	if vaultStorerTimeout, ok := timeouts["vaultstorertimeout"]; ok {
+		vaultStorerContext = utils.ContextWithOverrideTimeout(ctx, vaultStorerTimeout)
+	} else {
+		vaultStorerContext = ctx
+	}
+	if err := worker.StoreAndGetRefreshAndVaultTokens(vaultStorerContext, serviceConfig); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": serviceConfig.Service.Experiment(),
 			"role":       serviceConfig.Service.Role(),

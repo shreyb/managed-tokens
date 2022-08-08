@@ -69,11 +69,12 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) error {
 	interactive := true
 
-	vaultTimeout, err := time.ParseDuration(vaultTimeoutStr)
+	vaultStorerTimeout, err := getProperTimeoutFromContext(ctx, vaultTimeoutStr)
 	if err != nil {
-		log.Fatal("Could not parse vault storer timeout duration")
+		log.Fatal("Could not parse vault storer timeout")
 	}
-	vaultContext, vaultCancel := context.WithTimeout(ctx, vaultTimeout)
+
+	vaultContext, vaultCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 	defer vaultCancel()
 
 	return utils.StoreAndGetTokens(vaultContext, sc, interactive)

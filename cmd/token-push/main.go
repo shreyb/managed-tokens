@@ -111,7 +111,7 @@ func init() {
 		if _, ok := supportedTimeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithField("timeoutKey", timeoutKey).Fatal("Could not parse duration for timeout")
+				log.WithField("timeoutKey", timeoutKey).Warn("Configured timeout not supported by this utility")
 			}
 			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
 			timeouts[timeoutKey] = timeout
