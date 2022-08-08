@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -29,22 +28,12 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	var interactive bool
 
-	var vaultStorerTimeout time.Duration
-	var ok bool
-	var err error
-
-	if vaultStorerTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
-		log.WithField("func", "StoreAndGetTokenWorker").Debug("No overrideTimeout set.  Will use default")
-		vaultStorerTimeout, err = time.ParseDuration(vaultTimeoutStr)
-		if err != nil {
-			log.Fatal("Could not parse vault storer timeout duration")
-		}
+	vaultStorerTimeout, err := getProperTimeoutFromContext(ctx, vaultTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse vault storer timeout")
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
-		vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
-		defer vaultStorerCancel()
-
 		success := &vaultStorerSuccess{
 			serviceName: sc.Service.Name(),
 		}
@@ -53,6 +42,9 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer func(v *vaultStorerSuccess) {
 				chans.GetSuccessChan() <- v
 			}(success)
+
+			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
+			defer vaultStorerCancel()
 
 			if err := utils.StoreAndGetTokens(vaultStorerContext, sc, interactive); err != nil {
 				log.WithFields(log.Fields{

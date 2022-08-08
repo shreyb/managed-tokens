@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"time"
 
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
@@ -24,17 +23,11 @@ func (v *kinitSuccess) GetSuccess() bool {
 }
 
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
-	var kerberosTimeout time.Duration
-	var ok bool
-	var err error
 	defer close(chans.GetSuccessChan())
 
-	if kerberosTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
-		log.WithField("func", "GetKerberosTicketsWorker").Debug("No overrideTimeout set.  Will use default")
-		kerberosTimeout, err = time.ParseDuration(kerberosTimeoutStr)
-		if err != nil {
-			log.Fatal("Could not parse kerberos timeout duration")
-		}
+	kerberosTimeout, err := getProperTimeoutFromContext(ctx, kerberosTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse kerberos timeout")
 	}
 
 	for sc := range chans.GetServiceConfigChan() {

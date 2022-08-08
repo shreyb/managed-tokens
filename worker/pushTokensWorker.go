@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os/user"
-	"time"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
@@ -29,16 +28,9 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 
-	var pushTimeout time.Duration
-	var ok bool
-	var err error
-
-	if pushTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
-		log.WithField("func", "PushTokensWorker").Debug("No overrideTimeout set.  Will use default")
-		pushTimeout, err = time.ParseDuration(pushTimeoutStr)
-		if err != nil {
-			log.Fatal("Could not parse push timeout duration")
-		}
+	pushTimeout, err := getProperTimeoutFromContext(ctx, pushTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse push timeout")
 	}
 
 	for sc := range chans.GetServiceConfigChan() {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
@@ -31,16 +30,9 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
-	var pingTimeout time.Duration
-	var ok bool
-	var err error
-
-	if pingTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
-		log.WithField("func", "PingAggregatorWorker").Debug("No overrideTimeout set.  Will use default")
-		pingTimeout, err = time.ParseDuration(pingTimeoutStr)
-		if err != nil {
-			log.Fatal("Could not parse ping timeout duration")
-		}
+	pingTimeout, err := getProperTimeoutFromContext(ctx, pingTimeoutStr)
+	if err != nil {
+		log.Fatal("Could not parse ping timeout")
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
