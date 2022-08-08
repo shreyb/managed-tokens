@@ -24,11 +24,19 @@ func (v *kinitSuccess) GetSuccess() bool {
 }
 
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
+	var kerberosTimeout time.Duration
+	var ok bool
+	var err error
 	defer close(chans.GetSuccessChan())
-	kerberosTimeout, err := time.ParseDuration(kerberosTimeoutStr)
-	if err != nil {
-		log.Fatal("Could not parse kerberos timeout duration")
+
+	if kerberosTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
+		log.WithField("func", "GetKerberosTicketsWorker").Debug("No overrideTimeout set.  Will use default")
+		kerberosTimeout, err = time.ParseDuration(kerberosTimeoutStr)
+		if err != nil {
+			log.Fatal("Could not parse kerberos timeout duration")
+		}
 	}
+
 	for sc := range chans.GetServiceConfigChan() {
 		success := &kinitSuccess{
 			serviceName: sc.Service.Name(),
