@@ -24,8 +24,16 @@ import (
 )
 
 var (
-	services       []service.Service
-	serviceConfigs = make(map[string]*service.Config)
+	services          []service.Service
+	serviceConfigs    = make(map[string]*service.Config)
+	timeouts          = make(map[string]time.Duration)
+	supportedTimeouts = map[string]struct{}{
+		"globaltimeout":     {},
+		"kerberostimeout":   {},
+		"vaultstoretimeout": {},
+		"pingtimeout":       {},
+		"pushtimeout":       {},
+	}
 )
 
 // Initial setup.  Read flags, find config file, setup logs
@@ -91,6 +99,39 @@ func init() {
 
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
+
+}
+
+// Setup of timeouts, if they're set
+func init() {
+	// Save supported timeouts into timeouts map
+	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		if _, ok := supportedTimeouts[timeoutKey]; ok {
+			timeout, err := time.ParseDuration(timeoutString)
+			if err != nil {
+				log.WithField("timeoutKey", timeoutKey).Fatal("Could not parse duration for timeout")
+			}
+			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
+			timeouts[timeoutKey] = timeout
+		}
+	}
+
+	// Verify that individual timeouts don't add to more than total timeout
+	now := time.Now()
+	timeForComponentCheck := now
+
+	for timeoutKey, timeout := range timeouts {
+		if timeoutKey != "globaltimeout" {
+			timeForComponentCheck = timeForComponentCheck.Add(timeout)
+		}
+	}
+
+	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	if timeForComponentCheck.After(timeForGlobalCheck) {
+		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+	}
+
+	// TODO Pass these in as context.Values that are scoped with each request.
 
 }
 
