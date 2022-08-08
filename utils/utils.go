@@ -10,7 +10,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var servicePattern = regexp.MustCompile(`([[:alnum:]]+)_([[:alnum:]]+)`)
+var serviceWithRolePattern = regexp.MustCompile(`([[:alnum:]]+)_([[:alnum:]]+)`)
 
 // CheckForExecutables takes a map of executables of the form {"name_of_executable": "whatever"} and
 // checks if each executable is in $PATH.  If so, it saves the path in the map.  If not, it returns an error
@@ -51,7 +51,7 @@ func CheckRunningUserNotRoot() error {
 }
 
 func ParseServiceToExperimentAndRole(service string) ([]string, error) {
-	matches := servicePattern.FindStringSubmatch(service)
+	matches := serviceWithRolePattern.FindStringSubmatch(service)
 	if len(matches) < 3 {
 		msg := "could not parse experiment and role from service"
 		log.WithField("service", service).Error(msg)
