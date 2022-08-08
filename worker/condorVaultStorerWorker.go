@@ -28,13 +28,22 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	var interactive bool
-	vaultTimeout, err := time.ParseDuration(vaultTimeoutStr)
-	if err != nil {
-		log.Fatal("Could not parse vault storer timeout duration")
+
+	var vaultStorerTimeout time.Duration
+	var ok bool
+	var err error
+
+	if vaultStorerTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
+		log.WithField("func", "StoreAndGetTokenWorker").Debug("No overrideTimeout set.  Will use default")
+		vaultStorerTimeout, err = time.ParseDuration(vaultTimeoutStr)
+		if err != nil {
+			log.Fatal("Could not parse vault storer timeout duration")
+		}
 	}
+
 	for sc := range chans.GetServiceConfigChan() {
-		vaultContext, vaultCancel := context.WithTimeout(ctx, vaultTimeout)
-		defer vaultCancel()
+		vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
+		defer vaultStorerCancel()
 
 		success := &vaultStorerSuccess{
 			serviceName: sc.Service.Name(),
@@ -45,7 +54,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- v
 			}(success)
 
-			if err := utils.StoreAndGetTokens(vaultContext, sc, interactive); err != nil {
+			if err := utils.StoreAndGetTokens(vaultStorerContext, sc, interactive); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),

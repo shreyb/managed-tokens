@@ -30,11 +30,11 @@ var (
 	serviceConfigs    = make(map[string]*service.Config)
 	timeouts          = make(map[string]time.Duration)
 	supportedTimeouts = map[string]struct{}{
-		"globaltimeout":     {},
-		"kerberostimeout":   {},
-		"vaultstoretimeout": {},
-		"pingtimeout":       {},
-		"pushtimeout":       {},
+		"globaltimeout":      {},
+		"kerberostimeout":    {},
+		"vaultstorertimeout": {},
+		"pingtimeout":        {},
+		"pushtimeout":        {},
 	}
 )
 
@@ -287,8 +287,16 @@ func main() {
 	// Store tokens in vault and get short-lived vault token (condor_vault_storer)
 
 	// Channels and worker for getting/storing vault token
+	// TODO We do this with every step.  Maybe make it a func that takes a worker, []*service.Config channels, and timeoutCheck string
+	var vaultStorerCtx context.Context
 	condorVaultChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	go worker.StoreAndGetTokenWorker(ctx, condorVaultChans)
+	if timeout, ok := timeouts["vaultstorertimeout"]; ok {
+		vaultStorerCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		vaultStorerCtx = ctx
+	}
+	go worker.StoreAndGetTokenWorker(vaultStorerCtx, condorVaultChans)
+	//TODO Make this unexported
 	LoadServiceConfigsIntoChannel(condorVaultChans.GetServiceConfigChan(), serviceConfigs)
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
@@ -315,8 +323,14 @@ func main() {
 	// tokens until all of those are done
 
 	// Channels and worker for pinging nodes
+	var pingCtx context.Context
 	pingChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	go worker.PingAggregatorWorker(ctx, pingChans)
+	if timeout, ok := timeouts["pingtimeout"]; ok {
+		pingCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		pingCtx = ctx
+	}
+	go worker.PingAggregatorWorker(pingCtx, pingChans)
 	LoadServiceConfigsIntoChannel(pingChans.GetServiceConfigChan(), serviceConfigs)
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
@@ -329,8 +343,14 @@ func main() {
 	// Send tokens to nodes
 
 	// Channels and worker for pushing tokens
+	var pushCtx context.Context
 	pushChans := worker.NewChannelsForWorkers(len(serviceConfigs))
-	go worker.PushTokensWorker(ctx, pushChans)
+	if timeout, ok := timeouts["pushtimeout"]; ok {
+		pushCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		pushCtx = ctx
+	}
+	go worker.PushTokensWorker(pushCtx, pushChans)
 	LoadServiceConfigsIntoChannel(pushChans.GetServiceConfigChan(), serviceConfigs)
 
 	// Aggregate the successes

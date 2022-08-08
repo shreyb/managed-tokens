@@ -28,9 +28,17 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
-	pushTimeout, err := time.ParseDuration(pushTimeoutStr)
-	if err != nil {
-		log.Fatal("Could not parse push tokens timeout duration")
+
+	var pushTimeout time.Duration
+	var ok bool
+	var err error
+
+	if pushTimeout, ok = utils.GetOverrideTimeoutFromContext(ctx); !ok {
+		log.WithField("func", "PushTokensWorker").Debug("No overrideTimeout set.  Will use default")
+		pushTimeout, err = time.ParseDuration(pushTimeoutStr)
+		if err != nil {
+			log.Fatal("Could not parse push timeout duration")
+		}
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
@@ -44,8 +52,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}(pushSuccess)
 
 			// kswitch
-			// TODO Use the passed in context later
-			ctx := context.Background()
 			if err := utils.SwitchKerberosCache(ctx, sc); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
