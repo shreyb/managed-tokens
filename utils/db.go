@@ -80,7 +80,7 @@ func InsertUidsIntoTableFromFERRY(ctx context.Context, db *sql.DB, ferryData []F
 	defer insertStatement.Close()
 
 	for _, datum := range ferryData {
-		_, err := insertStatement.Exec(datum.Username(), datum.Uid(), datum.Uid())
+		_, err := insertStatement.ExecContext(ctx, datum.Username(), datum.Uid(), datum.Uid())
 		if err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
 				log.Error("Context timeout")
@@ -112,7 +112,7 @@ func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) (int, error) {
 	var uid int
 	var rowsCount int
 	rowsOut := make([][]string, 0)
-	rows, err := db.Query(confirmUIDsInTableStatement)
+	rows, err := db.QueryContext(ctx, confirmUIDsInTableStatement)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
@@ -167,7 +167,7 @@ func GetUIDByUsername(ctx context.Context, db *sql.DB, username string) (int, er
 	}
 	defer stmt.Close()
 
-	err = stmt.QueryRow(username).Scan(&uid)
+	err = stmt.QueryRowContext(ctx, username).Scan(&uid)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
