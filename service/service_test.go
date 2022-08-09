@@ -28,17 +28,17 @@ func TestNewService(t *testing.T) {
 			expectedName:       "myreallycoolexperiment_superrole",
 		},
 	}
-	for _, testCase := range testCases {
-		t.Run(testCase.description, func(t *testing.T) {
-			s := NewService(testCase.serviceName)
-			if s.Experiment() != testCase.expectedExperiment {
-				t.Errorf("New service does not have the expected experiment name.  Wanted %s, got %s", testCase.expectedExperiment, s.Experiment())
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			s := NewService(tc.serviceName)
+			if s.Experiment() != tc.expectedExperiment {
+				t.Errorf("New service does not have the expected experiment name.  Wanted %s, got %s", tc.expectedExperiment, s.Experiment())
 			}
-			if s.Role() != testCase.expectedRole {
-				t.Errorf("New service does not have the expected role name.  Wanted %s, got %s", testCase.expectedRole, s.Role())
+			if s.Role() != tc.expectedRole {
+				t.Errorf("New service does not have the expected role name.  Wanted %s, got %s", tc.expectedRole, s.Role())
 			}
-			if s.Name() != testCase.expectedName {
-				t.Errorf("New service does not have the expected service name.  Wanted %s, got %s", testCase.expectedName, s.Name())
+			if s.Name() != tc.expectedName {
+				t.Errorf("New service does not have the expected service name.  Wanted %s, got %s", tc.expectedName, s.Name())
 			}
 		})
 	}

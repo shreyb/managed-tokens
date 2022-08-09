@@ -36,7 +36,7 @@ func NewConfig(service Service, options ...func(*Config) error) (*Config, error)
 	for _, option := range options {
 		err := option(&c)
 		if err != nil {
-			log.WithField("function", option).Error(err)
+			log.Error(err)
 			return &c, err
 		}
 	}
