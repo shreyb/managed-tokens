@@ -1,0 +1,19 @@
+The following errors were reported by the Managed Tokens service at {{.Timestamp}} while performing operation {{.Operation}}:
+
+{{range $service, $adminData := .AdminErrors}}
+{{ $service }}
+{{ if $adminData.SetupErrors }}Setup errors: 
+{{ range $adminData.SetupErrors }}
+{{ . }}
+{{end}}
+{{end}}
+
+{{ if $adminData.RunErrorsTable }}Processing errors:
+{{ $adminData.RunErrorsTable }}
+
+{{end}}
+{{end}}
+
+Please look at the logs for more details.
+
+{{/* This template is to report error messages from the token-push and run-onboarding executables to the administrators.  */}}
