@@ -14,7 +14,6 @@ var emailDialer gomail.Dialer // gomail dialer to use to send emails
 
 // Email is an email message configuration
 type email struct {
-	service        string
 	from           string
 	to             []string
 	subject        string
@@ -24,22 +23,13 @@ type email struct {
 	templateStruct any    // Struct to use with templatePath
 }
 
-func (e *email) Service() string { return e.service }
 func (e *email) From() string    { return e.from }
 func (e *email) To() []string    { return e.to }
 func (e *email) Subject() string { return e.subject }
 
-// type Config interface {
-// 	Service() string
-// 	From() string
-// 	To() []string
-// 	Subject() string
-// }
-
 // WithSlackMessage is an exported func that allows callers to instantiate a slack message in the notifications Manager
-func NewEmail(service, from string, to []string, subject, smtpHost string, smtpPort int, templatePath string) *email {
+func NewEmail(from string, to []string, subject, smtpHost string, smtpPort int, templatePath string) *email {
 	return &email{
-		service:      service,
 		from:         from,
 		to:           to,
 		subject:      subject,
@@ -74,13 +64,11 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 	case err := <-c:
 		if err != nil {
 			log.WithFields(log.Fields{
-				"service":   e.service,
 				"recipient": strings.Join(e.to, ", "),
 				"email":     e,
 			}).Errorf("Error sending email: %s", err)
 		} else {
 			log.WithFields(log.Fields{
-				"service":   e.service,
 				"recipient": strings.Join(e.to, ", "),
 			}).Info("Sent email")
 		}
@@ -89,12 +77,10 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 		err := ctx.Err()
 		if err == context.DeadlineExceeded {
 			log.WithFields(log.Fields{
-				"service":   e.service,
 				"recipient": strings.Join(e.to, ", "),
 			}).Error("Error sending email: timeout")
 		} else {
 			log.WithFields(log.Fields{
-				"service":   e.service,
 				"recipient": strings.Join(e.to, ", "),
 			}).Errorf("Error sending email: %s", err)
 		}
@@ -108,17 +94,13 @@ func (e *email) prepareEmailWithTemplate() (string, error) {
 
 	templateData, err := ioutil.ReadFile(e.templatePath)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"service": e.service,
-		}).Errorf("Could not read service error template file: %s", err)
+		log.Errorf("Could not read service error template file: %s", err)
 		return "", err
 	}
 
 	emailTemplate := template.Must(template.New("email").Parse(string(templateData)))
 	if err = emailTemplate.Execute(&b, e.templateStruct); err != nil {
-		log.WithFields(log.Fields{
-			"service": e.service,
-		}).Errorf("Failed to execute service email template: %s", err)
+		log.Errorf("Failed to execute service email template: %s", err)
 		return "", err
 	}
 	return b.String(), err

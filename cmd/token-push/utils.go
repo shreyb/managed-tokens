@@ -220,7 +220,6 @@ func setNotificationsChan(ctx context.Context, serviceConfigPath string, s servi
 	return func(sc *service.Config) error {
 		timestamp := time.Now().Format(time.RFC822)
 		e := notifications.NewEmail(
-			s.Name(),
 			viper.GetString("email.from"),
 			viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
 			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", s.Name(), timestamp),
@@ -229,7 +228,7 @@ func setNotificationsChan(ctx context.Context, serviceConfigPath string, s servi
 			viper.GetString("templates.serviceerrors"),
 		)
 
-		m := notifications.NewServiceEmailManager(ctx, wg, e)
+		m := notifications.NewServiceEmailManager(ctx, wg, sc.Service.Name(), e)
 		sc.NotificationsChan = m
 		return nil
 	}

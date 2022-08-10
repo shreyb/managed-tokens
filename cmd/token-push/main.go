@@ -117,7 +117,6 @@ func init() {
 
 	now := time.Now().Format(time.RFC822)
 	email := notifications.NewEmail(
-		"token-push",
 		viper.GetString("email.from"),
 		viper.GetStringSlice(prefix+"admin_email"),
 		"Managed Tokens Errors "+now,
@@ -125,10 +124,7 @@ func init() {
 		viper.GetInt("email.smtpport"),
 		"",
 	)
-	slackMessage := notifications.NewSlackMessage(
-		"token-push",
-		viper.GetString(prefix+"slack_alerts_url"),
-	)
+	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
 	adminNotifications = append(adminNotifications, email, slackMessage)
 }
 
