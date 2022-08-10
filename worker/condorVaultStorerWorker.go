@@ -5,6 +5,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 )
@@ -47,10 +48,12 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer vaultStorerCancel()
 
 			if err := utils.StoreAndGetTokens(vaultStorerContext, sc, interactive); err != nil {
+				msg := "Could not store and get vault tokens"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
-				}).Error("Could not store and get vault tokens")
+				}).Error(msg)
+				sc.NotificationsChan <- vaultStorerNotification(msg, sc.Service.Name())
 			} else {
 				success.success = true
 			}
@@ -70,4 +73,12 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) e
 	defer vaultCancel()
 
 	return utils.StoreAndGetTokens(vaultContext, sc, interactive)
+}
+
+func vaultStorerNotification(message, service string) notifications.Notification {
+	return notifications.Notification{
+		Message:          message,
+		Service:          service,
+		NotificationType: notifications.SetupError,
+	}
 }

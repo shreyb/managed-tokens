@@ -18,6 +18,7 @@ import (
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -102,6 +103,8 @@ func init() {
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
+	// TODO Admin email stuff
+
 }
 
 // Setup of timeouts, if they're set
@@ -176,8 +179,11 @@ func main() {
 	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	var globalTimeout time.Duration
+	var notificationsWg sync.WaitGroup
 	var ok bool
 	var err error
+
+	defer notificationsWg.Wait()
 
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
 		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
@@ -204,7 +210,7 @@ func main() {
 	}()
 
 	defer func(successfulServices map[string]bool) {
-		if err := cleanup(successfulServices); err != nil {
+		if err := cleanup(ctx, successfulServices); err != nil {
 			log.Fatal("Error cleaning up")
 		}
 
@@ -224,6 +230,7 @@ func main() {
 			serviceConfigSetupWg.Add(1)
 			go func(s service.Service, serviceConfigPath string) {
 				defer serviceConfigSetupWg.Done()
+				defer notificationsWg.Add(1)
 
 				sc, err := service.NewConfig(
 					s,
@@ -236,6 +243,7 @@ func main() {
 					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
+					setNotificationsChan(ctx, serviceConfigPath, s, &notificationsWg),
 				)
 				if err != nil {
 					// Something more descriptive
@@ -251,6 +259,12 @@ func main() {
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()
+	}()
+
+	defer func() {
+		for _, sc := range serviceConfigs {
+			close(sc.NotificationsChan)
+		}
 	}()
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
@@ -312,10 +326,44 @@ func main() {
 
 	fmt.Println("I guess we did something")
 
-	// Notifications
 }
 
-func cleanup(successMap map[string]bool) error {
+func cleanup(ctx context.Context, successMap map[string]bool) error {
+	var prefix string
+
+	if viper.GetBool("test") {
+		prefix = "notifications_test."
+	} else {
+		prefix = "notifications."
+	}
+
+	now := time.Now().Format(time.RFC822)
+	e := notifications.NewEmail(
+		"token-push",
+		viper.GetString("email.from"),
+		viper.GetStringSlice(prefix+"admin_email"),
+		"Managed Tokens Errors "+now,
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		"",
+	)
+	s := notifications.NewSlackMessage(
+		"token-push",
+		viper.GetString(prefix+"slack_alerts_url"),
+	)
+
+	defer func() {
+		if err := notifications.SendAdminNotifications(
+			ctx,
+			"token-push",
+			viper.GetString("templates.adminerrors"),
+			e,
+			s,
+		); err != nil {
+			log.Error("Error sending admin notifications")
+		}
+	}()
+
 	successes := make([]string, 0, len(successMap))
 	failures := make([]string, 0, len(successMap))
 

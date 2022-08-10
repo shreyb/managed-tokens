@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/shreyb/managed-tokens/notifications"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -8,12 +9,13 @@ import (
 //TODO Add Service as a field that is <experiment>_<role>, use it everywhere applicable
 type Config struct {
 	Service
-	UserPrincipal string
-	Nodes         []string
-	Account       string
-	KeytabPath    string
-	DesiredUID    uint32
-	ConfigPath    string
+	UserPrincipal     string
+	Nodes             []string
+	Account           string
+	KeytabPath        string
+	DesiredUID        uint32
+	ConfigPath        string
+	NotificationsChan chan notifications.Notification
 	CommandEnvironment
 }
 

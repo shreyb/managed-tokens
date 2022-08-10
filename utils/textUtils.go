@@ -18,7 +18,7 @@ import (
 func GetArgsFromTemplate(s string) ([]string, error) {
 	args, err := shlex.Split(s)
 	if err != nil {
-		return []string{}, fmt.Errorf("Could not split string according to shlex rules: %s", err)
+		return []string{}, fmt.Errorf("could not split string according to shlex rules: %s", err)
 	}
 
 	debugSlice := make([]string, 0)
@@ -31,8 +31,18 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 	return args, nil
 }
 
-// DoubleErrorMapToTable takes a map[string]map[string]error and generates a table using the provided header slice
-func DoubleErrorMapToTable(myMap map[string]map[string]error, header []string) string {
+// MapStringMapStringErrorToTable formats a map[string]error and appends a message onto the beginning
+func PrepareTableStringFromMap(m map[string]error, helpMessage string) string {
+	table := MapStringErrorToTable(m, []string{"Node", "Error"})
+
+	// finalTable := fmt.Sprintf("The following is a list of nodes on which all proxies were not refreshed, and the corresponding roles for those failed proxy refreshes:\n\n%s", table)
+	finalTable := fmt.Sprintf("%s\n\n%s", helpMessage, table)
+	return finalTable
+
+}
+
+// MapStringMapStringErrorToTable takes a map[string]map[string]error and generates a table using the provided header slice
+func MapStringErrorToTable(myMap map[string]error, header []string) string {
 	var b strings.Builder
 	data := WrapMapToTableData(myMap)
 	table := tablewriter.NewWriter(&b)
@@ -121,28 +131,6 @@ func MapToTableData(v reflect.Value, curData [][]string, curRow []string) [][]st
 		}
 	}
 	return curData
-}
-
-// FailedPrettifyRolesNodesMap formats a map of failed nodes and roles into node, role columns and appends a message onto the beginning
-func FailedPrettifyRolesNodesMap(roleNodesMap map[string]map[string]error) string {
-	empty := true
-
-	for _, nodeMap := range roleNodesMap {
-		if len(nodeMap) > 0 {
-			empty = false
-			break
-		}
-	}
-
-	if empty {
-		return ""
-	}
-
-	table := DoubleErrorMapToTable(roleNodesMap, []string{"Role", "Node", "Error"})
-
-	finalTable := fmt.Sprintf("The following is a list of nodes on which all proxies were not refreshed, and the corresponding roles for those failed proxy refreshes:\n\n%s", table)
-	return finalTable
-
 }
 
 // GenerateNewErrorStringForTable is meant to change an error string based on whether it is currently equal to the defaultError.  If the testError and defaultError match, this func will return an error with the text of errStringSlice.  If they don't, then this func will append the contents of errStringSlice onto the testError text, and return a new error with the combined string.  The separator formats how different error strings should be distinguished.   This func should only be used to concatenate error strings

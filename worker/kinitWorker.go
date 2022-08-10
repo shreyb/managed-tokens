@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -44,18 +45,22 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer kerbCancel()
 
 			if err := utils.GetKerberosTicket(kerbContext, sc); err != nil {
+				msg := "Could not obtain kerberos ticket"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
-				}).Error("Could not obtain kerberos ticket")
+				}).Error(msg)
+				sc.NotificationsChan <- kerberosNotification(msg, sc.Service.Name())
 				return
 			}
 
 			if err := utils.CheckKerberosPrincipal(kerbContext, sc); err != nil {
+				msg := "Kerberos ticket verification failed"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
-				}).Error("Kerberos ticket verification failed")
+				}).Error(msg)
+				sc.NotificationsChan <- kerberosNotification(msg, sc.Service.Name())
 			} else {
 				// TODO Make this debug
 				log.WithFields(log.Fields{
@@ -65,5 +70,13 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				success.success = true
 			}
 		}()
+	}
+}
+
+func kerberosNotification(message, service string) notifications.Notification {
+	return notifications.Notification{
+		Message:          message,
+		Service:          service,
+		NotificationType: notifications.SetupError,
 	}
 }

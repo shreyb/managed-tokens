@@ -7,7 +7,10 @@ import (
 	"html/template"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -38,6 +41,30 @@ func loadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceCon
 		chanToLoad <- sc
 	}
 }
+
+// func createServiceConfigNotificationChannelMap(ctx context.Context, serviceConfigs map[string]*service.Config) (map[string]chan notifications.Notification, *sync.WaitGroup) {
+// 	configsToChannels := make(map[string]chan notifications.Notification)
+// 	var wg sync.WaitGroup
+// 	timestamp := time.Now().Format(time.RFC822)
+
+// 	for serviceName, serviceConfig := range serviceConfigs {
+// 		e := notifications.NewEmail(
+// 			serviceName,
+// 			viper.GetString("email.from"),
+// 			viper.GetStringSlice("experiments."+serviceConfig.Service.Experiment()+".emails"),
+// 			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", serviceConfig.Service.Name(), timestamp),
+// 			viper.GetString("smtphost"),
+// 			viper.GetInt("smtpport"),
+// 			viper.GetString("templates.serviceerrors"),
+// 		)
+
+// 		wg.Add(1)
+// 		m := notifications.NewServiceEmailManager(ctx, &wg, &serviceConfig.Service, e)
+// 		configsToChannels[serviceName] = m
+// 	}
+
+// 	return configsToChannels, &wg
+// }
 
 // Functional options for service.Config initialization
 func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error {
@@ -185,6 +212,25 @@ func destinationNodes(serviceConfigPath string) func(sc *service.Config) error {
 func account(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.Account = viper.GetString(serviceConfigPath + ".account")
+		return nil
+	}
+}
+
+func setNotificationsChan(ctx context.Context, serviceConfigPath string, s service.Service, wg *sync.WaitGroup) func(sc *service.Config) error {
+	return func(sc *service.Config) error {
+		timestamp := time.Now().Format(time.RFC822)
+		e := notifications.NewEmail(
+			s.Name(),
+			viper.GetString("email.from"),
+			viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
+			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", s.Name(), timestamp),
+			viper.GetString("email.smtphost"),
+			viper.GetInt("email.smtpport"),
+			viper.GetString("templates.serviceerrors"),
+		)
+
+		m := notifications.NewServiceEmailManager(ctx, wg, e)
+		sc.NotificationsChan = m
 		return nil
 	}
 }
