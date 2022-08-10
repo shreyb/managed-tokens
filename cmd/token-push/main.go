@@ -37,6 +37,7 @@ var (
 		"pingtimeout":        {},
 		"pushtimeout":        {},
 	}
+	adminNotifications = make([]notifications.SendMessager, 0)
 )
 
 // Initial setup.  Read flags, find config file, setup logs
@@ -103,8 +104,32 @@ func init() {
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
-	// TODO Admin email stuff
+}
 
+// Prep admin notifications
+func init() {
+	var prefix string
+	if viper.GetBool("test") {
+		prefix = "notifications_test."
+	} else {
+		prefix = "notifications."
+	}
+
+	now := time.Now().Format(time.RFC822)
+	email := notifications.NewEmail(
+		"token-push",
+		viper.GetString("email.from"),
+		viper.GetStringSlice(prefix+"admin_email"),
+		"Managed Tokens Errors "+now,
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		"",
+	)
+	slackMessage := notifications.NewSlackMessage(
+		"token-push",
+		viper.GetString(prefix+"slack_alerts_url"),
+	)
+	adminNotifications = append(adminNotifications, email, slackMessage)
 }
 
 // Setup of timeouts, if they're set
@@ -329,36 +354,13 @@ func main() {
 }
 
 func cleanup(ctx context.Context, successMap map[string]bool) error {
-	var prefix string
-
-	if viper.GetBool("test") {
-		prefix = "notifications_test."
-	} else {
-		prefix = "notifications."
-	}
-
-	now := time.Now().Format(time.RFC822)
-	e := notifications.NewEmail(
-		"token-push",
-		viper.GetString("email.from"),
-		viper.GetStringSlice(prefix+"admin_email"),
-		"Managed Tokens Errors "+now,
-		viper.GetString("email.smtphost"),
-		viper.GetInt("email.smtpport"),
-		"",
-	)
-	s := notifications.NewSlackMessage(
-		"token-push",
-		viper.GetString(prefix+"slack_alerts_url"),
-	)
 
 	defer func() {
 		if err := notifications.SendAdminNotifications(
 			ctx,
 			"token-push",
 			viper.GetString("templates.adminerrors"),
-			e,
-			s,
+			adminNotifications...,
 		); err != nil {
 			log.Error("Error sending admin notifications")
 		}
