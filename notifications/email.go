@@ -50,7 +50,7 @@ func NewEmail(service, from string, to []string, subject, smtpHost string, smtpP
 }
 
 // SendMessage sends message as an email based on the Config
-func (e *email) SendMessage(ctx context.Context, message string) error {
+func (e *email) sendMessage(ctx context.Context, message string) error {
 
 	emailDialer = gomail.Dialer{
 		Host: e.smtpHost,

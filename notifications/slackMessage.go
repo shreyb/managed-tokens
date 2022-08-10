@@ -41,7 +41,7 @@ func NewSlackMessage(service, url string) *slackMessage {
 }
 
 // SendMessage sends message as a Slack message based on the Config
-func (s *slackMessage) SendMessage(ctx context.Context, message string) error {
+func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 	if e := ctx.Err(); e != nil {
 		log.WithField("service", s.service).Errorf("Error sending slack message: %s", e)
 		return e

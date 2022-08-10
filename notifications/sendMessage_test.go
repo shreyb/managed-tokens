@@ -11,7 +11,7 @@ type fakeSender struct {
 	err error
 }
 
-func (f *fakeSender) SendMessage(ctx context.Context, msg string) error {
+func (f *fakeSender) sendMessage(ctx context.Context, msg string) error {
 	return f.err
 }
 
