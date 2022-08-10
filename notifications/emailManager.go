@@ -9,7 +9,7 @@ import (
 )
 
 // ServiceEmailManager is simply a channel on which Notification objects can be sent and received
-type ServiceEmailManager chan Notification
+type EmailManager chan Notification
 
 // Some notes to go away later.
 // . We expect callers to call NewManager if they want to run for real,and send notifications which either have single setuperrors, or the aggregated
@@ -20,10 +20,10 @@ type ServiceEmailManager chan Notification
 // whether it's running a test or not by setting the "to" field in the *email object
 
 // NewServiceEmailManager returns a ServiceEmailManager channel for callers to send Notifications on.  It will collect messages, and when Manager is closed, will send emails, depending on nConfig.IsTest
-func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, e *email) ServiceEmailManager {
+func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email) EmailManager {
 	// func NewManager(ctx context.Context, wg *sync.WaitGroup, nConfig Config) Manager {
 	var isTest bool
-	c := make(ServiceEmailManager)
+	c := make(EmailManager)
 
 	// If the passed in *email object has a blank recipients list, we consider this a test run
 	if len(e.to) == 0 {
@@ -41,13 +41,13 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, e *email) S
 				if err := ctx.Err(); err == context.DeadlineExceeded {
 					log.WithFields(log.Fields{
 						"caller":  "NewManager",
-						"service": e.service,
+						"service": service,
 					}).Error("Timeout exceeded in notification Manager")
 
 				} else {
 					log.WithFields(log.Fields{
 						"caller":  "NewManager",
-						"service": e.service,
+						"service": service,
 					}).Error(err)
 				}
 				return
@@ -66,13 +66,13 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, e *email) S
 						if err != nil {
 							log.WithFields(log.Fields{
 								"caller":  "NewManager",
-								"service": e.service,
+								"service": service,
 							}).Error("Error preparing service email for sending")
 						}
 						if err = SendMessage(ctx, e, msg); err != nil {
 							log.WithFields(log.Fields{
 								"caller":  "NewManager",
-								"service": e.service,
+								"service": service,
 							}).Error("Error sending email")
 						}
 					}
@@ -83,6 +83,38 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, e *email) S
 					serviceErrorsTable[nValue.node] = n.GetMessage()
 				}
 				addErrorToAdminErrors(n)
+			}
+		}
+	}()
+
+	return c
+}
+
+func NewAdminEmailManager(ctx context.Context, e *email) EmailManager {
+	c := make(EmailManager)
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				if err := ctx.Err(); err == context.DeadlineExceeded {
+					log.WithFields(log.Fields{
+						"caller": "NewSimpleEmailManager",
+					}).Error("Timeout exceeded in notification Manager")
+				} else {
+					log.WithFields(log.Fields{
+						"caller": "NewSimpleEmailManager",
+					}).Error(err)
+				}
+				return
+
+			case n, chanOpen := <-c:
+				// Channel is closed --> send notifications
+				if !chanOpen {
+					return
+				} else {
+					addErrorToAdminErrors(n)
+				}
 			}
 		}
 	}()
