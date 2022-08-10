@@ -332,13 +332,20 @@ func main() {
 	}
 
 	// Confirm and verify that INSERT was successful
-	count, err := utils.ConfirmUIDsInTable(ctx, db)
+	dbData, err := utils.ConfirmUIDsInTable(ctx, db)
 	if err != nil {
-		log.Fatal("Error running verification of INSERT")
+		msg := "Error running verification of INSERT"
+		notificationsChan <- notifications.NewSetupError(msg, service)
+		log.Error(msg)
+		return
 	}
 
-	if count != len(ferryData) {
-		log.Fatalf("Verification of INSERT failed.  Expected %d total UID rows, got %d", len(ferryData), count)
+	if !checkFerryDataInDB(ferryDataConverted, dbData) {
+		notificationsChan <- notifications.NewSetupError(
+			"Verification of INSERT failed.  Please check the logs",
+			service,
+		)
+		return
 	}
 	//TODO Make this a debug
 	log.Debug("Verified INSERT")

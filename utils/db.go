@@ -3,7 +3,6 @@ package utils
 import (
 	"context"
 	"database/sql"
-	"strconv"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -122,10 +121,10 @@ func InsertUidsIntoTableFromFERRY(ctx context.Context, db *sql.DB, ferryData []F
 	return nil
 }
 
-func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) (int, error) {
+func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) ([]FerryUIDDatum, error) {
 	var username string
 	var uid int
-	var rowsCount int
+	data := make([]FerryUIDDatum, 0)
 
 	dbTimeout, err := GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
@@ -134,16 +133,15 @@ func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) (int, error) {
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
-	rowsOut := make([][]string, 0)
 	rows, err := db.QueryContext(dbContext, confirmUIDsInTableStatement)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
-			return rowsCount, dbContext.Err()
+			return data, dbContext.Err()
 		}
 		log.Error("Error running SELECT query against database")
 		log.Error(err)
-		return rowsCount, err
+		return data, err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -151,25 +149,24 @@ func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) (int, error) {
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
 				log.Error("Context timeout")
-				return rowsCount, dbContext.Err()
+				return data, dbContext.Err()
 			}
 			log.Error("Error retrieving results of SELECT query")
 			log.Error(err)
-			return rowsCount, err
+			return data, err
 		}
-		rowsOut = append(rowsOut, []string{
-			username,
-			strconv.Itoa(uid),
+		data = append(data, &checkDatum{
+			username: username,
+			uid:      uid,
 		})
-		rowsCount += 1
+		log.Debugf("Got row: %s, %d", username, uid)
 	}
 	err = rows.Err()
 	if err != nil {
 		log.Error(err)
-		return rowsCount, err
+		return data, err
 	}
-	log.Info("UID output: ", rowsOut)
-	return rowsCount, nil
+	return data, nil
 }
 
 func GetUIDByUsername(ctx context.Context, db *sql.DB, username string) (int, error) {
@@ -206,3 +203,11 @@ func GetUIDByUsername(ctx context.Context, db *sql.DB, username string) (int, er
 	}
 	return uid, nil
 }
+
+type checkDatum struct {
+	username string
+	uid      int
+}
+
+func (c *checkDatum) Username() string { return c.username }
+func (c *checkDatum) Uid() int         { return c.uid }
