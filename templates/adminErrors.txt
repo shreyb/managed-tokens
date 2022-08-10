@@ -8,7 +8,7 @@ The following errors were reported by the Managed Tokens service at {{.Timestamp
 {{end}}
 {{end}}
 
-{{ if $adminData.PushErrorsTable}}Processing errors:
+{{ if eq $adminData.PushErrorsTable "" }}Processing errors:
 {{ $adminData.PushErrorsTable}}
 
 {{end}}
