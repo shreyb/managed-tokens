@@ -236,8 +236,8 @@ func main() {
 					username,
 					viper.GetString("ferry.host"),
 					viper.GetInt("ferry.port"),
-					ferryDataChan,
 					authFunc(),
+					ferryDataChan,
 				)
 				if err != nil {
 					log.WithField("username", username).Error("Could not get FERRY UID data")

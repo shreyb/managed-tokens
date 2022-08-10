@@ -49,8 +49,8 @@ type ferryUIDResponse struct {
 }
 
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
-	ferryDataChan chan<- *UIDEntryFromFerry,
-	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error)) (*UIDEntryFromFerry, error) {
+	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
+	ferryDataChan chan<- *UIDEntryFromFerry) (*UIDEntryFromFerry, error) {
 	entry := UIDEntryFromFerry{}
 
 	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)
