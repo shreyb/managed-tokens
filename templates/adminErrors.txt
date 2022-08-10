@@ -8,12 +8,12 @@ The following errors were reported by the Managed Tokens service at {{.Timestamp
 {{end}}
 {{end}}
 
-{{ if $adminData.RunErrorsTable }}Processing errors:
-{{ $adminData.RunErrorsTable }}
+{{ if $adminData.PushErrorsTable}}Processing errors:
+{{ $adminData.PushErrorsTable}}
 
 {{end}}
 {{end}}
 
 Please look at the logs for more details.
 
-{{/* This template is to report error messages from the token-push and run-onboarding executables to the administrators.  */}}
+{{/* This template is to report error messages from the token-push and refresh-uids-from-ferry executables to the administrators.  */}}
