@@ -157,6 +157,10 @@ func aggregateFailuresForNotifications(inChan <-chan failureByNode, doneChan cha
 		m[failure.node] = failure.error
 	}
 
+	if len(m) == 0 {
+		return
+	}
+
 	helpText := "The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:"
 	tableString := utils.PrepareTableStringFromMap(m, helpText)
 
