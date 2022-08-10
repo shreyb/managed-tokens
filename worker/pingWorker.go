@@ -84,19 +84,11 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				}
 				log.WithField("service", sc.Service.Name()).Error("Error pinging some of nodes for service")
 				log.WithField("service", sc.Service.Name()).Errorf("Failed Nodes: %s", strings.Join(failedNodesStrings, ", "))
-				sc.NotificationsChan <- pingNotification(
+				sc.NotificationsChan <- notifications.NewSetupError(
 					"Could not ping the following nodes: "+strings.Join(failedNodesStrings, ", "),
 					sc.Service.Name(),
 				)
 			}
 		}(sc)
-	}
-}
-
-func pingNotification(message, service string) notifications.Notification {
-	return notifications.Notification{
-		Message:          message,
-		Service:          service,
-		NotificationType: notifications.SetupError,
 	}
 }

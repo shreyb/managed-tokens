@@ -53,7 +53,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				sc.NotificationsChan <- vaultStorerNotification(msg, sc.Service.Name())
+				sc.NotificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
 			} else {
 				success.success = true
 			}
@@ -73,12 +73,4 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) e
 	defer vaultCancel()
 
 	return utils.StoreAndGetTokens(vaultContext, sc, interactive)
-}
-
-func vaultStorerNotification(message, service string) notifications.Notification {
-	return notifications.Notification{
-		Message:          message,
-		Service:          service,
-		NotificationType: notifications.SetupError,
-	}
 }

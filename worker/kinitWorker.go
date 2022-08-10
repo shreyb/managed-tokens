@@ -50,7 +50,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				sc.NotificationsChan <- kerberosNotification(msg, sc.Service.Name())
+				sc.NotificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
 				return
 			}
 
@@ -60,7 +60,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				sc.NotificationsChan <- kerberosNotification(msg, sc.Service.Name())
+				sc.NotificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
 			} else {
 				// TODO Make this debug
 				log.WithFields(log.Fields{
@@ -70,13 +70,5 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				success.success = true
 			}
 		}()
-	}
-}
-
-func kerberosNotification(message, service string) notifications.Notification {
-	return notifications.Notification{
-		Message:          message,
-		Service:          service,
-		NotificationType: notifications.SetupError,
 	}
 }

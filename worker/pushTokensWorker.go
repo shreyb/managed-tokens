@@ -40,10 +40,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
-		failureChan := make(chan failureByNode, 1)
-		failureDoneChan := make(chan string, 1)
-		go aggregateFailuresForNotifications(failureChan, failureDoneChan)
-
 		pushSuccess := &pushTokenSuccess{
 			serviceName: sc.Service.Name(),
 			success:     true,
@@ -96,18 +92,12 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						log.WithFields(log.Fields{
 							"experiment": sc.Service.Experiment(),
 							"role":       sc.Service.Role(),
-						}).Error("Error pushing tokens to destination node")
+						}).Error("Error pushing vault tokens to destination node")
 						pushSuccess.success = false
-						failureChan <- failureByNode{
-							node:  destinationNode,
-							error: err,
-						}
+						sc.NotificationsChan <- notifications.NewPushError(err.Error(), sc.Service.Name(), destinationNode)
 					}
 				}
 			}
-			close(failureChan)
-			failuresTable := <-failureDoneChan
-			sc.NotificationsChan <- pushNotification(failuresTable, sc.Service.Name())
 		}()
 	}
 }
@@ -140,29 +130,4 @@ func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, desti
 	}).Info("Success copying file to destination")
 	return nil
 
-}
-
-func pushNotification(message, service string) notifications.Notification {
-	return notifications.Notification{
-		Message:          message,
-		Service:          service,
-		NotificationType: notifications.RunError,
-	}
-}
-
-func aggregateFailuresForNotifications(inChan <-chan failureByNode, doneChan chan<- string) {
-	defer close(doneChan)
-	m := make(map[string]error) // Errors per service by node
-	for failure := range inChan {
-		m[failure.node] = failure.error
-	}
-
-	if len(m) == 0 {
-		return
-	}
-
-	helpText := "The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:"
-	tableString := utils.PrepareTableStringFromMap(m, helpText)
-
-	doneChan <- tableString
 }
