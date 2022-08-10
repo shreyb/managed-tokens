@@ -183,8 +183,6 @@ func main() {
 	var ok bool
 	var err error
 
-	defer notificationsWg.Wait()
-
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
 		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
 		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
@@ -198,6 +196,13 @@ func main() {
 
 	successfulServices := make(map[string]bool) // Map of services for which all processes were successful
 
+	defer func(successfulServices map[string]bool) {
+		if err := cleanup(ctx, successfulServices); err != nil {
+			log.Fatal("Error cleaning up")
+		}
+
+	}(successfulServices)
+
 	// Create temporary dir for all kerberos caches to live in
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
@@ -209,12 +214,7 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
-	defer func(successfulServices map[string]bool) {
-		if err := cleanup(ctx, successfulServices); err != nil {
-			log.Fatal("Error cleaning up")
-		}
-
-	}(successfulServices)
+	defer notificationsWg.Wait()
 
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
