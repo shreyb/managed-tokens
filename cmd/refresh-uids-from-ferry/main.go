@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
 )
@@ -29,6 +30,8 @@ var (
 		"ferryrequesttimeout": {},
 		"dbtimeout":           {},
 	}
+	adminNotifications = make([]notifications.SendMessager, 0)
+	notificationsChan  notifications.EmailManager
 )
 
 func init() {
@@ -94,15 +97,9 @@ func init() {
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
 	log.Infof("Using config file %s", viper.ConfigFileUsed())
 
-	// TODO Take care of overrides:  keytabPath, desiredUid, condorCreddHost, condorCollectorHost, userPrincipalOverride
-
 	if viper.GetBool("test") {
 		log.Info("Running in test mode")
 	}
-	// TODO Flags to override config
-
-	// TODO Logfile setup
-
 }
 
 // Setup of timeouts, if they're set
@@ -139,7 +136,9 @@ func main() {
 	var dbLocation string
 	var newDB bool
 	var db *sql.DB
+	service := "refresh-uids-from-ferry"
 
+	// Global Context
 	var globalTimeout time.Duration
 	var ok bool
 	var err error
@@ -150,10 +149,43 @@ func main() {
 			log.Fatal("Could not parse default global timeout.")
 		}
 	}
-
-	// Global context
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
+
+	// Send admin notifications at end of run
+	var prefix string
+	if viper.GetBool("test") {
+		prefix = "notifications_test."
+	} else {
+		prefix = "notifications."
+	}
+
+	now := time.Now().Format(time.RFC822)
+	email := notifications.NewEmail(
+		viper.GetString("email.from"),
+		viper.GetStringSlice(prefix+"admin_email"),
+		"Managed Tokens Errors "+now,
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		"",
+	)
+	slackMessage := notifications.NewSlackMessage(
+		viper.GetString(prefix + "slack_alerts_url"),
+	)
+	adminNotifications = append(adminNotifications, email, slackMessage)
+	notificationsChan = notifications.NewAdminEmailManager(ctx, email)
+	defer func() {
+		close(notificationsChan)
+		if err := notifications.SendAdminNotifications(
+			ctx,
+			"refresh-uids-from-ferry",
+			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
+			adminNotifications...,
+		); err != nil {
+			log.Error("Error sending admin notifications")
+		}
+	}()
 
 	// Open connection to the SQLite database where UID info will be stored
 	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
@@ -162,6 +194,7 @@ func main() {
 	} else {
 		dbLocation = "/var/lib/managed-tokens/uid.db"
 	}
+	log.Debugf("Using db file at %s", dbLocation)
 
 	if _, err := os.Stat(dbLocation); errors.Is(err, os.ErrNotExist) {
 		newDB = true
@@ -169,14 +202,18 @@ func main() {
 
 	db, err = sql.Open("sqlite3", dbLocation)
 	if err != nil {
-		log.Error("Could not open the UID database file")
-		log.Fatal(err)
+		msg := "Could not open the UID database file"
+		log.Errorf("%s: %s", msg, err)
+		notificationsChan <- notifications.NewSetupError(msg, service)
+		return
 	}
 	defer db.Close()
 
 	if newDB {
 		if err = utils.CreateUidsTableInDB(ctx, db); err != nil {
-			log.Fatal("Error creating UID table in database")
+			msg := "Could not open the UID database file"
+			notificationsChan <- notifications.NewSetupError(msg, service)
+			return
 		}
 	}
 
@@ -209,7 +246,9 @@ func main() {
 		case "jwt":
 			sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 			if err != nil {
-				log.Error("Could not create service config to authenticate to FERRY with a JWT. Exiting")
+				msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
+				log.Error(msg)
+				notificationsChan <- notifications.NewSetupError(msg, service)
 				os.Exit(1)
 			}
 			defer func() {
@@ -240,7 +279,9 @@ func main() {
 					ferryDataChan,
 				)
 				if err != nil {
-					log.WithField("username", username).Error("Could not get FERRY UID data")
+					msg := "Could not get FERRY UID data"
+					log.WithField("username", username).Error(msg)
+					notificationsChan <- notifications.NewSetupError(msg+" for user "+username, service)
 				} else {
 					ferryDataChan <- entry
 				}
@@ -252,7 +293,10 @@ func main() {
 	<-aggFERRYDataDone
 
 	if len(ferryData) == 0 {
-		log.Fatal("No data collected from FERRY.  Exiting")
+		msg := "No data collected from FERRY"
+		notificationsChan <- notifications.NewSetupError(msg, service)
+		log.Error(msg + ". Exiting")
+		return
 	}
 
 	if viper.GetBool("test") {
@@ -281,7 +325,10 @@ func main() {
 		dbContext = ctx
 	}
 	if err := utils.InsertUidsIntoTableFromFERRY(dbContext, db, ferryDataConverted); err != nil {
-		log.Fatal("Could not insert FERRY data into database")
+		msg := "Could not insert FERRY data into database"
+		notificationsChan <- notifications.NewSetupError(msg, service)
+		log.Error(msg)
+		return
 	}
 
 	// Confirm and verify that INSERT was successful
@@ -289,9 +336,11 @@ func main() {
 	if err != nil {
 		log.Fatal("Error running verification of INSERT")
 	}
+
 	if count != len(ferryData) {
 		log.Fatalf("Verification of INSERT failed.  Expected %d total UID rows, got %d", len(ferryData), count)
 	}
 	//TODO Make this a debug
-	log.Info("Verified INSERT. Done")
+	log.Debug("Verified INSERT")
+	log.Info("Successfully refreshed uid DB.")
 }
