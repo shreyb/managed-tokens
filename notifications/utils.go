@@ -148,7 +148,10 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		if !ok {
 			log.Panic("Invalid admin data stored for notification")
 		}
-		adminErrorsMap[e] = a
+
+		if !a.IsEmpty() {
+			adminErrorsMap[e] = a
+		}
 		return true
 	})
 

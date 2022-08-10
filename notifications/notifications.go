@@ -52,6 +52,10 @@ type AdminData struct {
 	RunErrorsTable string
 }
 
+func (a *AdminData) IsEmpty() bool {
+	return ((len(a.SetupErrors) == 0) && (a.RunErrorsTable == ""))
+}
+
 // Manager is simply a channel on which Notification objects can be sent and received
 type ServiceEmailManager chan Notification
 
