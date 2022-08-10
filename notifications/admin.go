@@ -29,24 +29,26 @@ type AdminDataFinal struct {
 
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminMsgSlice. It expects a valid template file configured at nConfig.ConfigInfo["admin_template"].
 // func SendAdminNotifications(ctx context.Context, operation string, SendMessagers []SendMessager ) error {
-func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, sendMessagers ...SendMessager) error {
+func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
 	var wg sync.WaitGroup
 	var existsSendError bool
 	var b strings.Builder
 
 	// No errors - only send slack message saying we tested.  If there are no errors, we don't send emails
 	if syncMapLength(adminErrors) == 0 {
-		slackMessages := make([]*slackMessage, 0)
-		slackMsgText := "Test run completed successfully"
-		for _, sm := range sendMessagers {
-			if messager, ok := sm.(*slackMessage); ok {
-				slackMessages = append(slackMessages, messager)
+		if isTest {
+			slackMessages := make([]*slackMessage, 0)
+			slackMsgText := "Test run completed successfully"
+			for _, sm := range sendMessagers {
+				if messager, ok := sm.(*slackMessage); ok {
+					slackMessages = append(slackMessages, messager)
+				}
 			}
-		}
-		for _, slackMessage := range slackMessages {
-			if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
-				log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
-				return slackErr
+			for _, slackMessage := range slackMessages {
+				if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
+					log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
+					return slackErr
+				}
 			}
 		}
 		log.WithField("caller", "SendAdminNotifications").Debug("No errors to send")

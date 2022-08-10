@@ -356,6 +356,7 @@ func cleanup(ctx context.Context, successMap map[string]bool) error {
 			ctx,
 			"token-push",
 			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
 			adminNotifications...,
 		); err != nil {
 			log.Error("Error sending admin notifications")

@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -101,7 +102,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	if parsedResponse.FerryStatus == "failure" {
 		log.WithField("account", username).Error("FERRY server error")
 		log.Error(parsedResponse.FerryError)
-		return &entry, err
+		return &entry, errors.New("unspecified FERRY error.  Check logs")
 	}
 
 	entry.username = username
