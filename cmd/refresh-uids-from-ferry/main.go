@@ -218,15 +218,16 @@ func main() {
 	}
 
 	// FERRY vars
-	ferryData := make([]*worker.UIDEntryFromFerry, 0)
-	ferryDataChan := make(chan *worker.UIDEntryFromFerry) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
-	ferryDataWg := new(sync.WaitGroup)                    // WaitGroup to make sure we don't close ferryDataChan before all data is sent
-	aggFERRYDataDone := make(chan struct{})               // Channel to close when FERRY data aggregation is done
+	ferryData := make([]utils.FerryUIDDatum, 0)
+	// TODO Maybe have this chan use the utils.FERRYUIDDAtum interface, and have worker.UIDEntryFromFerry implement it.  Then we don't have to convert later on
+	ferryDataChan := make(chan utils.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
+	ferryDataWg := new(sync.WaitGroup)              // WaitGroup to make sure we don't close ferryDataChan before all data is sent
+	aggFERRYDataDone := make(chan struct{})         // Channel to close when FERRY data aggregation is done
 
 	usernames := getAllAccountsFromConfig()
 
 	// Start up worker to aggregate all FERRY data
-	go func(ferryDataChan <-chan *worker.UIDEntryFromFerry, aggFERRYDataDone chan<- struct{}) {
+	go func(ferryDataChan <-chan utils.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
 		for ferryDatum := range ferryDataChan {
 			ferryData = append(ferryData, ferryDatum)
@@ -259,10 +260,11 @@ func main() {
 			log.Debug("Using JWT to authenticate to FERRY")
 		}
 
+		// For each username, query FERRY for UID info
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
 
-			go func(username string, ferryDataChan chan<- *worker.UIDEntryFromFerry) {
+			go func(username string, ferryDataChan chan<- utils.FerryUIDDatum) {
 				defer ferryDataWg.Done()
 				var ferryRequestContext context.Context
 				if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
@@ -289,8 +291,8 @@ func main() {
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
 	}()
-	// Wait until FERRY data aggregation is done before we insert anything into DB
-	<-aggFERRYDataDone
+
+	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
 
 	if len(ferryData) == 0 {
 		msg := "No data collected from FERRY"
@@ -312,11 +314,12 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Convert type of ferryData to []FerryDatum
-	ferryDataConverted := make([]utils.FerryUIDDatum, 0, len(ferryData))
-	for _, entry := range ferryData {
-		ferryDataConverted = append(ferryDataConverted, entry)
-	}
+	// // Convert type of ferryData to []FerryDatum
+	// // TODO -- see note above.  maybe we don't have to do this.
+	// ferryDataConverted := make([]utils.FerryUIDDatum, 0, len(ferryData))
+	// for _, entry := range ferryData {
+	// 	ferryDataConverted = append(ferryDataConverted, entry)
+	// }
 
 	var dbContext context.Context
 	if timeout, ok := timeouts["dbtimeout"]; ok {
@@ -324,7 +327,7 @@ func main() {
 	} else {
 		dbContext = ctx
 	}
-	if err := utils.InsertUidsIntoTableFromFERRY(dbContext, db, ferryDataConverted); err != nil {
+	if err := utils.InsertUidsIntoTableFromFERRY(dbContext, db, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
 		notificationsChan <- notifications.NewSetupError(msg, service)
 		log.Error(msg)
@@ -340,7 +343,7 @@ func main() {
 		return
 	}
 
-	if !checkFerryDataInDB(ferryDataConverted, dbData) {
+	if !checkFerryDataInDB(ferryData, dbData) {
 		notificationsChan <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
 			service,

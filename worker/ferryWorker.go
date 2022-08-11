@@ -19,6 +19,7 @@ const ferryRequestDefaultTimeoutStr string = "30s"
 
 var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.Hostname}}:{{.Port}}/{{.API}}?username={{.Username}}"))
 
+// UIDEntryFromFerry blah blah.  Implements utils.FerryUIDDatum
 type UIDEntryFromFerry struct {
 	username string
 	uid      int
@@ -51,7 +52,7 @@ type ferryUIDResponse struct {
 
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
-	ferryDataChan chan<- *UIDEntryFromFerry) (*UIDEntryFromFerry, error) {
+	ferryDataChan chan<- utils.FerryUIDDatum) (*UIDEntryFromFerry, error) {
 	entry := UIDEntryFromFerry{}
 
 	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)

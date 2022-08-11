@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -38,6 +39,7 @@ var (
 type FerryUIDDatum interface {
 	Username() string
 	Uid() int
+	String() string
 }
 
 func CreateUidsTableInDB(ctx context.Context, db *sql.DB) error {
@@ -211,3 +213,4 @@ type checkDatum struct {
 
 func (c *checkDatum) Username() string { return c.username }
 func (c *checkDatum) Uid() int         { return c.uid }
+func (c *checkDatum) String() string   { return fmt.Sprintf("Username: %s, Uid: %d", c.username, c.uid) }
