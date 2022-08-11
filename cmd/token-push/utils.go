@@ -233,3 +233,17 @@ func setNotificationsChan(ctx context.Context, serviceConfigPath string, s servi
 		return nil
 	}
 }
+
+func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs map[string]*service.Config) []*service.Config {
+	failedConfigs := make([]*service.Config, 0, len(serviceConfigs))
+	for workerSuccess := range chans.GetSuccessChan() {
+		if !workerSuccess.GetSuccess() {
+			log.WithField(
+				"service", workerSuccess.GetServiceName(),
+			).Debug("Removing serviceConfig from list of configs to use")
+			failedConfigs = append(failedConfigs, serviceConfigs[workerSuccess.GetServiceName()])
+			delete(serviceConfigs, workerSuccess.GetServiceName())
+		}
+	}
+	return failedConfigs
+}

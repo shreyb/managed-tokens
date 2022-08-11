@@ -215,7 +215,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
-	successfulServices := make(map[string]bool) // Map of services for which all processes were successful
+	successfulServices := make(map[string]bool) // Map of services for which all steps were successful
 
 	defer func(successfulServices map[string]bool) {
 		if err := cleanup(ctx, successfulServices); err != nil {
@@ -241,7 +241,7 @@ func main() {
 	// Get channels and start worker for getting kerberos ticekts
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
 
-	// Set up our serviceConfigs and get kerberos tickets for each
+	// Set up our serviceConfigs and load them into kerberos worker
 	func() {
 		defer close(kerberosChannels.GetServiceConfigChan())
 		var serviceConfigSetupWg sync.WaitGroup
@@ -290,13 +290,11 @@ func main() {
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
-	for kerberosTicketSuccess := range kerberosChannels.GetSuccessChan() {
-		if !kerberosTicketSuccess.GetSuccess() {
-			log.WithField(
-				"service", kerberosTicketSuccess.GetServiceName(),
-			).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
-			delete(serviceConfigs, kerberosTicketSuccess.GetServiceName())
-		}
+	failedKerberosConfigs := removeFailedServiceConfigs(kerberosChannels, serviceConfigs)
+	for _, failure := range failedKerberosConfigs {
+		log.WithField(
+			"service", failure.Service.Name(),
+		).Info("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
 	}
 
 	// 2. Get and store vault tokens
@@ -305,13 +303,11 @@ func main() {
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
 	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
-	for vaultStorerSuccess := range condorVaultChans.GetSuccessChan() {
-		if !vaultStorerSuccess.GetSuccess() {
-			log.WithField(
-				"service", vaultStorerSuccess.GetServiceName(),
-			).Info("Failed to obtain vault token.  Will not try to push vault token to service nodes")
-			delete(serviceConfigs, vaultStorerSuccess.GetServiceName())
-		}
+	failedVaultConfigs := removeFailedServiceConfigs(condorVaultChans, serviceConfigs)
+	for _, failure := range failedVaultConfigs {
+		log.WithField(
+			"service", failure.Service.Name(),
+		).Info("Failed to obtain vault token.  Will not try to push vault token to service nodes")
 	}
 
 	if viper.GetBool("test") {
