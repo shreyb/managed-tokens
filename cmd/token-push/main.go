@@ -259,7 +259,7 @@ func main() {
 					setkrb5ccname(krb5ccname),
 					setCondorCreddHost(serviceConfigPath),
 					setCondorCollectorHost(serviceConfigPath),
-					setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, s.Experiment()),
+					setUserPrincipal(serviceConfigPath, s.Experiment()),
 					setKeytabOverride(serviceConfigPath),
 					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
 					destinationNodes(serviceConfigPath),
@@ -319,6 +319,7 @@ func main() {
 		return
 	}
 
+
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
 	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "pingtimeout")
@@ -346,7 +347,6 @@ func main() {
 }
 
 func cleanup(ctx context.Context, successMap map[string]bool) error {
-
 	defer func() {
 		if err := notifications.SendAdminNotifications(
 			ctx,

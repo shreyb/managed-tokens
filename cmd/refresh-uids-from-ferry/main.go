@@ -219,7 +219,6 @@ func main() {
 
 	// FERRY vars
 	ferryData := make([]utils.FerryUIDDatum, 0)
-	// TODO Maybe have this chan use the utils.FERRYUIDDAtum interface, and have worker.UIDEntryFromFerry implement it.  Then we don't have to convert later on
 	ferryDataChan := make(chan utils.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
 	ferryDataWg := new(sync.WaitGroup)              // WaitGroup to make sure we don't close ferryDataChan before all data is sent
 	aggFERRYDataDone := make(chan struct{})         // Channel to close when FERRY data aggregation is done
@@ -314,13 +313,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// // Convert type of ferryData to []FerryDatum
-	// // TODO -- see note above.  maybe we don't have to do this.
-	// ferryDataConverted := make([]utils.FerryUIDDatum, 0, len(ferryData))
-	// for _, entry := range ferryData {
-	// 	ferryDataConverted = append(ferryDataConverted, entry)
-	// }
-
 	var dbContext context.Context
 	if timeout, ok := timeouts["dbtimeout"]; ok {
 		dbContext = utils.ContextWithOverrideTimeout(ctx, timeout)
@@ -350,7 +342,6 @@ func main() {
 		)
 		return
 	}
-	//TODO Make this a debug
 	log.Debug("Verified INSERT")
 	log.Info("Successfully refreshed uid DB.")
 }

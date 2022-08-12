@@ -95,7 +95,8 @@ func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) e
 	}
 }
 
-func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(sc *service.Config) error {
+// setUserPrincipal blah blah.  It also adds the proper --credkey flag to the *service.Config's CommandEnvironment.HtgettokenOpts string
+func setUserPrincipal(serviceConfigPath, experiment string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
 		if err != nil {
