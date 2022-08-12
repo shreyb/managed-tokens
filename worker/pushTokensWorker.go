@@ -26,11 +26,6 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 	return v.success
 }
 
-type failureByNode struct {
-	node string
-	error
-}
-
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 
