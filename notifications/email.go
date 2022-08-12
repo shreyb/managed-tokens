@@ -10,7 +10,7 @@ import (
 	gomail "gopkg.in/gomail.v2"
 )
 
-var emailDialer gomail.Dialer // gomail dialer to use to send emails
+// var emailDialer gomail.Dialer // gomail dialer to use to send emails
 
 // Email is an email message configuration
 type email struct {
@@ -42,7 +42,7 @@ func NewEmail(from string, to []string, subject, smtpHost string, smtpPort int, 
 // SendMessage sends message as an email based on the Config
 func (e *email) sendMessage(ctx context.Context, message string) error {
 
-	emailDialer = gomail.Dialer{
+	emailDialer := gomail.Dialer{
 		Host: e.smtpHost,
 		Port: e.smtpPort,
 	}
