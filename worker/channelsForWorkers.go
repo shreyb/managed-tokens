@@ -9,6 +9,11 @@ type ChannelsForWorkers interface {
 	GetSuccessChan() chan SuccessReporter
 }
 
+type SuccessReporter interface {
+	GetServiceName() string
+	GetSuccess() bool
+}
+
 func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 	var useBufferSize int
 	if bufferSize == 0 {
