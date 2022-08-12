@@ -62,6 +62,9 @@ func init() {
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
 
+	if viper.GetBool("test") {
+		log.Info("Running in test mode")
+	}
 	// Get config file
 	// Check for override
 	if config := viper.GetString("configfile"); config != "" {
@@ -235,6 +238,25 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
+	// Create temporary files to store vault tokens in prior to push
+	serviceToVaultTokenMap := make(map[string]*os.File)
+	for _, s := range services {
+		file, err := ioutil.TempFile(os.TempDir(), "managed_tokens_vt")
+		if err != nil {
+			log.WithField("service", s.Name()).Error("Could not create tempfile to store vault token.  Will use htgettoken default")
+		}
+		defer func() {
+			os.Remove(file.Name())
+			log.WithFields(log.Fields{
+				"service":        s.Name(),
+				"vaultTokenFile": file.Name(),
+			}).Debug("Deleted vault token file")
+		}()
+		serviceToVaultTokenMap[s.Name()] = file
+	}
+
+	// TODO:  Keep working on getting temp file into service.Config, and then using it when setting up said config
+
 	defer notificationsWg.Wait()
 
 	// 1. Get kerberos tickets
@@ -282,10 +304,16 @@ func main() {
 		serviceConfigSetupWg.Wait()
 	}()
 
+	notificationsChans := make([]notifications.EmailManager, 0, len(serviceConfigs))
+	for _, serviceConfig := range serviceConfigs {
+		notificationsChans = append(notificationsChans, serviceConfig.NotificationsChan)
+	}
+
 	defer func() {
-		for _, sc := range serviceConfigs {
-			close(sc.NotificationsChan)
+		for _, notificationsChan := range notificationsChans {
+			close(notificationsChan)
 		}
+		log.Debug("Closed notifications channels")
 	}()
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
@@ -295,6 +323,9 @@ func main() {
 		log.WithField(
 			"service", failure.Service.Name(),
 		).Info("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
+	}
+	if len(serviceConfigs) == 0 {
+		return
 	}
 
 	// 2. Get and store vault tokens
@@ -319,6 +350,9 @@ func main() {
 		return
 	}
 
+	if len(serviceConfigs) == 0 {
+		return
+	}
 
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
