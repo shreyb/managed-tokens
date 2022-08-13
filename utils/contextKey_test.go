@@ -1,0 +1,125 @@
+package utils
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+func TestGetOverrideTimeoutFromContext(t *testing.T) {
+	ctx := context.Background()
+	testTimeout := time.Duration(1 * time.Second)
+	useCtx := context.WithValue(ctx, overrideTimeout, testTimeout)
+
+	t.Run(
+		"Get a timeout value from passed in context",
+		func(t *testing.T) {
+			timeout, _ := GetOverrideTimeoutFromContext(useCtx)
+			if timeout != time.Duration(1*time.Second) {
+				t.Errorf("Did not get expected timeout.  Expected %s, got %s",
+					time.Duration(1*time.Second),
+					timeout,
+				)
+			}
+		},
+	)
+}
+
+func TestContextWithOverrideTimeout(t *testing.T) {
+	ctx := context.Background()
+	t.Run(
+		"Make sure we get a context with overrideTimeout set",
+		func(t *testing.T) {
+			newCtx := ContextWithOverrideTimeout(ctx, time.Duration(1*time.Second))
+			timeout, ok := newCtx.Value(overrideTimeout).(time.Duration)
+			if !ok {
+				t.Error("Wrong type saved in context.  Expected time.Duration")
+			}
+			if timeout != time.Duration(1*time.Second) {
+				t.Errorf("Wrong time.Duration stored in context.  Expected %s, got %s",
+					time.Duration(1*time.Second),
+					timeout,
+				)
+			}
+		},
+	)
+}
+
+func TestGetProperTimeoutFromContext(t *testing.T) {
+	var nilTimeDuration time.Duration
+	ctx := context.Background()
+
+	const badOverrideKey contextKey = 12345
+	type testCase struct {
+		description          string
+		ctx                  context.Context
+		defaultDurationStr   string
+		expectedTimeDuration time.Duration
+		isNilError           bool
+	}
+
+	testCases := []testCase{
+		{
+			"Context has value set, defaultDuration proper",
+			context.WithValue(ctx, overrideTimeout, time.Duration(1*time.Second)),
+			"20s",
+			time.Duration(1 * time.Second),
+			true,
+		},
+		{
+			"Context has no value set, defaultDuration proper",
+			ctx,
+			"20s",
+			time.Duration(20 * time.Second),
+			true,
+		},
+		{
+			"Context has value set, defaultDuration not proper",
+			context.WithValue(ctx, overrideTimeout, time.Duration(1*time.Second)),
+			"12345qwerty",
+			time.Duration(1 * time.Second),
+			true,
+		},
+		{
+			"Context has no value set, defaultDuration not proper",
+			ctx,
+			"12345qwerty",
+			nilTimeDuration,
+			false,
+		},
+		{
+			"Context has value set of wrong type, defaultDuration proper",
+			context.WithValue(ctx, badOverrideKey, time.Duration(1*time.Second)),
+			"20s",
+			time.Duration(20 * time.Second),
+			true,
+		},
+		{
+			"Context has value set of wrong type, defaultDuration not proper",
+			context.WithValue(ctx, badOverrideKey, time.Duration(1*time.Second)),
+			"12345qwerty",
+			nilTimeDuration,
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+
+				timeout, err := GetProperTimeoutFromContext(test.ctx, test.defaultDurationStr)
+				if timeout != test.expectedTimeDuration {
+					t.Errorf(
+						"Got the wrong timeout from context.  Expected %s, got %s",
+						test.expectedTimeDuration,
+						timeout,
+					)
+				}
+				if (err != nil) && test.isNilError {
+					t.Errorf("Expected nil error from test.  Got %s", err)
+				}
+			},
+		)
+	}
+}
