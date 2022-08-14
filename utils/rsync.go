@@ -5,30 +5,30 @@ import (
 	"errors"
 	"fmt"
 
-	// "fmt"
 	"os/exec"
 	"strings"
 	"text/template"
 
 	"github.com/shreyb/managed-tokens/service"
 	log "github.com/sirupsen/logrus"
-	// "cdcvs.fnal.gov/discompsupp/ken_proxy_push/v4/utils"
 )
-
-// TODO Move this to utils,
-// TODO Figure out public API/interfaces for this package.  For now, just export copyToDestination as is, use it for proof of concept
 
 const (
 	rsyncArgs = "-p -e \"{{.SSHExe}} {{.SSHOpts}}\" --chmod=u=rw,go= {{.SourcePath}} {{.Account}}@{{.Node}}.fnal.gov:{{.DestPath}}"
 	sshOpts   = "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
 )
 
+type FileCopier interface {
+	CopyToDestination(ctx context.Context) error
+}
+
 // Added this stuff to make it work
-func NewRsyncSetup(account, node, destination, sshOptions string, env service.EnvironmentMapper) *rsyncSetup {
+func NewSSHFileCopier(source, account, node, destination, sshOptions string, env service.EnvironmentMapper) FileCopier {
 	if sshOptions == "" {
 		sshOptions = sshOpts
 	}
 	return &rsyncSetup{
+		source:            source,
 		account:           account,
 		node:              node,
 		destination:       destination,
@@ -37,14 +37,15 @@ func NewRsyncSetup(account, node, destination, sshOptions string, env service.En
 	}
 }
 
-func (r *rsyncSetup) CopyToDestination(ctx context.Context, source string) error {
-	return r.copyToDestination(ctx, source)
+func (r *rsyncSetup) CopyToDestination(ctx context.Context) error {
+	return r.copyToDestination(ctx)
 }
 
 var rsyncTemplate = template.Must(template.New("rsync").Parse(rsyncArgs))
 
 // Type rsyncSetup contains the information needed to rsync a file to a certain destination
 type rsyncSetup struct {
+	source      string
 	account     string
 	node        string
 	destination string
@@ -53,11 +54,11 @@ type rsyncSetup struct {
 }
 
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
-func (r *rsyncSetup) copyToDestination(ctx context.Context, source string) error {
-	err := rsyncFile(ctx, source, r.node, r.account, r.destination, r.sshOpts, r.EnvironmentMapper)
+func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
+	err := rsyncFile(ctx, r.source, r.node, r.account, r.destination, r.sshOpts, r.EnvironmentMapper)
 	if err != nil {
 		log.WithFields(log.Fields{
-			"sourcePath": source,
+			"sourcePath": r.source,
 			"destPath":   r.destination,
 			"node":       r.node,
 			"account":    r.account,

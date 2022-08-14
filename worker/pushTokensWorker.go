@@ -98,7 +98,8 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 }
 
 func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, destinationFile string) error {
-	rsyncConfig := utils.NewRsyncSetup(
+	fileCopier := utils.NewSSHFileCopier(
+		sourceFile,
 		sc.Account,
 		node,
 		destinationFile,
@@ -106,7 +107,7 @@ func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, desti
 		&sc.CommandEnvironment,
 	)
 
-	if err := rsyncConfig.CopyToDestination(ctx, sourceFile); err != nil {
+	if err := fileCopier.CopyToDestination(ctx); err != nil {
 		log.WithFields(log.Fields{
 			"experiment":          sc.Service.Experiment(),
 			"role":                sc.Service.Role(),
