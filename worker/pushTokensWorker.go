@@ -107,7 +107,7 @@ func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, desti
 		&sc.CommandEnvironment,
 	)
 
-	if err := fileCopier.CopyToDestination(ctx); err != nil {
+	if err := utils.CopyToDestination(ctx, fileCopier); err != nil {
 		log.WithFields(log.Fields{
 			"experiment":          sc.Service.Experiment(),
 			"role":                sc.Service.Role(),

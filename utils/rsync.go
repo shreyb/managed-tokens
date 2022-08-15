@@ -19,7 +19,7 @@ const (
 )
 
 type FileCopier interface {
-	CopyToDestination(ctx context.Context) error
+	copyToDestination(ctx context.Context) error
 }
 
 // Added this stuff to make it work
@@ -37,8 +37,8 @@ func NewSSHFileCopier(source, account, node, destination, sshOptions string, env
 	}
 }
 
-func (r *rsyncSetup) CopyToDestination(ctx context.Context) error {
-	return r.copyToDestination(ctx)
+func CopyToDestination(ctx context.Context, f FileCopier) error {
+	return f.copyToDestination(ctx)
 }
 
 var rsyncTemplate = template.Must(template.New("rsync").Parse(rsyncArgs))

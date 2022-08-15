@@ -6,7 +6,6 @@ import (
 )
 
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
-//TODO Add Service as a field that is <experiment>_<role>, use it everywhere applicable
 type Config struct {
 	Service
 	UserPrincipal     string
