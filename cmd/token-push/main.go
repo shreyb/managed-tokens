@@ -238,25 +238,6 @@ func main() {
 		log.Info("Cleared kerberos cache")
 	}()
 
-	// Create temporary files to store vault tokens in prior to push
-	serviceToVaultTokenMap := make(map[string]*os.File)
-	for _, s := range services {
-		file, err := ioutil.TempFile(os.TempDir(), "managed_tokens_vt")
-		if err != nil {
-			log.WithField("service", s.Name()).Error("Could not create tempfile to store vault token.  Will use htgettoken default")
-		}
-		defer func() {
-			os.Remove(file.Name())
-			log.WithFields(log.Fields{
-				"service":        s.Name(),
-				"vaultTokenFile": file.Name(),
-			}).Debug("Deleted vault token file")
-		}()
-		serviceToVaultTokenMap[s.Name()] = file
-	}
-
-	// TODO:  Keep working on getting temp file into service.Config, and then using it when setting up said config
-
 	defer notificationsWg.Wait()
 
 	// 1. Get kerberos tickets
