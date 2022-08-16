@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os/exec"
 	"os/user"
+	"strconv"
 
+	"github.com/google/shlex"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -45,4 +47,21 @@ func CheckRunningUserNotRoot() error {
 	//TODO Make this a debug
 	log.Infof("Current user is %s", currentUser.Username)
 	return nil
+}
+
+// GetArgsFromTemplate takes a template string and breaks it into a slice of args
+func GetArgsFromTemplate(s string) ([]string, error) {
+	args, err := shlex.Split(s)
+	if err != nil {
+		return []string{}, fmt.Errorf("could not split string according to shlex rules: %s", err)
+	}
+
+	debugSlice := make([]string, 0)
+	for num, f := range args {
+		debugSlice = append(debugSlice, strconv.Itoa(num), f)
+	}
+
+	log.Debugf("Enumerated args to command are: %s", debugSlice)
+
+	return args, nil
 }
