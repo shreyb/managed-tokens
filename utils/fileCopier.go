@@ -13,11 +13,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	rsyncArgs = "-p -e \"{{.SSHExe}} {{.SSHOpts}}\" --chmod=u=rw,go= {{.SourcePath}} {{.Account}}@{{.Node}}.fnal.gov:{{.DestPath}}"
-	sshOpts   = "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
-)
-
 type FileCopier interface {
 	copyToDestination(ctx context.Context) error
 }
@@ -42,6 +37,11 @@ func CopyToDestination(ctx context.Context, f FileCopier) error {
 }
 
 var rsyncTemplate = template.Must(template.New("rsync").Parse(rsyncArgs))
+
+const (
+	rsyncArgs = "-e \"{{.SSHExe}} {{.SSHOpts}}\" --chmod=u=rw,go= {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
+	sshOpts   = "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
+)
 
 // Type rsyncSetup contains the information needed to rsync a file to a certain destination
 type rsyncSetup struct {
