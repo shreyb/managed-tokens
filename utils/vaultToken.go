@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -30,7 +29,6 @@ func init() {
 
 func StoreAndGetTokens(ctx context.Context, sc *service.Config, interactive bool) error {
 	// kswitch
-	// TODO:  Change this to passed in context later
 	if err := SwitchKerberosCache(ctx, sc); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{
@@ -230,9 +228,11 @@ func validateVaultToken(vaultTokenFilename string) error {
 	if !IsServiceToken(vaultTokenString) {
 		errString := "vault token failed validation"
 		log.WithField("filename", vaultTokenFilename).Error(errString)
-		return errors.New(errString)
+		return &InvalidVaultTokenError{
+			vaultTokenFilename,
+			errString,
+		}
 	}
-
 	return nil
 }
 
@@ -248,4 +248,17 @@ const (
 func IsServiceToken(token string) bool {
 	return strings.HasPrefix(token, ServiceTokenPrefix) ||
 		strings.HasPrefix(token, LegacyServiceTokenPrefix)
+}
+
+type InvalidVaultTokenError struct {
+	filename string
+	msg      string
+}
+
+func (i *InvalidVaultTokenError) Error() string {
+	return fmt.Sprintf(
+		"%s is an invalid vault/service token. %s",
+		i.filename,
+		i.msg,
+	)
 }
