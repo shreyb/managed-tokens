@@ -155,7 +155,7 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 	adminErrorsMapFinal := make(map[string]AdminDataFinal)
 
 	// 1.  Write adminErrors from sync.Map to Map called adminErrorsMap
-	adminErrors.Range(func(service, aData interface{}) bool {
+	adminErrors.Range(func(service, aData any) bool {
 		s, ok := service.(string)
 		if !ok {
 			log.Panic("Improper key in admin notifications map.")
@@ -177,7 +177,7 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 			SetupErrors: adminData.SetupErrors,
 			PushErrors:  make(map[string]string),
 		}
-		adminData.PushErrors.Range(func(node, err interface{}) bool {
+		adminData.PushErrors.Range(func(node, err any) bool {
 			n, ok := node.(string)
 			if !ok {
 				log.Panic("Improper key in push errors map")

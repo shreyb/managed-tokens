@@ -69,7 +69,7 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 }
 
 // TODO Unit test this
-func templateToCommand(templ *template.Template, cmdArgs interface{}) ([]string, error) {
+func templateToCommand(templ *template.Template, cmdArgs any) ([]string, error) {
 	args := make([]string, 0)
 
 	log.WithFields(log.Fields{

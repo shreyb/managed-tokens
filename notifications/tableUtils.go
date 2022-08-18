@@ -33,7 +33,7 @@ func mapStringStringToTable(myMap map[string]string, header []string) string {
 }
 
 // wrapMapToTableData wraps MapToTable by taking a map, getting its value, and then passing that to MapToTable with the proper initialization parameters.  This or a function like it should be used by external APIs as opposed to MapToTable.
-func wrapMapToTableData(myObject interface{}) [][]string {
+func wrapMapToTableData(myObject any) [][]string {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Panicf("Panicked when generating table data, %s", r)
