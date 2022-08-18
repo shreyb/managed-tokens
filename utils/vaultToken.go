@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"os/user"
 	"strings"
 
@@ -81,8 +80,7 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 		serviceName,
 	}
 
-	htgettokenCmd := exec.CommandContext(ctx, vaultExecutables["htgettoken"], htgettokenArgs...)
-	htgettokenCmd = environmentWrappedCommand(htgettokenCmd, &environment)
+	htgettokenCmd := environmentWrappedCommand(ctx, &environment, vaultExecutables["htgettoken"], htgettokenArgs...)
 	// TODO Get rid of all this when it works
 	htgettokenCmd.Stdout = os.Stdout
 	htgettokenCmd.Stderr = os.Stderr
@@ -105,8 +103,7 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environment CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
-	getTokensAndStoreInVaultCmd := exec.CommandContext(ctx, vaultExecutables["condor_vault_storer"], serviceName)
-	getTokensAndStoreInVaultCmd = environmentWrappedCommand(getTokensAndStoreInVaultCmd, &environment)
+	getTokensAndStoreInVaultCmd := environmentWrappedCommand(ctx, &environment, vaultExecutables["condor_vault_storer"], serviceName)
 
 	log.WithField("service", serviceName).Info("Storing and obtaining vault token")
 

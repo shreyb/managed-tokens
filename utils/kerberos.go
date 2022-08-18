@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"text/template"
 
@@ -58,8 +57,7 @@ func GetKerberosTicket(ctx context.Context, keytabPath, userPrincipal string, en
 		return retErr
 	}
 
-	createKerberosTicket := exec.CommandContext(ctx, kerberosExecutables["kinit"], args...)
-	createKerberosTicket = kerberosEnvironmentWrappedCommand(createKerberosTicket, &environment)
+	createKerberosTicket := kerberosEnvironmentWrappedCommand(ctx, &environment, kerberosExecutables["kinit"], args...)
 	log.Info("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -86,8 +84,7 @@ func GetKerberosTicket(ctx context.Context, keytabPath, userPrincipal string, en
 // func CheckKerberosPrincipalForServiceConfig(ctx context.Context, sc *service.Config) error {
 func CheckKerberosPrincipal(ctx context.Context, checkPrincipal string, environment CommandEnvironment) error {
 	// Verify principal matches config principal
-	checkForKerberosTicket := exec.CommandContext(ctx, kerberosExecutables["klist"])
-	checkForKerberosTicket = kerberosEnvironmentWrappedCommand(checkForKerberosTicket, &environment)
+	checkForKerberosTicket := kerberosEnvironmentWrappedCommand(ctx, &environment, kerberosExecutables["klist"])
 
 	log.WithFields(log.Fields{}).Info("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
@@ -142,8 +139,7 @@ func SwitchKerberosCache(ctx context.Context, userPrincipal string, environment 
 		}
 	}
 
-	switchkCache := exec.CommandContext(ctx, kerberosExecutables["kswitch"], args...)
-	switchkCache = kerberosEnvironmentWrappedCommand(switchkCache, &environment)
+	switchkCache := kerberosEnvironmentWrappedCommand(ctx, &environment, kerberosExecutables["kswitch"], args...)
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{

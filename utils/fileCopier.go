@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"os/exec"
 	"strings"
 	"text/template"
 
@@ -111,8 +110,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 		return retErr
 	}
 
-	cmd := exec.CommandContext(ctx, rsyncExecutables["rsync"], args...)
-	cmd = kerberosEnvironmentWrappedCommand(cmd, environ)
+	cmd := kerberosEnvironmentWrappedCommand(ctx, environ, rsyncExecutables["rsync"], args...)
 	if err := cmd.Run(); err != nil {
 		err := fmt.Sprintf("rsync command failed: %s", err.Error())
 		log.WithFields(log.Fields{

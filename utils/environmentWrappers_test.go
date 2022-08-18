@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"os/exec"
 	"testing"
 )
@@ -72,12 +73,17 @@ func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 		},
 	}
 
+	cmdExecutable, err := exec.LookPath("true")
+	if err != nil {
+		t.Error("Could not find executable true to run tests")
+		t.Fail()
+	}
+
 	for _, test := range testCases {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				cmd := exec.Command("/bin/true")
-				cmd = kerberosEnvironmentWrappedCommand(cmd, test.environ)
+				cmd := kerberosEnvironmentWrappedCommand(context.Background(), test.environ, cmdExecutable)
 				found := false
 				for _, keyValue := range cmd.Env {
 					if keyValue == test.expectedKrb5ccNameSetting {
@@ -108,8 +114,12 @@ func TestEnvironmentWrappedCommand(t *testing.T) {
 	for _, envSetting := range environ.ToMap() {
 		foundMap[envSetting] = false
 	}
-	cmd := exec.Command("/bin/true")
-	cmd = environmentWrappedCommand(cmd, environ)
+	cmdExecutable, err := exec.LookPath("true")
+	if err != nil {
+		t.Error("Could not find executable true to run tests")
+		t.Fail()
+	}
+	cmd := environmentWrappedCommand(context.Background(), environ, cmdExecutable)
 
 	for _, keyValue := range cmd.Env {
 		for _, envSetting := range environ.ToMap() {
