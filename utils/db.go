@@ -127,6 +127,7 @@ func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) ([]FerryUIDDatum, error
 	var username string
 	var uid int
 	data := make([]FerryUIDDatum, 0)
+	log.Debug("Checking UIDs in DB table")
 
 	dbTimeout, err := GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
