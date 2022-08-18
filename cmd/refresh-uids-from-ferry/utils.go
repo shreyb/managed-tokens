@@ -115,7 +115,13 @@ func withKerberosJWTAuth(serviceConfig *service.Config) func() func(context.Cont
 		return func(ctx context.Context, url, verb string) (*http.Response, error) {
 			// TODO go through this func and figure out if errors should be fatals or errors
 			// Get our bearer token and locate it
-			if err := utils.GetToken(ctx, serviceConfig, viper.GetString("ferry.vaultServer")); err != nil {
+			if err := utils.GetToken(
+				ctx,
+				serviceConfig.Service.Name(),
+				serviceConfig.UserPrincipal,
+				viper.GetString("ferry.vaultServer"),
+				serviceConfig.CommandEnvironment,
+			); err != nil {
 				log.Error("Could not get token to authenticate to FERRY")
 				return &http.Response{}, err
 			}
@@ -251,13 +257,13 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 	}
 
 	// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
-	if err := utils.SwitchKerberosCache(ctx, serviceConfig); err != nil {
+	if err := utils.SwitchKerberosCache(ctx, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
 		log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
-		if err := utils.GetKerberosTicket(ctx, serviceConfig); err != nil {
+		if err := utils.GetKerberosTicket(ctx, serviceConfig.KeytabPath, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
 			log.Error("Could not get kerberos ticket to generate JWT")
 			return &service.Config{}, err
 		}
-		if err := utils.CheckKerberosPrincipal(ctx, serviceConfig); err != nil {
+		if err := utils.CheckKerberosPrincipal(ctx, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
 			log.Error("Verification of kerberos ticket failed")
 			return &service.Config{}, err
 		}

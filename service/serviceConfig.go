@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/shreyb/managed-tokens/notifications"
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -15,7 +16,7 @@ type Config struct {
 	DesiredUID        uint32
 	ConfigPath        string
 	NotificationsChan chan notifications.Notification
-	CommandEnvironment
+	utils.CommandEnvironment
 }
 
 // NewConfig takes the config information from the global file and creates an exptConfig object
@@ -46,35 +47,4 @@ func NewConfig(service Service, options ...func(*Config) error) (*Config, error)
 		"role":       c.Service.Role(),
 	}).Debug("Set up service config")
 	return &c, nil
-}
-
-type EnvironmentMapper interface {
-	ToMap() map[string]string
-	ToEnvs() map[string]string
-}
-
-// TODO clean up this whole command environment business.  Maybe call it WorkerEnvironment?
-type CommandEnvironment struct {
-	Krb5ccname          string
-	CondorCreddHost     string
-	CondorCollectorHost string
-	HtgettokenOpts      string
-}
-
-func (c *CommandEnvironment) ToMap() map[string]string {
-	return map[string]string{
-		"Krb5ccname":          c.Krb5ccname,
-		"CondorCreddHost":     c.CondorCreddHost,
-		"CondorCollectorHost": c.CondorCollectorHost,
-		"HtgettokenOpts":      c.HtgettokenOpts,
-	}
-}
-
-func (c *CommandEnvironment) ToEnvs() map[string]string {
-	return map[string]string{
-		"Krb5ccname":          "KRB5CCNAME",
-		"CondorCreddHost":     "_condor_CREDD_HOST",
-		"CondorCollectorHost": "_condor_COLLECTOR_HOST",
-		"HtgettokenOpts":      "HTGETTOKENOPTS",
-	}
 }

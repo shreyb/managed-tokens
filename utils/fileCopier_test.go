@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	"github.com/shreyb/managed-tokens/service"
 )
 
 func TestNewSSHFileCopier(t *testing.T) {
-	environ := &service.CommandEnvironment{}
+	environ := &CommandEnvironment{}
 	testCopier := NewSSHFileCopier("", "", "", "", "", environ)
 
 	if _, ok := testCopier.(*rsyncSetup); !ok {

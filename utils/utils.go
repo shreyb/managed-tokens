@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"os/user"
 	"strconv"
+	"strings"
+	"text/template"
 
 	"github.com/google/shlex"
 	log "github.com/sirupsen/logrus"
@@ -65,3 +67,39 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 
 	return args, nil
 }
+
+// TODO Unit test this
+func templateToCommand(templ *template.Template, cmdArgs interface{}) ([]string, error) {
+	args := make([]string, 0)
+
+	log.WithFields(log.Fields{
+		"cmdArgs":  cmdArgs,
+		"template": templ.Name(),
+	}).Debug("Executing template with provided args")
+
+	var b strings.Builder
+	if err := templ.Execute(&b, cmdArgs); err != nil {
+		errMsg := "Could not execute template"
+		log.Error(errMsg)
+		return args, &templateExecuteError{errMsg}
+	}
+
+	templateString := b.String()
+	log.WithField("templateString", templateString).Debug("Filled template string")
+
+	args, err := GetArgsFromTemplate(templateString)
+	if err != nil {
+		errMsg := "Could not get command arguments from template"
+		log.Error(errMsg)
+		return args, &templateArgsError{errMsg}
+	}
+	return args, nil
+}
+
+type templateExecuteError struct{ msg string }
+
+func (t *templateExecuteError) Error() string { return t.msg }
+
+type templateArgsError struct{ msg string }
+
+func (t *templateArgsError) Error() string { return t.msg }

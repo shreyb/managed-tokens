@@ -44,7 +44,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 			kerbContext, kerbCancel := context.WithTimeout(ctx, kerberosTimeout)
 			defer kerbCancel()
 
-			if err := utils.GetKerberosTicket(kerbContext, sc); err != nil {
+			if err := utils.GetKerberosTicket(kerbContext, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 				msg := "Could not obtain kerberos ticket"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
@@ -54,7 +54,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				return
 			}
 
-			if err := utils.CheckKerberosPrincipal(kerbContext, sc); err != nil {
+			if err := utils.CheckKerberosPrincipal(kerbContext, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 				msg := "Kerberos ticket verification failed"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),

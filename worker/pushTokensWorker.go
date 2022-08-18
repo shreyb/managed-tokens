@@ -46,7 +46,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}(pushSuccess)
 
 			// kswitch
-			if err := utils.SwitchKerberosCache(ctx, sc); err != nil {
+			if err := utils.SwitchKerberosCache(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -93,6 +93,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					}
 				}
 			}
+			// TODO Do an INFO logging of successes and failures across service
 		}()
 	}
 }
