@@ -29,12 +29,28 @@ func TestPrepareTableStringFromMap(t *testing.T) {
 	sliceSliceStringTable.Render()
 	expectedTable := fmt.Sprintf("\n\n%s", b.String())
 
-	if expectedTable != mapTable {
-		t.Errorf(
-			"Got wrong table string.  Expected %s, got %s",
-			expectedTable,
-			mapTable,
-		)
+	// Check to make sure all rows show up in both tables, whichever the order
+	expectedTableSlice := strings.Split(expectedTable, "\n")
+	mapTableSlice := strings.Split(mapTable, "\n")
+
+	if len(expectedTableSlice) != len(mapTableSlice) {
+		t.Error("Expected table and test table are of different sizes")
 	}
 
+	for _, expectedLine := range expectedTableSlice {
+		found := false
+		for _, testLine := range mapTableSlice {
+			if expectedLine == testLine {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Expected line %s does not appear in test table", expectedLine)
+			t.Errorf(
+				"Got wrong table string.  Expected %s, got %s",
+				expectedTable,
+				mapTable,
+			)
+		}
+	}
 }

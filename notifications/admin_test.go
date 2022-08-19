@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -218,14 +219,37 @@ func TestPrepareAdminErrorsForMessage(t *testing.T) {
 
 	finalTestData := prepareAdminErrorsForMessage()
 
-	if !reflect.DeepEqual(finalTestData, finalCheckData) {
-		t.Errorf(
-			"Final test data did not match expected data.  Expected %v, got %v",
-			finalCheckData,
-			finalTestData,
-		)
-	}
+	for service, serviceData := range finalCheckData {
+		// Check SetupErrors
+		if !reflect.DeepEqual(finalTestData[service].SetupErrors, serviceData.SetupErrors) {
+			t.Errorf(
+				"Final test data did not match expected data.  Expected %v, got %v",
+				finalCheckData,
+				finalTestData,
+			)
+		}
 
+		// Check pushErrors - make sure node, error message in each slice
+		for _, n := range notifications {
+			if pushErr, ok := n.(*pushError); ok {
+				if !strings.Contains(finalTestData[pushErr.service].PushErrorsTable, pushErr.node) {
+					t.Errorf(
+						"Expected node %s to be in the test push errors table for service %s",
+						pushErr.node,
+						pushErr.service,
+					)
+				}
+				if !strings.Contains(finalTestData[pushErr.service].PushErrorsTable, pushErr.message) {
+					t.Errorf(
+						"Expected message %s to be in the test push errors table for service %s",
+						pushErr.message,
+						pushErr.service,
+					)
+				}
+
+			}
+		}
+	}
 }
 
 func TestIsEmpty(t *testing.T) {
