@@ -10,8 +10,6 @@ import (
 	gomail "gopkg.in/gomail.v2"
 )
 
-// var emailDialer gomail.Dialer // gomail dialer to use to send emails
-
 // Email is an email message configuration
 type email struct {
 	from           string
