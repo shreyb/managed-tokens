@@ -172,12 +172,12 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 	})
 
 	// 2. Take adminErrorsMap, convert to intermediate map with PushErrors as a regular map[string]string.  Map saved as adminErrorsMap2
-	for service, adminData := range adminErrorsMap {
+	for service, aData := range adminErrorsMap {
 		a := adminData2{
-			SetupErrors: adminData.SetupErrors,
+			SetupErrors: aData.SetupErrors,
 			PushErrors:  make(map[string]string),
 		}
-		adminData.PushErrors.Range(func(node, err any) bool {
+		aData.PushErrors.Range(func(node, err any) bool {
 			n, ok := node.(string)
 			if !ok {
 				log.Panic("Improper key in push errors map")
@@ -196,11 +196,11 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 	}
 
 	// Final pass-through:  Convert pushErrors map to string, save as map adminErrorsMapFinal so we get our final form.
-	for service, adminData := range adminErrorsMap2 {
+	for service, aData := range adminErrorsMap2 {
 		a := AdminDataFinal{
-			SetupErrors: adminData.SetupErrors,
+			SetupErrors: aData.SetupErrors,
 			PushErrorsTable: PrepareTableStringFromMap(
-				adminData.PushErrors,
+				aData.PushErrors,
 				"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
 				[]string{"Node", "Error"},
 			),
