@@ -11,6 +11,8 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
@@ -30,12 +32,25 @@ var (
 		"ferryrequesttimeout": {},
 		"dbtimeout":           {},
 	}
+)
+
+var (
+	startSetup      time.Time
+	startProcessing time.Time
+	startCleanup    time.Time
+	promPush        notifications.BasicPromPush
+	prometheusUp    = true
+)
+
+var (
 	adminNotifications = make([]notifications.SendMessager, 0)
 	notificationsChan  notifications.EmailManager
 )
 
 func init() {
 	const configFile string = "managedTokens"
+
+	startSetup = time.Now()
 
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
 		log.Fatal("Current user is root.  Please run this executable as a non-root user")
@@ -132,6 +147,26 @@ func init() {
 	}
 }
 
+// Set up prometheus metrics
+func init() {
+	// Set up prometheus pusher
+	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
+		log.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+			"To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
+		prometheusUp = false
+	}
+	promPush.R = prometheus.NewRegistry()
+	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
+	if err := promPush.RegisterMetrics(); err != nil {
+		log.Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", err.Error())
+		prometheusUp = false
+	}
+}
+
 func main() {
 	var dbLocation string
 	var newDB bool
@@ -187,8 +222,21 @@ func main() {
 		}
 	}()
 
+	// Setup complete
+	if prometheusUp {
+		promPush.PushPromDuration(startSetup, "refresh-uids-from-ferry", "setup")
+	}
+
 	// Open connection to the SQLite database where UID info will be stored
 	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
+	startProcessing = time.Now()
+	defer func() {
+		if prometheusUp {
+			promPush.PushFERRYRefreshTime()
+			promPush.PushPromDuration(startProcessing, "refresh-uids-from-ferry", "processing")
+		}
+	}()
+
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
 	} else {
