@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ import (
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
 )
+
+var currentExecutable string
 
 const globalTimeoutDefaultStr string = "300s"
 
@@ -44,8 +47,15 @@ var (
 func init() {
 	const configFile string = "managedTokens"
 
+	// Get current executable name
+	if exePath, err := os.Executable(); err != nil {
+		log.Error("Could not get path of current executable")
+	} else {
+		currentExecutable = path.Base(exePath)
+	}
+
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.Fatal("Current user is root.  Please run this executable as a non-root user")
+		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
 	// Defaults
@@ -63,7 +73,7 @@ func init() {
 	viper.BindPFlags(pflag.CommandLine)
 
 	if viper.GetBool("test") {
-		log.Info("Running in test mode")
+		log.WithField("executable", currentExecutable).Info("Running in test mode")
 	}
 	// Get config file
 	// Check for override
@@ -78,7 +88,7 @@ func init() {
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.Panicf("Fatal error reading in config file: %w", err)
+		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
 	}
 
 	// Set up logs
@@ -105,7 +115,7 @@ func init() {
 	}, &log.TextFormatter{FullTimestamp: true}))
 
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
-	log.Infof("Using config file %s", viper.ConfigFileUsed())
+	log.WithField("executable", currentExecutable).Infof("Using config file %s", viper.ConfigFileUsed())
 
 }
 
@@ -138,9 +148,15 @@ func init() {
 		if _, ok := supportedTimeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithField("timeoutKey", timeoutKey).Warn("Configured timeout not supported by this utility")
+				log.WithFields(log.Fields{
+					"executable": currentExecutable,
+					"timeoutKey": timeoutKey,
+				}).Warn("Configured timeout not supported by this utility")
 			}
-			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
+			log.WithFields(log.Fields{
+				"executable": currentExecutable,
+				"timeoutKey": timeoutKey,
+			}).Info("Configured timeout") // TODO Make a debug
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -157,7 +173,7 @@ func init() {
 
 	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+		log.WithField("executable", currentExecutable).Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
 	}
 }
 
@@ -208,9 +224,9 @@ func main() {
 	var err error
 
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
 		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
-			log.Fatal("Could not parse default global timeout.")
+			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
 		}
 	}
 
@@ -222,7 +238,7 @@ func main() {
 
 	defer func(successfulServices map[string]bool) {
 		if err := cleanup(ctx, successfulServices); err != nil {
-			log.Fatal("Error cleaning up")
+			log.WithField("executable", currentExecutable).Fatal("Error cleaning up")
 		}
 
 	}(successfulServices)
@@ -230,12 +246,12 @@ func main() {
 	// Create temporary dir for all kerberos caches to live in
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
-		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}
 
 	defer func() {
 		os.RemoveAll(krb5ccname)
-		log.Info("Cleared kerberos cache")
+		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 	}()
 
 	defer notificationsWg.Wait()

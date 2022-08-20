@@ -6,9 +6,14 @@ import (
 
 	"context"
 	"io/ioutil"
+	"net/http"
 	"os"
+	"path"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -18,6 +23,8 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
+
+var currentExecutable string
 
 const globalTimeoutDefaultStr string = "300s"
 
@@ -30,11 +37,27 @@ var (
 	}
 )
 
+var (
+	startSetup      time.Time
+	startProcessing time.Time
+	promPush        notifications.BasicPromPush
+	prometheusUp    = true
+)
+
 func init() {
 	const configFile string = "managedTokens"
 
+	startSetup = time.Now()
+
+	// Get current executable name
+	if exePath, err := os.Executable(); err != nil {
+		log.Error("Could not get path of current executable")
+	} else {
+		currentExecutable = path.Base(exePath)
+	}
+
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.Fatal("Current user is root.  Please run this executable as a non-root user")
+		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
 	// Defaults
@@ -54,7 +77,7 @@ func init() {
 
 	// If no experiment is set, exit, since we only want to onboard a single experiment at a time
 	if viper.GetString("service") == "" {
-		log.Error("A service must be given on the command line for run-onboarding")
+		log.WithField("executable", currentExecutable).Error("A service must be given on the command line for run-onboarding")
 		onboardingUsage()
 		os.Exit(1)
 
@@ -73,7 +96,7 @@ func init() {
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.Panicf("Fatal error reading in config file: %w", err)
+		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
 	}
 
 	// Set up logs
@@ -100,11 +123,11 @@ func init() {
 	}, &log.TextFormatter{FullTimestamp: true}))
 
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
-	log.Infof("Using config file %s", viper.ConfigFileUsed())
+	log.WithField("executable", currentExecutable).Infof("Using config file %s", viper.ConfigFileUsed())
 
 	// Test flag sets which notifications section from config we want to use.
 	if viper.GetBool("test") {
-		log.Info("Running in test mode")
+		log.WithField("executable", currentExecutable).Info("Running in test mode")
 	}
 }
 
@@ -115,9 +138,15 @@ func init() {
 		if _, ok := supportedTimeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithField("timeoutKey", timeoutKey).Warn("Configured timeout not supported by this utility")
+				log.WithFields(log.Fields{
+					"executable": currentExecutable,
+					timeoutKey:   timeoutString,
+				}).Warn("Configured timeout not supported by this utility")
 			}
-			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
+			log.WithFields(log.Fields{
+				"executable": currentExecutable,
+				timeoutKey:   timeoutString,
+			}).Info("Configured timeout") // TODO Make a debug
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -134,7 +163,27 @@ func init() {
 
 	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+		log.WithField("executable", currentExecutable).Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+	}
+}
+
+// Set up prometheus metrics
+func init() {
+	// Set up prometheus pusher
+	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+			"To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
+		prometheusUp = false
+	}
+	promPush.R = prometheus.NewRegistry()
+	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
+	if err := promPush.RegisterMetrics(); err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", err.Error())
+		prometheusUp = false
 	}
 }
 
@@ -149,9 +198,9 @@ func main() {
 	var err error
 
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
 		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
-			log.Fatal("Could not parse default global timeout.")
+			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
 		}
 	}
 
@@ -159,20 +208,37 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
-	// TODO delete any generated vault token
-
 	// Temporary directory for kerberos caches
 	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
 	if err != nil {
-		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}
 	defer func() {
 		os.RemoveAll(krb5ccname)
-		log.Info("Cleared kerberos cache")
+		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 	}()
+
+	// Setup done.  Push prometheus metrics
+	if prometheusUp {
+		if err := promPush.PushPromDuration(startSetup, currentExecutable, "setup"); err != nil {
+			log.WithField("executable", currentExecutable).Error("Could not push setup time duration metric")
+		}
+	}
 
 	// 1. Get Kerberos ticket
 	// Channel, context, and worker for getting kerberos ticket
+	startProcessing = time.Now()
+	defer func() {
+		if prometheusUp {
+			if err := promPush.PushPromDuration(startProcessing, currentExecutable, "processing"); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push processing time duration metric")
+			} else {
+				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+			}
+		}
+
+	}()
+
 	var kerberosContext context.Context
 	if kerberosTimeout, ok := timeouts["kerberostimeout"]; ok {
 		kerberosContext = utils.ContextWithOverrideTimeout(ctx, kerberosTimeout)

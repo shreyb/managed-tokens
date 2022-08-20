@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ import (
 	"github.com/shreyb/managed-tokens/worker"
 )
 
+var currentExecutable string
+
 const globalTimeoutDefaultStr string = "300s"
 
 var (
@@ -37,7 +40,6 @@ var (
 var (
 	startSetup      time.Time
 	startProcessing time.Time
-	startCleanup    time.Time
 	promPush        notifications.BasicPromPush
 	prometheusUp    = true
 )
@@ -52,8 +54,15 @@ func init() {
 
 	startSetup = time.Now()
 
+	// Get current executable name
+	if exePath, err := os.Executable(); err != nil {
+		log.Error("Could not get path of current executable")
+	} else {
+		currentExecutable = path.Base(exePath)
+	}
+
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.Fatal("Current user is root.  Please run this executable as a non-root user")
+		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
 	// Defaults
@@ -71,7 +80,7 @@ func init() {
 
 	// Get config file
 	// Check for override
-	log.Info(viper.GetString("configfile"))
+	log.WithField("executable", currentExecutable).Info(viper.GetString("configfile"))
 	if config := viper.GetString("configfile"); config != "" {
 		viper.SetConfigFile(config)
 	} else {
@@ -83,7 +92,7 @@ func init() {
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.Panicf("Fatal error reading in config file: %w", err)
+		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
 	}
 
 	// Set up logs
@@ -110,10 +119,10 @@ func init() {
 	}, &log.TextFormatter{FullTimestamp: true}))
 
 	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
-	log.Infof("Using config file %s", viper.ConfigFileUsed())
+	log.WithField("executable", currentExecutable).Infof("Using config file %s", viper.ConfigFileUsed())
 
 	if viper.GetBool("test") {
-		log.Info("Running in test mode")
+		log.WithField("executable", currentExecutable).Info("Running in test mode")
 	}
 }
 
@@ -124,9 +133,15 @@ func init() {
 		if _, ok := supportedTimeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithField("timeoutKey", timeoutKey).Warn("Configured timeout not supported by this utility")
+				log.WithFields(log.Fields{
+					"timeoutKey": timeoutKey,
+					"executable": currentExecutable,
+				}).Warn("Configured timeout not supported by this utility")
 			}
-			log.WithField(timeoutKey, timeoutString).Info("Configured timeout") // TODO Make a debug
+			log.WithFields(log.Fields{
+				"executable": currentExecutable,
+				timeoutKey:   timeoutString,
+			}).Info("Configured timeout") // TODO Make a debug
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -143,7 +158,7 @@ func init() {
 
 	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		log.Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+		log.WithField("executable", currentExecutable).Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
 	}
 }
 
@@ -151,7 +166,7 @@ func init() {
 func init() {
 	// Set up prometheus pusher
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
-		log.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
 			"To limit error noise, "+
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
@@ -160,7 +175,7 @@ func init() {
 	promPush.R = prometheus.NewRegistry()
 	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
 	if err := promPush.RegisterMetrics(); err != nil {
-		log.Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
+		log.WithField("executable", currentExecutable).Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", err.Error())
 		prometheusUp = false
@@ -171,7 +186,7 @@ func main() {
 	var dbLocation string
 	var newDB bool
 	var db *sql.DB
-	service := "refresh-uids-from-ferry"
+	service := currentExecutable
 
 	// Global Context
 	var globalTimeout time.Duration
@@ -179,9 +194,9 @@ func main() {
 	var err error
 
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
 		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
-			log.Fatal("Could not parse default global timeout.")
+			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
@@ -213,18 +228,20 @@ func main() {
 		close(notificationsChan)
 		if err := notifications.SendAdminNotifications(
 			ctx,
-			"refresh-uids-from-ferry",
+			currentExecutable,
 			viper.GetString("templates.adminerrors"),
 			viper.GetBool("test"),
 			adminNotifications...,
 		); err != nil {
-			log.Error("Error sending admin notifications")
+			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
 		}
 	}()
 
 	// Setup complete
 	if prometheusUp {
-		promPush.PushPromDuration(startSetup, "refresh-uids-from-ferry", "setup")
+		if err := promPush.PushPromDuration(startSetup, currentExecutable, "setup"); err != nil {
+			log.WithField("executable", currentExecutable).Error("Could not push metric for setup duration")
+		}
 	}
 
 	// Open connection to the SQLite database where UID info will be stored
@@ -232,8 +249,18 @@ func main() {
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
-			promPush.PushFERRYRefreshTime()
-			promPush.PushPromDuration(startProcessing, "refresh-uids-from-ferry", "processing")
+			success := true
+			if err := promPush.PushFERRYRefreshTime(); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push FERRY refresh timestamp metric")
+				success = false
+			}
+			if err := promPush.PushPromDuration(startProcessing, currentExecutable, "processing"); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push processing time metric")
+				success = false
+			}
+			if success {
+				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+			}
 		}
 	}()
 
@@ -242,7 +269,7 @@ func main() {
 	} else {
 		dbLocation = "/var/lib/managed-tokens/uid.db"
 	}
-	log.Debugf("Using db file at %s", dbLocation)
+	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 
 	if _, err := os.Stat(dbLocation); errors.Is(err, os.ErrNotExist) {
 		newDB = true
@@ -251,7 +278,7 @@ func main() {
 	db, err = sql.Open("sqlite3", dbLocation)
 	if err != nil {
 		msg := "Could not open the UID database file"
-		log.Errorf("%s: %s", msg, err)
+		log.WithField("executable", currentExecutable).Errorf("%s: %s", msg, err)
 		notificationsChan <- notifications.NewSetupError(msg, service)
 		return
 	}
@@ -290,21 +317,21 @@ func main() {
 		switch viper.GetString("authmethod") {
 		case "tls":
 			authFunc = withTLSAuth
-			log.Debug("Using TLS to authenticate to FERRY")
+			log.WithField("executable", currentExecutable).Debug("Using TLS to authenticate to FERRY")
 		case "jwt":
 			sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 			if err != nil {
 				msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-				log.Error(msg)
+				log.WithField("executable", currentExecutable).Error(msg)
 				notificationsChan <- notifications.NewSetupError(msg, service)
 				os.Exit(1)
 			}
 			defer func() {
 				os.RemoveAll(sc.Krb5ccname)
-				log.Info("Cleared kerberos cache")
+				log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 			}()
 			authFunc = withKerberosJWTAuth(sc)
-			log.Debug("Using JWT to authenticate to FERRY")
+			log.WithField("executable", currentExecutable).Debug("Using JWT to authenticate to FERRY")
 		}
 
 		// For each username, query FERRY for UID info
