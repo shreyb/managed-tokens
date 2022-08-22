@@ -272,23 +272,35 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 }
 
 func checkFerryDataInDB(ferryData, dbData []utils.FerryUIDDatum) bool {
-	for _, ferryDatum := range ferryData {
-		found := false
-		for _, dbDatum := range dbData {
-			if (ferryDatum.Uid() == dbDatum.Uid()) && (ferryDatum.Username() == dbDatum.Username()) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			msg := fmt.Sprintf(
-				"Verification of INSERT failed.  Expected to find entry (%s, %d) in db, but did not.",
-				ferryDatum.Username(),
-				ferryDatum.Uid(),
-			)
-			log.Error(msg)
-			return false
-		}
+	type datum struct {
+		username string
+		uid      int
+	}
+
+	ferrySlice := make([]datum, 0, len(ferryData))
+	for _, d := range ferryData {
+		ferrySlice = append(
+			ferrySlice,
+			datum{
+				username: d.Username(),
+				uid:      d.Uid(),
+			},
+		)
+	}
+	dbSlice := make([]datum, 0, len(dbData))
+	for _, d := range dbData {
+		dbSlice = append(
+			dbSlice,
+			datum{
+				username: d.Username(),
+				uid:      d.Uid(),
+			},
+		)
+	}
+
+	if err := utils.IsSliceSubSlice(ferrySlice, dbSlice); err != nil {
+		log.Errorf("Verification of INSERT failed: %s", err.Error())
+		return false
 	}
 	return true
 }

@@ -110,10 +110,7 @@ func TestEnvironmentWrappedCommand(t *testing.T) {
 		key1:       "key1_value",
 		key2:       "key2_value",
 	}
-	foundMap := make(map[string]bool)
-	for _, envSetting := range environ.ToMap() {
-		foundMap[envSetting] = false
-	}
+
 	cmdExecutable, err := exec.LookPath("true")
 	if err != nil {
 		t.Error("Could not find executable true to run tests")
@@ -121,22 +118,12 @@ func TestEnvironmentWrappedCommand(t *testing.T) {
 	}
 	cmd := environmentWrappedCommand(context.Background(), environ, cmdExecutable)
 
-	for _, keyValue := range cmd.Env {
-		for _, envSetting := range environ.ToMap() {
-			if keyValue == envSetting {
-				foundMap[envSetting] = true
-				break
-			}
-		}
+	environKeyValSlice := make([]string, 0)
+	for _, envSetting := range environ.ToMap() {
+		environKeyValSlice = append(environKeyValSlice, envSetting)
 	}
 
-	for envSetting, found := range foundMap {
-		if !found {
-			t.Errorf(
-				"Could not find key-value pair %s in command environment",
-				envSetting,
-			)
-		}
+	if err := IsSliceSubSlice(environKeyValSlice, cmd.Env); err != nil {
+		t.Errorf("Key-value pair in test environment not found in command environment: %s", err.Error())
 	}
-
 }

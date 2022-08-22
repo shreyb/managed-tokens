@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"os/user"
+	"reflect"
 	"strconv"
 	"strings"
 	"text/template"
@@ -66,6 +67,36 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 	log.Debugf("Enumerated args to command are: %s", debugSlice)
 
 	return args, nil
+}
+
+func IsSliceSubSlice(sliceOne any, sliceTwo any) error {
+	var reflectOne, reflectTwo reflect.Value
+	switch reflect.TypeOf(sliceOne).Kind() {
+	case reflect.Slice:
+		reflectOne = reflect.ValueOf(sliceOne)
+	default:
+		return errors.New("unsupported type for CompareSlices")
+	}
+	switch reflect.TypeOf(sliceTwo).Kind() {
+	case reflect.Slice:
+		reflectTwo = reflect.ValueOf(sliceTwo)
+	default:
+		return errors.New("unsupported type for CompareSlices")
+	}
+
+	for indexOne := 0; indexOne < reflectOne.Len(); indexOne++ {
+		found := false
+		for indexTwo := 0; indexTwo < reflectTwo.Len(); indexTwo++ {
+			if reflectOne.Index(indexOne).Interface() == reflectTwo.Index(indexTwo).Interface() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("could not find value %v in both slices", reflectOne.Index(indexOne))
+		}
+	}
+	return nil
 }
 
 // TODO Unit test this

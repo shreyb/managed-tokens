@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 func TestPrepareTableStringFromMap(t *testing.T) {
@@ -37,20 +38,12 @@ func TestPrepareTableStringFromMap(t *testing.T) {
 		t.Error("Expected table and test table are of different sizes")
 	}
 
-	for _, expectedLine := range expectedTableSlice {
-		found := false
-		for _, testLine := range mapTableSlice {
-			if expectedLine == testLine {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("Expected line %s does not appear in test table", expectedLine)
-			t.Errorf(
-				"Got wrong table string.  Expected %s, got %s",
-				expectedTable,
-				mapTable,
-			)
-		}
+	if err := utils.IsSliceSubSlice(expectedTableSlice, mapTableSlice); err != nil {
+		t.Errorf("Expected line does not appear in test table")
+		t.Errorf(
+			"Got wrong table string.  Expected %s, got %s",
+			expectedTable,
+			mapTable,
+		)
 	}
 }
