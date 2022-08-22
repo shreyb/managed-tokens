@@ -12,6 +12,10 @@ import (
 
 // PrepareTableStringFromMap formats a map[string]string and appends a message onto the beginning
 func PrepareTableStringFromMap(m map[string]string, helpMessage string, header []string) string {
+	if len(m) == 0 {
+		return ""
+	}
+
 	table := mapStringStringToTable(m, header)
 
 	finalTable := fmt.Sprintf("%s\n\n%s", helpMessage, table)
