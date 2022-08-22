@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
@@ -30,8 +33,11 @@ var currentExecutable string
 const globalTimeoutDefaultStr string = "300s"
 
 var (
-	services          []service.Service
-	serviceConfigs    = make(map[string]*service.Config)
+	services       []service.Service
+	serviceConfigs = make(map[string]*service.Config)
+)
+
+var (
 	timeouts          = make(map[string]time.Duration)
 	supportedTimeouts = map[string]struct{}{
 		"globaltimeout":      {},
@@ -41,6 +47,14 @@ var (
 		"pushtimeout":        {},
 	}
 	adminNotifications = make([]notifications.SendMessager, 0)
+)
+
+var (
+	startSetup      time.Time
+	startProcessing time.Time
+	startCleanup    time.Time
+	promPush        notifications.BasicPromPush
+	prometheusUp    = true
 )
 
 // Initial setup.  Read flags, find config file, setup logs
@@ -177,6 +191,26 @@ func init() {
 	}
 }
 
+// Set up prometheus metrics
+func init() {
+	// Set up prometheus pusher
+	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+			"To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
+		prometheusUp = false
+	}
+	promPush.R = prometheus.NewRegistry()
+	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
+	if err := promPush.RegisterMetrics(); err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", err.Error())
+		prometheusUp = false
+	}
+}
+
 // Setup of services
 func init() {
 	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
@@ -234,6 +268,12 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	defer func() {
+		if prometheusUp {
+			log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+		}
+	}()
+
 	successfulServices := make(map[string]bool) // Map of services for which all steps were successful
 
 	defer func(successfulServices map[string]bool) {
@@ -256,6 +296,22 @@ func main() {
 
 	defer notificationsWg.Wait()
 
+	// Setup done.  Push prometheus metrics
+	if prometheusUp {
+		if err := promPush.PushPromDuration(startSetup, currentExecutable, "setup"); err != nil {
+			log.WithField("executable", currentExecutable).Error("Could not push setup time duration metric")
+		}
+	}
+
+	// Processing
+	startProcessing = time.Now()
+	defer func() {
+		if prometheusUp {
+			if err := promPush.PushPromDuration(startProcessing, currentExecutable, "processing"); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push processing time duration metric")
+			}
+		}
+	}()
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
@@ -378,6 +434,15 @@ func main() {
 }
 
 func cleanup(ctx context.Context, successMap map[string]bool) error {
+	startCleanup = time.Now()
+	defer func() {
+		if prometheusUp {
+			if err := promPush.PushPromDuration(startCleanup, currentExecutable, "cleanup"); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push cleanup time duration metric")
+			}
+		}
+	}()
+
 	defer func() {
 		if err := notifications.SendAdminNotifications(
 			ctx,
