@@ -244,8 +244,6 @@ func main() {
 		}
 	}
 
-	// Open connection to the SQLite database where UID info will be stored
-	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
@@ -264,6 +262,8 @@ func main() {
 		}
 	}()
 
+	// Open connection to the SQLite database where UID info will be stored
+	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
 	} else {

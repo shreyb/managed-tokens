@@ -8,7 +8,7 @@ import (
 )
 
 func TestAddSetupErrorToAdminErrors(t *testing.T) {
-	adminErrors = sync.Map{}
+	adminErrors = packageErrors{}
 	type testCase struct {
 		description     string
 		service         string
@@ -44,7 +44,7 @@ func TestAddSetupErrorToAdminErrors(t *testing.T) {
 
 				addErrorToAdminErrors(n)
 
-				val, ok := adminErrors.Load(test.service)
+				val, ok := adminErrors.errorsMap.Load(test.service)
 				if !ok {
 					t.Error("Test error not loaded")
 				}
@@ -53,6 +53,7 @@ func TestAddSetupErrorToAdminErrors(t *testing.T) {
 					for _, setupErr := range admData.SetupErrors {
 						if setupErr == test.notificationMsg {
 							found = true
+							break
 						}
 					}
 					if !found {
@@ -71,7 +72,7 @@ func TestAddSetupErrorToAdminErrors(t *testing.T) {
 }
 
 func TestAddPushErrorToAdminErrors(t *testing.T) {
-	adminErrors = sync.Map{}
+	adminErrors = packageErrors{}
 	type testCase struct {
 		description     string
 		service         string
@@ -118,7 +119,7 @@ func TestAddPushErrorToAdminErrors(t *testing.T) {
 
 				addErrorToAdminErrors(n)
 
-				val, ok := adminErrors.Load(test.service)
+				val, ok := adminErrors.errorsMap.Load(test.service)
 				if !ok {
 					t.Error("Test error not stored in adminErrors")
 				}
@@ -148,7 +149,7 @@ func TestAddPushErrorToAdminErrors(t *testing.T) {
 }
 
 func TestPrepareAdminErrorsForMessage(t *testing.T) {
-	adminErrors = sync.Map{}
+	adminErrors = packageErrors{}
 	finalCheckData := make(map[string]AdminDataFinal)
 	notifications := []Notification{
 		&setupError{

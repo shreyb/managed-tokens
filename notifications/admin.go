@@ -12,8 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type packageErrors struct {
+	errorsMap   sync.Map
+	writerCount sync.WaitGroup
+	mu          sync.Mutex
+}
+
 var (
-	adminErrors sync.Map // Store all admin errors here
+	adminErrors packageErrors // Store all admin errors here
 )
 
 // AdminData stores the information needed to generate the Admin notifications
@@ -34,8 +40,11 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 	var existsSendError bool
 	var b strings.Builder
 
+	adminErrors.writerCount.Wait()
+	log.Debug("adminErrors is finalized")
+
 	// No errors - only send slack message saying we tested.  If there are no errors, we don't send emails
-	if syncMapLength(adminErrors) == 0 {
+	if syncMapLength(adminErrors.errorsMap) == 0 {
 		if isTest {
 			slackMessages := make([]*slackMessage, 0)
 			slackMsgText := "Test run completed successfully"
@@ -108,9 +117,12 @@ func addErrorToAdminErrors(n Notification) {
 	// is the service key there?
 	// If so, grab the AdminData struct, set it aside
 	// Add to that AdminData stuff
+	adminErrors.mu.Lock()
+	defer adminErrors.mu.Unlock()
+
 	switch nValue := n.(type) {
 	case *setupError:
-		if actual, loaded := adminErrors.LoadOrStore(
+		if actual, loaded := adminErrors.errorsMap.LoadOrStore(
 			nValue.service,
 			adminData{
 				SetupErrors: []string{nValue.message},
@@ -120,13 +132,13 @@ func addErrorToAdminErrors(n Notification) {
 				log.Panic("Invalid data stored in admin errors map.")
 			} else {
 				adminData.SetupErrors = append(adminData.SetupErrors, nValue.message)
-				adminErrors.Store(nValue.service, adminData)
+				adminErrors.errorsMap.Store(nValue.service, adminData)
 			}
 		}
 	case *pushError:
 		var newSyncMap sync.Map
 		newSyncMap.Store(nValue.node, nValue.message)
-		if actual, loaded := adminErrors.LoadOrStore(
+		if actual, loaded := adminErrors.errorsMap.LoadOrStore(
 			nValue.service,
 			adminData{
 				PushErrors: newSyncMap,
@@ -136,7 +148,7 @@ func addErrorToAdminErrors(n Notification) {
 				log.Panic("Invalid data stored in admin errors map.")
 			} else {
 				adminData.PushErrors.Store(nValue.node, nValue.message)
-				adminErrors.Store(n.GetService(), adminData)
+				adminErrors.errorsMap.Store(n.GetService(), adminData)
 			}
 		}
 	}
@@ -155,7 +167,7 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 	adminErrorsMapFinal := make(map[string]AdminDataFinal)
 
 	// 1.  Write adminErrors from sync.Map to Map called adminErrorsMap
-	adminErrors.Range(func(service, aData any) bool {
+	adminErrors.errorsMap.Range(func(service, aData any) bool {
 		s, ok := service.(string)
 		if !ok {
 			log.Panic("Improper key in admin notifications map.")

@@ -225,8 +225,7 @@ func main() {
 		}
 	}
 
-	// 1. Get Kerberos ticket
-	// Channel, context, and worker for getting kerberos ticket
+	// Processing
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
@@ -236,9 +235,9 @@ func main() {
 				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
-
 	}()
-
+	// 1. Get Kerberos ticket
+	// Channel, context, and worker for getting kerberos ticket
 	var kerberosContext context.Context
 	if kerberosTimeout, ok := timeouts["kerberostimeout"]; ok {
 		kerberosContext = utils.ContextWithOverrideTimeout(ctx, kerberosTimeout)

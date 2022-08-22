@@ -24,6 +24,9 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	// func NewManager(ctx context.Context, wg *sync.WaitGroup, nConfig Config) Manager {
 	// var isTest bool
 	c := make(EmailManager)
+	adminChan := make(chan Notification)
+	adminErrors.writerCount.Add(1)
+	go adminErrorAdder(adminChan)
 
 	// // If the passed in *email object has a blank recipients list, we consider this a test run
 	// if len(e.to) == 0 {
@@ -35,18 +38,19 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		// var serviceErrorsTable string
 		serviceErrorsTable := make(map[string]string, 0)
 		defer wg.Done()
+		defer close(adminChan)
 		for {
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
 					log.WithFields(log.Fields{
-						"caller":  "NewManager",
+						"caller":  "NewServiceEmailManager",
 						"service": service,
 					}).Error("Timeout exceeded in notification Manager")
 
 				} else {
 					log.WithFields(log.Fields{
-						"caller":  "NewManager",
+						"caller":  "NewServiceEmailManager",
 						"service": service,
 					}).Error(err)
 				}
@@ -82,7 +86,8 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 				if nValue, ok := n.(*pushError); ok {
 					serviceErrorsTable[nValue.node] = n.GetMessage()
 				}
-				addErrorToAdminErrors(n)
+				// addErrorToAdminErrors(n)
+				adminChan <- n
 			}
 		}
 	}()
@@ -92,18 +97,22 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 
 func NewAdminEmailManager(ctx context.Context, e *email) EmailManager {
 	c := make(EmailManager)
+	adminChan := make(chan Notification)
+	adminErrors.writerCount.Add(1)
+	go adminErrorAdder(adminChan)
 
 	go func() {
+		defer close(adminChan)
 		for {
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
 					log.WithFields(log.Fields{
-						"caller": "NewSimpleEmailManager",
+						"caller": "NewAdminEmailManager",
 					}).Error("Timeout exceeded in notification Manager")
 				} else {
 					log.WithFields(log.Fields{
-						"caller": "NewSimpleEmailManager",
+						"caller": "NewAdminEmailManager",
 					}).Error(err)
 				}
 				return
@@ -113,13 +122,20 @@ func NewAdminEmailManager(ctx context.Context, e *email) EmailManager {
 				if !chanOpen {
 					return
 				} else {
-					addErrorToAdminErrors(n)
+					// addErrorToAdminErrors(n)
+					adminChan <- n
 				}
 			}
 		}
 	}()
-
 	return c
+}
+
+func adminErrorAdder(adminChan <-chan Notification) {
+	defer adminErrors.writerCount.Done()
+	for n := range adminChan {
+		addErrorToAdminErrors(n)
+	}
 }
 
 func aggregateServicePushErrors(servicePushErrors map[string]string) string {
