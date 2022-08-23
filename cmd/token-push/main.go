@@ -282,6 +282,16 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	// Set up our service config collector
+	collectServiceConfigs := make(chan *service.Config, len(services))
+	serviceConfigCollectorDone := make(chan struct{})
+	go func() {
+		defer close(serviceConfigCollectorDone)
+		for serviceConfig := range collectServiceConfigs {
+			serviceConfigs[serviceConfig.Service.Name()] = serviceConfig
+		}
+	}()
+
 	// TODO Lots of defers.  Maybe we need to organize them somehow into one cleanup bit right here
 	defer func() {
 		if prometheusUp {
@@ -294,6 +304,14 @@ func main() {
 	}()
 
 	successfulServices := make(map[string]bool) // Map of services for which all steps were successful
+	populateSuccessfulServices := make(chan string, len(services))
+	successfulServicesInitDone := make(chan struct{})
+	go func() {
+		defer close(successfulServicesInitDone)
+		for service := range populateSuccessfulServices {
+			successfulServices[service] = false
+		}
+	}()
 
 	defer func(successfulServices map[string]bool) {
 		if err := cleanup(ctx, successfulServices); err != nil {
@@ -332,10 +350,11 @@ func main() {
 	// Get channels and start worker for getting kerberos ticekts
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
 
-	// Set up our serviceConfigs and load them into kerberos worker
+	// Set up our serviceConfigs and load them into various collection channels
 	func() {
-		defer close(kerberosChannels.GetServiceConfigChan())
 		var serviceConfigSetupWg sync.WaitGroup
+		defer close(collectServiceConfigs)
+		defer close(populateSuccessfulServices)
 		for _, s := range services {
 			// Setup the configs
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
@@ -364,16 +383,30 @@ func main() {
 						"role":       s.Role(),
 					}).Fatal("Could not create config for service")
 				}
-				// TODO Race condition here, technically.  See if we can spin up a goroutine that does all the writing to serviceConfigs
-				serviceConfigs[s.Name()] = sc
-				successfulServices[s.Name()] = false
-				kerberosChannels.GetServiceConfigChan() <- sc
-
+				collectServiceConfigs <- sc
+				populateSuccessfulServices <- s.Name()
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()
 	}()
+	<-serviceConfigCollectorDone // Make sure we don't move on before all the service configs are added
+	<-successfulServicesInitDone // Make sure we've populated our map of services so we can start summarizing results
 
+	// Now that we have all of our serviceConfigs, get kerberos tickets for them all
+	func() {
+		var kerbSendWg sync.WaitGroup
+		defer close(kerberosChannels.GetServiceConfigChan())
+		for _, serviceConfig := range serviceConfigs {
+			kerbSendWg.Add(1)
+			go func(serviceConfig *service.Config) {
+				defer kerbSendWg.Done()
+				kerberosChannels.GetServiceConfigChan() <- serviceConfig
+			}(serviceConfig)
+		}
+		kerbSendWg.Wait()
+	}()
+
+	// Collect all the notifications channels to make sure we close them at the end of the run
 	notificationsChans := make([]notifications.EmailManager, 0, len(serviceConfigs))
 	for _, serviceConfig := range serviceConfigs {
 		notificationsChans = append(notificationsChans, serviceConfig.NotificationsChan)
