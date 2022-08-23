@@ -13,12 +13,12 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -38,15 +38,35 @@ var (
 )
 
 var (
-	startSetup      time.Time
-	startProcessing time.Time
-	promPush        notifications.BasicPromPush
-	prometheusUp    = true
+	adminNotifications = make([]notifications.SendMessager, 0)
+	notificationsChan  notifications.EmailManager
 )
 
 var (
-	adminNotifications = make([]notifications.SendMessager, 0)
-	notificationsChan  notifications.EmailManager
+	startSetup      time.Time
+	startProcessing time.Time
+	prometheusUp    = true
+)
+
+// Metrics
+var (
+	promDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "stage_duration_seconds",
+		Help:      "The amount of time it took to run a stage (setup|processing|cleanup) of a Managed Tokens Service executable",
+	},
+		[]string{
+			"executable",
+			"stage",
+		},
+	)
+	ferryRefreshTime = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "managed_tokens",
+			Name:      "last_ferry_refresh",
+			Help:      "The timestamp of the last successful refresh of the username --> UID table from FERRY for the Managed Tokens Service",
+		},
+	)
 )
 
 func init() {
@@ -164,7 +184,7 @@ func init() {
 
 // Set up prometheus metrics
 func init() {
-	// Set up prometheus pusher
+	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
 		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
 			"To limit error noise, "+
@@ -172,14 +192,9 @@ func init() {
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
 		prometheusUp = false
 	}
-	promPush.R = prometheus.NewRegistry()
-	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
-	if err := promPush.RegisterMetrics(); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
-			"these failures at the experiment level will be registered as warnings in the log, "+
-			"and not be sent in any notifications.", err.Error())
-		prometheusUp = false
-	}
+
+	metrics.MetricsRegistry.MustRegister(promDuration)
+	metrics.MetricsRegistry.MustRegister(ferryRefreshTime)
 }
 
 func main() {
@@ -239,24 +254,16 @@ func main() {
 
 	// Setup complete
 	if prometheusUp {
-		if err := promPush.PushPromDuration(startSetup, currentExecutable, "setup"); err != nil {
-			log.WithField("executable", currentExecutable).Error("Could not push metric for setup duration")
-		}
+		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
 	}
 
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
-			success := true
-			if err := promPush.PushFERRYRefreshTime(); err != nil {
-				log.WithField("executable", currentExecutable).Error("Could not push FERRY refresh timestamp metric")
-				success = false
-			}
-			if err := promPush.PushPromDuration(startProcessing, currentExecutable, "processing"); err != nil {
-				log.WithField("executable", currentExecutable).Error("Could not push processing time metric")
-				success = false
-			}
-			if success {
+			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startSetup).Seconds())
+			if err := metrics.PushToPrometheus(); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
+			} else {
 				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
@@ -419,4 +426,5 @@ func main() {
 	}
 	log.Debug("Verified INSERT")
 	log.Info("Successfully refreshed uid DB.")
+	ferryRefreshTime.SetToCurrentTime()
 }

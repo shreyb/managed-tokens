@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
@@ -22,6 +21,7 @@ import (
 	// scitokens "github.com/scitokens/scitokens-go"
 	//"github.com/shreyb/managed-tokens/utils"
 
+	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
@@ -53,13 +53,32 @@ var (
 	startSetup      time.Time
 	startProcessing time.Time
 	startCleanup    time.Time
-	promPush        notifications.BasicPromPush
 	prometheusUp    = true
+)
+
+// Metrics
+var (
+	promDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "stage_duration_seconds",
+		Help:      "The amount of time it took to run a stage (setup|processing|cleanup) of a Managed Tokens Service executable",
+	},
+		[]string{
+			"executable",
+			"stage",
+		},
+	)
+	servicePushFailureCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "failed_services_push_count",
+		Help:      "The number of services for which pushing tokens failed in the last round",
+	})
 )
 
 // Initial setup.  Read flags, find config file, setup logs
 func init() {
 	const configFile string = "managedTokens"
+	startSetup = time.Now()
 
 	// Get current executable name
 	if exePath, err := os.Executable(); err != nil {
@@ -193,7 +212,7 @@ func init() {
 
 // Set up prometheus metrics
 func init() {
-	// Set up prometheus pusher
+	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
 		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
 			"To limit error noise, "+
@@ -201,14 +220,9 @@ func init() {
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
 		prometheusUp = false
 	}
-	promPush.R = prometheus.NewRegistry()
-	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
-	if err := promPush.RegisterMetrics(); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
-			"these failures at the experiment level will be registered as warnings in the log, "+
-			"and not be sent in any notifications.", err.Error())
-		prometheusUp = false
-	}
+
+	metrics.MetricsRegistry.MustRegister(promDuration)
+	metrics.MetricsRegistry.MustRegister(servicePushFailureCount)
 }
 
 // Setup of services
@@ -268,9 +282,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	// TODO Lots of defers.  Maybe we need to organize them somehow into one cleanup bit right here
 	defer func() {
 		if prometheusUp {
-			log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+			if err := metrics.PushToPrometheus(); err != nil {
+				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
+			} else {
+				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+			}
 		}
 	}()
 
@@ -298,20 +317,17 @@ func main() {
 
 	// Setup done.  Push prometheus metrics
 	if prometheusUp {
-		if err := promPush.PushPromDuration(startSetup, currentExecutable, "setup"); err != nil {
-			log.WithField("executable", currentExecutable).Error("Could not push setup time duration metric")
-		}
+		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
 	}
 
 	// Processing
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
-			if err := promPush.PushPromDuration(startProcessing, currentExecutable, "processing"); err != nil {
-				log.WithField("executable", currentExecutable).Error("Could not push processing time duration metric")
-			}
+			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
 		}
 	}()
+
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
@@ -348,6 +364,7 @@ func main() {
 						"role":       s.Role(),
 					}).Fatal("Could not create config for service")
 				}
+				// TODO Race condition here, technically.  See if we can spin up a goroutine that does all the writing to serviceConfigs
 				serviceConfigs[s.Name()] = sc
 				successfulServices[s.Name()] = false
 				kerberosChannels.GetServiceConfigChan() <- sc
@@ -437,9 +454,7 @@ func cleanup(ctx context.Context, successMap map[string]bool) error {
 	startCleanup = time.Now()
 	defer func() {
 		if prometheusUp {
-			if err := promPush.PushPromDuration(startCleanup, currentExecutable, "cleanup"); err != nil {
-				log.WithField("executable", currentExecutable).Error("Could not push cleanup time duration metric")
-			}
+			promDuration.WithLabelValues(currentExecutable, "cleanup").Set(time.Since(startCleanup).Seconds())
 		}
 	}()
 
@@ -463,6 +478,7 @@ func cleanup(ctx context.Context, successMap map[string]bool) error {
 			successes = append(successes, service)
 		} else {
 			failures = append(failures, service)
+			servicePushFailureCount.Inc()
 		}
 	}
 

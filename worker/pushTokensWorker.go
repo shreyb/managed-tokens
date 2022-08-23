@@ -5,10 +5,24 @@ import (
 	"fmt"
 	"os/user"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
+)
+
+var tokenPushTime = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "last_token_push_timestamp",
+		Help:      "The timestamp of the last successful push of a service vault token to an interactive node by the Managed Tokens Service",
+	},
+	[]string{
+		"service",
+		"node",
+	},
 )
 
 const pushDefaultTimeoutStr string = "30s"
@@ -16,6 +30,10 @@ const pushDefaultTimeoutStr string = "30s"
 type pushTokenSuccess struct {
 	serviceName string
 	success     bool
+}
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(tokenPushTime)
 }
 
 func (v *pushTokenSuccess) GetServiceName() string {
@@ -91,6 +109,9 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						pushSuccess.success = false
 						sc.NotificationsChan <- notifications.NewPushError(err.Error(), sc.Service.Name(), destinationNode)
 					}
+				}
+				if pushSuccess.success {
+					tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 				}
 			}
 			// TODO Do an INFO logging of successes and failures across service

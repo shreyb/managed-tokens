@@ -6,14 +6,10 @@ import (
 
 	"context"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"path"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/push"
-	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -37,17 +33,8 @@ var (
 	}
 )
 
-var (
-	startSetup      time.Time
-	startProcessing time.Time
-	promPush        notifications.BasicPromPush
-	prometheusUp    = true
-)
-
 func init() {
 	const configFile string = "managedTokens"
-
-	startSetup = time.Now()
 
 	// Get current executable name
 	if exePath, err := os.Executable(); err != nil {
@@ -167,26 +154,6 @@ func init() {
 	}
 }
 
-// Set up prometheus metrics
-func init() {
-	// Set up prometheus pusher
-	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
-			"To limit error noise, "+
-			"these failures at the experiment level will be registered as warnings in the log, "+
-			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
-		prometheusUp = false
-	}
-	promPush.R = prometheus.NewRegistry()
-	promPush.P = push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(promPush.R)
-	if err := promPush.RegisterMetrics(); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error registering prometheus metrics: %s.  Subsequent pushes will fail.  To limit error noise, "+
-			"these failures at the experiment level will be registered as warnings in the log, "+
-			"and not be sent in any notifications.", err.Error())
-		prometheusUp = false
-	}
-}
-
 func main() {
 	// Order of operations:
 	// 1. Generate kerberos principal for service
@@ -218,24 +185,7 @@ func main() {
 		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 	}()
 
-	// Setup done.  Push prometheus metrics
-	if prometheusUp {
-		if err := promPush.PushPromDuration(startSetup, currentExecutable, "setup"); err != nil {
-			log.WithField("executable", currentExecutable).Error("Could not push setup time duration metric")
-		}
-	}
-
 	// Processing
-	startProcessing = time.Now()
-	defer func() {
-		if prometheusUp {
-			if err := promPush.PushPromDuration(startProcessing, currentExecutable, "processing"); err != nil {
-				log.WithField("executable", currentExecutable).Error("Could not push processing time duration metric")
-			} else {
-				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
-			}
-		}
-	}()
 	// 1. Get Kerberos ticket
 	// Channel, context, and worker for getting kerberos ticket
 	var kerberosContext context.Context
