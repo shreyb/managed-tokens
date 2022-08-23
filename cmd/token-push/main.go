@@ -368,16 +368,6 @@ func main() {
 	}()
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
-	// Make sure we close all notifications channels after we're done running
-	// defer log.WithField("executable", currentExecutable).Debug("Closed notifications channels")
-	// for _, serviceConfig := range serviceConfigs {
-	// 	defer func(serviceConfig *service.Config) {
-	// 		if serviceConfig.NotificationsChan != nil {
-	// 			close(serviceConfig.NotificationsChan)
-	// 		}
-	// 	}(serviceConfig)
-	// }
-
 	go directNotificationsToManagers(ctx)
 
 	// Setup done.  Push prometheus metrics
