@@ -17,9 +17,6 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
 
-	// scitokens "github.com/scitokens/scitokens-go"
-	//"github.com/shreyb/managed-tokens/utils"
-
 	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
@@ -27,6 +24,7 @@ import (
 	"github.com/shreyb/managed-tokens/worker"
 )
 
+// TODO Clean up these var declarations
 var currentExecutable string
 
 const globalTimeoutDefaultStr string = "300s"
@@ -266,7 +264,6 @@ func main() {
 	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	var globalTimeout time.Duration
-	var notificationsWg sync.WaitGroup
 	var setupWg sync.WaitGroup
 
 	// Global context
@@ -311,7 +308,7 @@ func main() {
 	// All the cleanup actions needed to run any time main() returns
 	defer func() {
 		// Wait for all notifications to finish before moving onto cleanup
-		notificationsWg.Wait()
+		handleNotificationsFinalization()
 		// Clear kerberos cache
 		os.RemoveAll(krb5ccname)
 		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
@@ -342,7 +339,6 @@ func main() {
 			serviceConfigSetupWg.Add(1)
 			go func(s service.Service, serviceConfigPath string) {
 				defer serviceConfigSetupWg.Done()
-				defer notificationsWg.Add(1)
 				sc, err := service.NewConfig(
 					s,
 					serviceConfigViperPath(serviceConfigPath),
@@ -354,7 +350,7 @@ func main() {
 					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
-					setNotificationsChan(ctx, serviceConfigPath, s, &notificationsWg),
+					// setNotificationsChan(ctx, serviceConfigPath, s, &notificationsWg),
 				)
 				if err != nil {
 					// TODO Something more descriptive
@@ -365,24 +361,24 @@ func main() {
 				}
 				collectServiceConfigs <- sc
 				initializeSuccessfulServices <- s.Name()
+				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()
 	}()
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
-	// Collect all the notifications channels to make sure we close them at the end of the run
-	notificationsChans := make([]notifications.EmailManager, 0)
-	for _, serviceConfig := range serviceConfigs {
-		notificationsChans = append(notificationsChans, serviceConfig.NotificationsChan)
-	}
+	// Make sure we close all notifications channels after we're done running
+	// defer log.WithField("executable", currentExecutable).Debug("Closed notifications channels")
+	// for _, serviceConfig := range serviceConfigs {
+	// 	defer func(serviceConfig *service.Config) {
+	// 		if serviceConfig.NotificationsChan != nil {
+	// 			close(serviceConfig.NotificationsChan)
+	// 		}
+	// 	}(serviceConfig)
+	// }
 
-	defer func() {
-		for _, notificationsChan := range notificationsChans {
-			close(notificationsChan)
-		}
-		log.WithField("executable", currentExecutable).Debug("Closed notifications channels")
-	}()
+	go directNotificationsToManagers(ctx)
 
 	// Setup done.  Push prometheus metrics
 	log.WithField("executable", currentExecutable).Debug("Setup complete")

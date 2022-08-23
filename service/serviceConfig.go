@@ -1,7 +1,6 @@
 package service
 
 import (
-	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -9,13 +8,12 @@ import (
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 type Config struct {
 	Service
-	UserPrincipal     string
-	Nodes             []string
-	Account           string
-	KeytabPath        string
-	DesiredUID        uint32
-	ConfigPath        string
-	NotificationsChan chan notifications.Notification
+	UserPrincipal string
+	Nodes         []string
+	Account       string
+	KeytabPath    string
+	DesiredUID    uint32
+	ConfigPath    string
 	utils.CommandEnvironment
 }
 

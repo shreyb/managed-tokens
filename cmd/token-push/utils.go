@@ -7,10 +7,7 @@ import (
 	"html/template"
 	"path"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -23,6 +20,7 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(
 	// Channels, context, and worker for getting kerberos tickets
 	var useCtx context.Context
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
+	registerWorkerNotificationChans(channels.GetNotificationsChan())
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {
 		useCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
 	} else {
@@ -217,23 +215,23 @@ func account(serviceConfigPath string) func(sc *service.Config) error {
 	}
 }
 
-func setNotificationsChan(ctx context.Context, serviceConfigPath string, s service.Service, wg *sync.WaitGroup) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		timestamp := time.Now().Format(time.RFC822)
-		e := notifications.NewEmail(
-			viper.GetString("email.from"),
-			viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
-			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", s.Name(), timestamp),
-			viper.GetString("email.smtphost"),
-			viper.GetInt("email.smtpport"),
-			viper.GetString("templates.serviceerrors"),
-		)
+// func setNotificationsChan(ctx context.Context, serviceConfigPath string, s service.Service, wg *sync.WaitGroup) func(sc *service.Config) error {
+// 	return func(sc *service.Config) error {
+// 		timestamp := time.Now().Format(time.RFC822)
+// 		e := notifications.NewEmail(
+// 			viper.GetString("email.from"),
+// 			viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
+// 			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", s.Name(), timestamp),
+// 			viper.GetString("email.smtphost"),
+// 			viper.GetInt("email.smtpport"),
+// 			viper.GetString("templates.serviceerrors"),
+// 		)
 
-		m := notifications.NewServiceEmailManager(ctx, wg, sc.Service.Name(), e)
-		sc.NotificationsChan = m
-		return nil
-	}
-}
+// 		m := notifications.NewServiceEmailManager(ctx, wg, sc.Service.Name(), e)
+// 		// sc.NotificationsChan = m
+// 		return nil
+// 	}
+// }
 
 func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs map[string]*service.Config) []*service.Config {
 	failedConfigs := make([]*service.Config, 0, len(serviceConfigs))

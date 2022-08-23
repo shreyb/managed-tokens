@@ -46,6 +46,7 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
+	defer close(chans.GetNotificationsChan())
 
 	pushTimeout, err := utils.GetProperTimeoutFromContext(ctx, pushDefaultTimeoutStr)
 	if err != nil {
@@ -107,7 +108,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 							"role":       sc.Service.Role(),
 						}).Error("Error pushing vault tokens to destination node")
 						pushSuccess.success = false
-						sc.NotificationsChan <- notifications.NewPushError(err.Error(), sc.Service.Name(), destinationNode)
+						chans.GetNotificationsChan() <- notifications.NewPushError(err.Error(), sc.Service.Name(), destinationNode)
 					}
 				}
 				if pushSuccess.success {

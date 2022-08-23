@@ -27,6 +27,7 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 
 func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
+	defer close(chans.GetNotificationsChan())
 	var interactive bool
 
 	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
@@ -53,7 +54,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				sc.NotificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
+				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 			} else {
 				success.success = true
 			}

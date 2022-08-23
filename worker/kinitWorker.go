@@ -25,6 +25,7 @@ func (v *kinitSuccess) GetSuccess() bool {
 
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
+	defer close(chans.GetNotificationsChan())
 
 	kerberosTimeout, err := utils.GetProperTimeoutFromContext(ctx, kerberosDefaultTimeoutStr)
 	if err != nil {
@@ -50,7 +51,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				sc.NotificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
+				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 				return
 			}
 
@@ -60,7 +61,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				sc.NotificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
+				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 			} else {
 				// TODO Make this debug
 				log.WithFields(log.Fields{

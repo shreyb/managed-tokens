@@ -28,6 +28,7 @@ func (p *pingSuccess) GetSuccess() bool {
 
 func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
+	defer close(chans.GetNotificationsChan())
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -84,7 +85,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				}
 				log.WithField("service", sc.Service.Name()).Error("Error pinging some of nodes for service")
 				log.WithField("service", sc.Service.Name()).Errorf("Failed Nodes: %s", strings.Join(failedNodesStrings, ", "))
-				sc.NotificationsChan <- notifications.NewSetupError(
+				chans.GetNotificationsChan() <- notifications.NewSetupError(
 					"Could not ping the following nodes: "+strings.Join(failedNodesStrings, ", "),
 					sc.Service.Name(),
 				)
