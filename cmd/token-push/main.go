@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -268,32 +267,61 @@ func main() {
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	var globalTimeout time.Duration
 	var notificationsWg sync.WaitGroup
+	var setupWg sync.WaitGroup
+
+	// Global context
 	var ok bool
 	var err error
-
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
 		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
 		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
 			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
 		}
 	}
-
-	// Global context
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
 	// Set up our service config collector
 	collectServiceConfigs := make(chan *service.Config, len(services))
-	serviceConfigCollectorDone := make(chan struct{})
+	setupWg.Add(1)
 	go func() {
-		defer close(serviceConfigCollectorDone)
+		defer setupWg.Done()
 		for serviceConfig := range collectServiceConfigs {
 			serviceConfigs[serviceConfig.Service.Name()] = serviceConfig
 		}
 	}()
 
-	// TODO Lots of defers.  Maybe we need to organize them somehow into one cleanup bit right here
+	// Initialize Map of services for which all steps were successful
+	successfulServices := make(map[string]bool)
+	initializeSuccessfulServices := make(chan string, len(services))
+	setupWg.Add(1)
+	go func() {
+		defer setupWg.Done()
+		for service := range initializeSuccessfulServices {
+			successfulServices[service] = false
+		}
+	}()
+
+	// Create temporary dir for all kerberos caches to live in
+	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
+	if err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+	}
+
+	// All the cleanup actions needed to run any time main() returns
 	defer func() {
+		// Wait for all notifications to finish before moving onto cleanup
+		notificationsWg.Wait()
+		// Clear kerberos cache
+		os.RemoveAll(krb5ccname)
+		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+		// Run cleanup actions
+		func(successfulServices map[string]bool) { // Cleanup
+			if err := cleanup(ctx, successfulServices); err != nil {
+				log.WithField("executable", currentExecutable).Fatal("Error cleaning up")
+			}
+		}(successfulServices)
+		// Push metrics to prometheus pushgateway
 		if prometheusUp {
 			if err := metrics.PushToPrometheus(); err != nil {
 				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
@@ -303,58 +331,11 @@ func main() {
 		}
 	}()
 
-	successfulServices := make(map[string]bool) // Map of services for which all steps were successful
-	populateSuccessfulServices := make(chan string, len(services))
-	successfulServicesInitDone := make(chan struct{})
-	go func() {
-		defer close(successfulServicesInitDone)
-		for service := range populateSuccessfulServices {
-			successfulServices[service] = false
-		}
-	}()
-
-	defer func(successfulServices map[string]bool) {
-		if err := cleanup(ctx, successfulServices); err != nil {
-			log.WithField("executable", currentExecutable).Fatal("Error cleaning up")
-		}
-
-	}(successfulServices)
-
-	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
-	if err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
-	}
-
-	defer func() {
-		os.RemoveAll(krb5ccname)
-		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
-	}()
-
-	defer notificationsWg.Wait()
-
-	// Setup done.  Push prometheus metrics
-	if prometheusUp {
-		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
-	}
-
-	// Processing
-	startProcessing = time.Now()
-	defer func() {
-		if prometheusUp {
-			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
-		}
-	}()
-
-	// 1. Get kerberos tickets
-	// Get channels and start worker for getting kerberos ticekts
-	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
-
 	// Set up our serviceConfigs and load them into various collection channels
 	func() {
 		var serviceConfigSetupWg sync.WaitGroup
 		defer close(collectServiceConfigs)
-		defer close(populateSuccessfulServices)
+		defer close(initializeSuccessfulServices)
 		for _, s := range services {
 			// Setup the configs
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
@@ -362,7 +343,6 @@ func main() {
 			go func(s service.Service, serviceConfigPath string) {
 				defer serviceConfigSetupWg.Done()
 				defer notificationsWg.Add(1)
-
 				sc, err := service.NewConfig(
 					s,
 					serviceConfigViperPath(serviceConfigPath),
@@ -377,37 +357,22 @@ func main() {
 					setNotificationsChan(ctx, serviceConfigPath, s, &notificationsWg),
 				)
 				if err != nil {
-					// Something more descriptive
+					// TODO Something more descriptive
 					log.WithFields(log.Fields{
 						"experiment": s.Experiment(),
 						"role":       s.Role(),
 					}).Fatal("Could not create config for service")
 				}
 				collectServiceConfigs <- sc
-				populateSuccessfulServices <- s.Name()
+				initializeSuccessfulServices <- s.Name()
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()
 	}()
-	<-serviceConfigCollectorDone // Make sure we don't move on before all the service configs are added
-	<-successfulServicesInitDone // Make sure we've populated our map of services so we can start summarizing results
-
-	// Now that we have all of our serviceConfigs, get kerberos tickets for them all
-	func() {
-		var kerbSendWg sync.WaitGroup
-		defer close(kerberosChannels.GetServiceConfigChan())
-		for _, serviceConfig := range serviceConfigs {
-			kerbSendWg.Add(1)
-			go func(serviceConfig *service.Config) {
-				defer kerbSendWg.Done()
-				kerberosChannels.GetServiceConfigChan() <- serviceConfig
-			}(serviceConfig)
-		}
-		kerbSendWg.Wait()
-	}()
+	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
 	// Collect all the notifications channels to make sure we close them at the end of the run
-	notificationsChans := make([]notifications.EmailManager, 0, len(serviceConfigs))
+	notificationsChans := make([]notifications.EmailManager, 0)
 	for _, serviceConfig := range serviceConfigs {
 		notificationsChans = append(notificationsChans, serviceConfig.NotificationsChan)
 	}
@@ -416,8 +381,26 @@ func main() {
 		for _, notificationsChan := range notificationsChans {
 			close(notificationsChan)
 		}
-		log.Debug("Closed notifications channels")
+		log.WithField("executable", currentExecutable).Debug("Closed notifications channels")
 	}()
+
+	// Setup done.  Push prometheus metrics
+	log.WithField("executable", currentExecutable).Debug("Setup complete")
+	if prometheusUp {
+		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
+	}
+
+	// Begin Processing
+	startProcessing = time.Now()
+	defer func() {
+		if prometheusUp {
+			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
+		}
+	}()
+
+	// 1. Get kerberos tickets
+	// Get channels and start worker for getting kerberos ticekts
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
@@ -444,6 +427,7 @@ func main() {
 		).Info("Failed to obtain vault token.  Will not try to push vault token to service nodes")
 	}
 
+	// If we're in test mode, stop here
 	if viper.GetBool("test") {
 		log.Info("Test mode.  Cleaning up now")
 
@@ -454,6 +438,7 @@ func main() {
 	}
 
 	if len(serviceConfigs) == 0 {
+		log.WithField("executable", currentExecutable).Debug("No more serviceConfigs to operate on.  Cleaning up now")
 		return
 	}
 
@@ -478,8 +463,6 @@ func main() {
 			successfulServices[pushSuccess.GetServiceName()] = true
 		}
 	}
-
-	fmt.Println("I guess we did something")
 
 }
 
