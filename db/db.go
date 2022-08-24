@@ -8,8 +8,9 @@ import (
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 // Much thanks to K. Retzke - a lot of the boilerplate DB code is adapted from his fifemail application
@@ -63,12 +64,13 @@ func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
 		err = f.initialize(filename)
 		if err != nil {
-			log.Error("Could not create new FERRYUIDDatabase")
+			msg := "Could not create new FERRYUIDDatabase"
+			log.Error(msg)
 			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
 				log.Error("Could not remove corrupt database file.  Please do so manually")
 				return &FERRYUIDDatabase{}, err
 			}
-			return &FERRYUIDDatabase{}, err
+			return &FERRYUIDDatabase{}, &ferryUIDDatabaseCreateError{msg}
 		}
 		log.WithField("filename", filename).Debug("Created new FERRYUIDDatabase")
 	} else {
@@ -80,8 +82,9 @@ func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
 		log.WithField("filename", filename).Debug("FERRYUIDDatabase file already exists.  Will try to use it")
 	}
 	if err := f.check(); err != nil {
-		log.WithField("filename", filename).Error("FERRYUIDDatabase failed check")
-		return &f, err
+		msg := "FERRYUIDDatabase failed check"
+		log.WithField("filename", filename).Error(msg)
+		return &f, &ferryUIDDatabaseCheckError{msg}
 	}
 	log.WithField("filename", filename).Info("FERRYUIDDatabase connection ready")
 	return &f, nil
@@ -94,6 +97,7 @@ func (f *FERRYUIDDatabase) Close() error {
 func (f *FERRYUIDDatabase) initialize(filename string) error {
 	var err error
 	if f.db, err = sql.Open("sqlite3", filename); err != nil {
+		log.WithField("filename", f.filename).Error(err)
 		return err
 	}
 
@@ -286,3 +290,11 @@ type checkDatum struct {
 func (c *checkDatum) Username() string { return c.username }
 func (c *checkDatum) Uid() int         { return c.uid }
 func (c *checkDatum) String() string   { return fmt.Sprintf("Username: %s, Uid: %d", c.username, c.uid) }
+
+type ferryUIDDatabaseCreateError struct{ msg string }
+
+func (f *ferryUIDDatabaseCreateError) Error() string { return f.msg }
+
+type ferryUIDDatabaseCheckError struct{ msg string }
+
+func (f *ferryUIDDatabaseCheckError) Error() string { return f.msg }
