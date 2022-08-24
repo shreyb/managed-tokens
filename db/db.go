@@ -62,7 +62,7 @@ type FERRYUIDDatabase struct {
 func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
 	f := FERRYUIDDatabase{filename: filename}
 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
-		err = f.initialize(filename)
+		err = f.initialize()
 		if err != nil {
 			msg := "Could not create new FERRYUIDDatabase"
 			log.Error(msg)
@@ -94,9 +94,9 @@ func (f *FERRYUIDDatabase) Close() error {
 	return f.db.Close()
 }
 
-func (f *FERRYUIDDatabase) initialize(filename string) error {
+func (f *FERRYUIDDatabase) initialize() error {
 	var err error
-	if f.db, err = sql.Open("sqlite3", filename); err != nil {
+	if f.db, err = sql.Open("sqlite3", f.filename); err != nil {
 		log.WithField("filename", f.filename).Error(err)
 		return err
 	}
