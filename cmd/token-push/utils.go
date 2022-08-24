@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"html/template"
 	"path"
 	"strings"
 
+	"github.com/shreyb/managed-tokens/db"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/worker"
@@ -39,30 +39,6 @@ func loadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceCon
 		chanToLoad <- sc
 	}
 }
-
-// func createServiceConfigNotificationChannelMap(ctx context.Context, serviceConfigs map[string]*service.Config) (map[string]chan notifications.Notification, *sync.WaitGroup) {
-// 	configsToChannels := make(map[string]chan notifications.Notification)
-// 	var wg sync.WaitGroup
-// 	timestamp := time.Now().Format(time.RFC822)
-
-// 	for serviceName, serviceConfig := range serviceConfigs {
-// 		e := notifications.NewEmail(
-// 			serviceName,
-// 			viper.GetString("email.from"),
-// 			viper.GetStringSlice("experiments."+serviceConfig.Service.Experiment()+".emails"),
-// 			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", serviceConfig.Service.Name(), timestamp),
-// 			viper.GetString("smtphost"),
-// 			viper.GetInt("smtpport"),
-// 			viper.GetString("templates.serviceerrors"),
-// 		)
-
-// 		wg.Add(1)
-// 		m := notifications.NewServiceEmailManager(ctx, &wg, &serviceConfig.Service, e)
-// 		configsToChannels[serviceName] = m
-// 	}
-
-// 	return configsToChannels, &wg
-// }
 
 // Functional options for service.Config initialization
 func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error {
@@ -163,15 +139,14 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 					dbLocation = "/var/lib/managed-tokens/uid.db"
 
 				}
-				db, err := sql.Open("sqlite3", dbLocation)
-				if err != nil {
-					log.Error("Could not open the UID database file")
-					log.Error(err)
-					return
-				}
-				defer db.Close()
 
-				uid, err = utils.GetUIDByUsername(ctx, db, username)
+				ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
+				if err != nil {
+					log.WithField("executable", currentExecutable).Fatal("Could not open or create FERRYUIDDatabase")
+				}
+				defer ferryUidDb.Close()
+
+				uid, err = ferryUidDb.GetUIDByUsername(ctx, username)
 				if err != nil {
 					log.Error("Could not get UID by username")
 					return
@@ -214,24 +189,6 @@ func account(serviceConfigPath string) func(sc *service.Config) error {
 		return nil
 	}
 }
-
-// func setNotificationsChan(ctx context.Context, serviceConfigPath string, s service.Service, wg *sync.WaitGroup) func(sc *service.Config) error {
-// 	return func(sc *service.Config) error {
-// 		timestamp := time.Now().Format(time.RFC822)
-// 		e := notifications.NewEmail(
-// 			viper.GetString("email.from"),
-// 			viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
-// 			fmt.Sprintf("Managed Tokens Push Errors for %s - %s", s.Name(), timestamp),
-// 			viper.GetString("email.smtphost"),
-// 			viper.GetInt("email.smtpport"),
-// 			viper.GetString("templates.serviceerrors"),
-// 		)
-
-// 		m := notifications.NewServiceEmailManager(ctx, wg, sc.Service.Name(), e)
-// 		// sc.NotificationsChan = m
-// 		return nil
-// 	}
-// }
 
 func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs map[string]*service.Config) []*service.Config {
 	failedConfigs := make([]*service.Config, 0, len(serviceConfigs))

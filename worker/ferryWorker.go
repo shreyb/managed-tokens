@@ -11,6 +11,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/shreyb/managed-tokens/db"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -52,7 +53,7 @@ type ferryUIDResponse struct {
 
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
-	ferryDataChan chan<- utils.FerryUIDDatum) (*UIDEntryFromFerry, error) {
+	ferryDataChan chan<- db.FerryUIDDatum) (*UIDEntryFromFerry, error) {
 	entry := UIDEntryFromFerry{}
 
 	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)

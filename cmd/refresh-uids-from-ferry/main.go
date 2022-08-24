@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"net/http"
 	"os"
 	"path"
@@ -11,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/db"
 	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
@@ -100,7 +98,6 @@ func init() {
 
 	// Get config file
 	// Check for override
-	log.WithField("executable", currentExecutable).Info(viper.GetString("configfile"))
 	if config := viper.GetString("configfile"); config != "" {
 		viper.SetConfigFile(config)
 	} else {
@@ -198,9 +195,8 @@ func init() {
 }
 
 func main() {
+	// TODO:  See if some of these funcs can be moved to utils
 	var dbLocation string
-	var newDB bool
-	var db *sql.DB
 	service := currentExecutable
 
 	// Global Context
@@ -260,7 +256,7 @@ func main() {
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
-			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startSetup).Seconds())
+			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
 			if err := metrics.PushToPrometheus(); err != nil {
 				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
 			} else {
@@ -278,37 +274,24 @@ func main() {
 	}
 	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 
-	if _, err := os.Stat(dbLocation); errors.Is(err, os.ErrNotExist) {
-		newDB = true
-	}
-
-	db, err = sql.Open("sqlite3", dbLocation)
+	ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
-		msg := "Could not open the UID database file"
-		log.WithField("executable", currentExecutable).Errorf("%s: %s", msg, err)
+		msg := "Could not open or create FERRYUIDDatabase"
 		notificationsChan <- notifications.NewSetupError(msg, service)
-		return
+		log.WithField("executable", currentExecutable).Fatal(msg)
 	}
-	defer db.Close()
-
-	if newDB {
-		if err = utils.CreateUidsTableInDB(ctx, db); err != nil {
-			msg := "Could not open the UID database file"
-			notificationsChan <- notifications.NewSetupError(msg, service)
-			return
-		}
-	}
+	defer ferryUidDb.Close()
 
 	// FERRY vars
-	ferryData := make([]utils.FerryUIDDatum, 0)
-	ferryDataChan := make(chan utils.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
-	ferryDataWg := new(sync.WaitGroup)              // WaitGroup to make sure we don't close ferryDataChan before all data is sent
-	aggFERRYDataDone := make(chan struct{})         // Channel to close when FERRY data aggregation is done
+	ferryData := make([]db.FerryUIDDatum, 0)
+	ferryDataChan := make(chan db.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
+	ferryDataWg := new(sync.WaitGroup)           // WaitGroup to make sure we don't close ferryDataChan before all data is sent
+	aggFERRYDataDone := make(chan struct{})      // Channel to close when FERRY data aggregation is done
 
 	usernames := getAllAccountsFromConfig()
 
 	// Start up worker to aggregate all FERRY data
-	go func(ferryDataChan <-chan utils.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
+	go func(ferryDataChan <-chan db.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
 		for ferryDatum := range ferryDataChan {
 			ferryData = append(ferryData, ferryDatum)
@@ -345,7 +328,7 @@ func main() {
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
 
-			go func(username string, ferryDataChan chan<- utils.FerryUIDDatum) {
+			go func(username string, ferryDataChan chan<- db.FerryUIDDatum) {
 				defer ferryDataWg.Done()
 				var ferryRequestContext context.Context
 				if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
@@ -401,7 +384,7 @@ func main() {
 	} else {
 		dbContext = ctx
 	}
-	if err := utils.InsertUidsIntoTableFromFERRY(dbContext, db, ferryData); err != nil {
+	if err := ferryUidDb.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
 		notificationsChan <- notifications.NewSetupError(msg, service)
 		log.Error(msg)
@@ -409,7 +392,7 @@ func main() {
 	}
 
 	// Confirm and verify that INSERT was successful
-	dbData, err := utils.ConfirmUIDsInTable(ctx, db)
+	dbData, err := ferryUidDb.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
 		notificationsChan <- notifications.NewSetupError(msg, service)

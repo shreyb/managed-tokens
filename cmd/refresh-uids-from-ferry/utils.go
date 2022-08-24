@@ -14,10 +14,10 @@ import (
 	"strings"
 
 	"github.com/lestrrat-go/jwx/jwt"
-	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/db"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 )
@@ -271,7 +271,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 	return serviceConfig, nil
 }
 
-func checkFerryDataInDB(ferryData, dbData []utils.FerryUIDDatum) bool {
+func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 	type datum struct {
 		username string
 		uid      int

@@ -1,15 +1,24 @@
-package utils
+package db
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"os"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
-const dbDefaultTimeoutStr string = "10s"
+// Much thanks to K. Retzke - a lot of the boilerplate DB code is adapted from his fifemail application
+
+const (
+	// ApplicationId is used to uniquely identify a sqlite database as belonging to an application, rather than being a simple DB
+	ApplicationId              = 0x5da82553
+	dbDefaultTimeoutStr string = "10s"
+)
 
 // SQL Statements
 var (
@@ -42,37 +51,99 @@ type FerryUIDDatum interface {
 	String() string
 }
 
-func CreateUidsTableInDB(ctx context.Context, db *sql.DB) error {
-	dbTimeout, err := GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
-	if err != nil {
-		log.Fatal("Could not parse db timeout duration")
-	}
-	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
-	defer dbCancel()
+type FERRYUIDDatabase struct {
+	filename string
+	db       *sql.DB
+}
 
-	_, err = db.ExecContext(dbContext, createUIDTableStatement)
-	if dbContext.Err() == context.DeadlineExceeded {
-		log.Error("Context timeout")
-		return dbContext.Err()
+// OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the databse already
+// exists at the filename provided, it will open that database as long as the ApplicationId matches
+func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
+	f := FERRYUIDDatabase{filename: filename}
+	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
+		err = f.initialize(filename)
+		if err != nil {
+			log.Error("Could not create new FERRYUIDDatabase")
+			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
+				log.Error("Could not remove corrupt database file.  Please do so manually")
+				return &FERRYUIDDatabase{}, err
+			}
+			return &FERRYUIDDatabase{}, err
+		}
+		log.WithField("filename", filename).Debug("Created new FERRYUIDDatabase")
+	} else {
+		f.db, err = sql.Open("sqlite3", filename)
+		if err != nil {
+			msg := "Could not open the UID database file"
+			log.WithField("filename", filename).Errorf("%s: %s", msg, err)
+		}
+		log.WithField("filename", filename).Debug("FERRYUIDDatabase file already exists.  Will try to use it")
 	}
-	if err != nil {
-		log.Error(err)
+	if err := f.check(); err != nil {
+		log.WithField("filename", filename).Error("FERRYUIDDatabase failed check")
+		return &f, err
+	}
+	log.WithField("filename", filename).Info("FERRYUIDDatabase connection ready")
+	return &f, nil
+}
+
+func (f *FERRYUIDDatabase) Close() error {
+	return f.db.Close()
+}
+
+func (f *FERRYUIDDatabase) initialize(filename string) error {
+	var err error
+	if f.db, err = sql.Open("sqlite3", filename); err != nil {
 		return err
 	}
 
-	log.Info("Created new database and table")
+	// Set our application ID
+	if _, err := f.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
+		log.WithField("filename", f.filename).Error(err)
+		return err
+	}
+
+	// Create the UID table
+	if err = f.createUidsTableInDB(); err != nil {
+		log.Error("Could not create the UID table in the FERRYUIDDatabase")
+		return err
+	}
 	return nil
 }
 
-func InsertUidsIntoTableFromFERRY(ctx context.Context, db *sql.DB, ferryData []FerryUIDDatum) error {
-	dbTimeout, err := GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+func (f *FERRYUIDDatabase) check() error {
+	var dbApplicationId int
+	err := f.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId)
+	if err != nil {
+		log.WithField("filename", f.filename).Error("Could not get application_id from FERRYUIDDatabase")
+		return err
+	}
+	if dbApplicationId != ApplicationId {
+		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
+		log.WithField("filename", f.filename).Errorf(errMsg)
+		return errors.New(errMsg)
+	}
+	return nil
+}
+
+func (f *FERRYUIDDatabase) createUidsTableInDB() error {
+	if _, err := f.db.Exec(createUIDTableStatement); err != nil {
+		log.Error(err)
+		return err
+	}
+	log.Info("Created uid table in FERRYUIDDatabase")
+	return nil
+}
+
+func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
+	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse db timeout duration")
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
-	tx, err := db.Begin()
+	tx, err := f.db.Begin()
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
@@ -123,20 +194,20 @@ func InsertUidsIntoTableFromFERRY(ctx context.Context, db *sql.DB, ferryData []F
 	return nil
 }
 
-func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) ([]FerryUIDDatum, error) {
+func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
 	var username string
 	var uid int
 	data := make([]FerryUIDDatum, 0)
 	log.Debug("Checking UIDs in DB table")
 
-	dbTimeout, err := GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse db timeout duration")
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
-	rows, err := db.QueryContext(dbContext, confirmUIDsInTableStatement)
+	rows, err := f.db.QueryContext(dbContext, confirmUIDsInTableStatement)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
@@ -172,17 +243,17 @@ func ConfirmUIDsInTable(ctx context.Context, db *sql.DB) ([]FerryUIDDatum, error
 	return data, nil
 }
 
-func GetUIDByUsername(ctx context.Context, db *sql.DB, username string) (int, error) {
+func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
 	var uid int
 
-	dbTimeout, err := GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse db timeout duration")
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
-	stmt, err := db.Prepare(getUIDbyUsernameStatement)
+	stmt, err := f.db.Prepare(getUIDbyUsernameStatement)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
