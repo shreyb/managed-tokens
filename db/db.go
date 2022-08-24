@@ -108,7 +108,7 @@ func (f *FERRYUIDDatabase) initialize() error {
 	}
 
 	// Create the UID table
-	if err = f.createUidsTableInDB(); err != nil {
+	if err = f.createUidsTable(); err != nil {
 		log.Error("Could not create the UID table in the FERRYUIDDatabase")
 		return err
 	}
@@ -130,7 +130,7 @@ func (f *FERRYUIDDatabase) check() error {
 	return nil
 }
 
-func (f *FERRYUIDDatabase) createUidsTableInDB() error {
+func (f *FERRYUIDDatabase) createUidsTable() error {
 	if _, err := f.db.Exec(createUIDTableStatement); err != nil {
 		log.Error(err)
 		return err
