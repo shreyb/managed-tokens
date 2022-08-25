@@ -12,6 +12,7 @@ import (
 
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/vaultToken"
 	"github.com/shreyb/managed-tokens/worker"
 
 	"github.com/rifflock/lfshook"
@@ -248,6 +249,9 @@ func main() {
 		}).Error("Could not generate refresh tokens and store vault token for service")
 		return
 	}
+	if err := vaultToken.RemoveServiceVaultTokens(viper.GetString("service")); err != nil {
+		log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service")
+	}
 
-	log.WithField("service", serviceConfig.Service.Name()).Info("Successfully generated refresh and vault tokens")
+	log.WithField("service", serviceConfig.Service.Name()).Info("Successfully generated refresh token in vault.  Onboarding complete.")
 }

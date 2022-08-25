@@ -2,6 +2,7 @@ package vaultToken
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -50,7 +51,7 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 	}
 
 	// Validate vault token
-	vaultTokenFilename, err := getDefaultVaultTokenLocation(serviceName)
+	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
 		log.WithField("service", serviceName).Error("Could not get default vault token location")
 		return err
@@ -198,11 +199,78 @@ func (i *InvalidVaultTokenError) Error() string {
 	)
 }
 
-func getDefaultVaultTokenLocation(serviceName string) (string, error) {
+func getCondorVaultTokenLocation(serviceName string) (string, error) {
 	currentUser, err := user.Current()
 	if err != nil {
+		log.Error(err)
 		return "", err
 	}
 	currentUID := currentUser.Uid
 	return fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, serviceName), nil
+}
+
+func getDefaultVaultTokenLocation() (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Error(err)
+		return "", err
+	}
+	currentUID := currentUser.Uid
+	return fmt.Sprintf("/tmp/vt_u%s", currentUID), nil
+}
+
+func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
+	vaultTokenLocations := make([]string, 0, 2)
+
+	defaultLocation, err := getDefaultVaultTokenLocation()
+	if err != nil {
+		log.Error("Could not get default vault location")
+		return vaultTokenLocations, err
+	}
+	condorLocation, err := getCondorVaultTokenLocation(serviceName)
+	if err != nil {
+		log.Error("Could not get default vault location")
+		return vaultTokenLocations, err
+	}
+
+	vaultTokenLocations = append(vaultTokenLocations, defaultLocation, condorLocation)
+
+	// Check each location to make sure the file actually exists.  If not, remove from slice
+	for index, location := range vaultTokenLocations {
+		if _, err := os.Stat(location); errors.Is(err, os.ErrNotExist) {
+			// Trick from https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
+			vaultTokenLocations[index] = vaultTokenLocations[len(vaultTokenLocations)-1]
+			vaultTokenLocations = vaultTokenLocations[:len(vaultTokenLocations)-1]
+		}
+	}
+	return vaultTokenLocations, nil
+}
+
+func RemoveServiceVaultTokens(serviceName string) error {
+	vaultTokenLocations, err := GetAllVaultTokenLocations(serviceName)
+	if err != nil {
+		log.WithField("service", serviceName).Error("Could not get vault token locations for deletion")
+	}
+	for _, vaultToken := range vaultTokenLocations {
+		err := os.Remove(vaultToken)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			log.WithFields(log.Fields{
+				"service":  serviceName,
+				"filename": vaultToken,
+			}).Warn("Vault token not removed because the file does not exist")
+		case err != nil:
+			log.WithFields(log.Fields{
+				"service":  serviceName,
+				"filename": vaultToken,
+			}).Error("Could not remove vault token")
+			return err
+		default:
+			log.WithFields(log.Fields{
+				"service":  serviceName,
+				"filename": vaultToken,
+			}).Debug("Removed vault token")
+		}
+	}
+	return nil
 }

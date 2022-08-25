@@ -1,6 +1,5 @@
 For all TODOs that are more general
 
-* delete generated vault token
 * Check all the errors to make sure they're the right level, and useful
 * RPM stuff
 	* versioning

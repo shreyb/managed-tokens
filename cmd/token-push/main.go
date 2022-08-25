@@ -21,6 +21,7 @@ import (
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/vaultToken"
 	"github.com/shreyb/managed-tokens/worker"
 )
 
@@ -411,6 +412,15 @@ func main() {
 		log.WithField(
 			"service", failure.Service.Name(),
 		).Info("Failed to obtain vault token.  Will not try to push vault token to service nodes")
+	}
+
+	// For any successful services, make sure we remove all the vault tokens when we're done
+	for serviceName := range serviceConfigs {
+		defer func(serviceName string) {
+			if err := vaultToken.RemoveServiceVaultTokens(serviceName); err != nil {
+				log.WithField("service", serviceName).Error("Could not remove vault tokens for service")
+			}
+		}(serviceName)
 	}
 
 	// If we're in test mode, stop here
