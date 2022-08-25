@@ -19,7 +19,6 @@ import (
 	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/worker"
 )
 
 var currentExecutable string
@@ -197,7 +196,6 @@ func init() {
 func main() {
 	// TODO:  See if some of these funcs can be moved to utils
 	var dbLocation string
-	service := currentExecutable
 
 	// Global Context
 	var globalTimeout time.Duration
@@ -253,6 +251,7 @@ func main() {
 		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
 	}
 
+	// Begin processing
 	startProcessing = time.Now()
 	defer func() {
 		if prometheusUp {
@@ -266,7 +265,6 @@ func main() {
 	}()
 
 	// Open connection to the SQLite database where UID info will be stored
-	// Look for DB file.  If not there, create it and DB.  If there, don't make it, just update it
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
 	} else {
@@ -277,20 +275,16 @@ func main() {
 	ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create FERRYUIDDatabase"
-		notificationsChan <- notifications.NewSetupError(msg, service)
+		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.WithField("executable", currentExecutable).Fatal(msg)
 	}
 	defer ferryUidDb.Close()
 
-	// FERRY vars
+	// Start up worker to aggregate all FERRY data
 	ferryData := make([]db.FerryUIDDatum, 0)
 	ferryDataChan := make(chan db.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
-	ferryDataWg := new(sync.WaitGroup)           // WaitGroup to make sure we don't close ferryDataChan before all data is sent
 	aggFERRYDataDone := make(chan struct{})      // Channel to close when FERRY data aggregation is done
 
-	usernames := getAllAccountsFromConfig()
-
-	// Start up worker to aggregate all FERRY data
 	go func(ferryDataChan <-chan db.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
 		for ferryDatum := range ferryDataChan {
@@ -298,7 +292,10 @@ func main() {
 		}
 	}(ferryDataChan, aggFERRYDataDone)
 
+	usernames := getAllAccountsFromConfig()
+
 	// Start workers to get data from FERRY
+	ferryDataWg := new(sync.WaitGroup) // WaitGroup to make sure we don't close ferryDataChan before all data is sent
 	func() {
 		defer close(ferryDataChan)
 
@@ -313,7 +310,7 @@ func main() {
 			if err != nil {
 				msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
 				log.WithField("executable", currentExecutable).Error(msg)
-				notificationsChan <- notifications.NewSetupError(msg, service)
+				notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 				os.Exit(1)
 			}
 			defer func() {
@@ -328,30 +325,10 @@ func main() {
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
 
-			go func(username string, ferryDataChan chan<- db.FerryUIDDatum) {
+			go func(username string) {
 				defer ferryDataWg.Done()
-				var ferryRequestContext context.Context
-				if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
-					ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)
-				} else {
-					ferryRequestContext = ctx
-				}
-				entry, err := worker.GetFERRYUIDData(
-					ferryRequestContext,
-					username,
-					viper.GetString("ferry.host"),
-					viper.GetInt("ferry.port"),
-					authFunc(),
-					ferryDataChan,
-				)
-				if err != nil {
-					msg := "Could not get FERRY UID data"
-					log.WithField("username", username).Error(msg)
-					notificationsChan <- notifications.NewSetupError(msg+" for user "+username, service)
-				} else {
-					ferryDataChan <- entry
-				}
-			}(username, ferryDataChan)
+				getAndAggregateFERRYData(ctx, username, authFunc, ferryDataChan)
+			}(username)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
 	}()
@@ -360,7 +337,7 @@ func main() {
 
 	if len(ferryData) == 0 {
 		msg := "No data collected from FERRY"
-		notificationsChan <- notifications.NewSetupError(msg, service)
+		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg + ". Exiting")
 		return
 	}
@@ -378,6 +355,7 @@ func main() {
 		os.Exit(0)
 	}
 
+	// INSERT all collected FERRY data into FERRYUIDDatabase
 	var dbContext context.Context
 	if timeout, ok := timeouts["dbtimeout"]; ok {
 		dbContext = utils.ContextWithOverrideTimeout(ctx, timeout)
@@ -386,7 +364,7 @@ func main() {
 	}
 	if err := ferryUidDb.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
-		notificationsChan <- notifications.NewSetupError(msg, service)
+		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg)
 		return
 	}
@@ -395,7 +373,7 @@ func main() {
 	dbData, err := ferryUidDb.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
-		notificationsChan <- notifications.NewSetupError(msg, service)
+		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg)
 		return
 	}
@@ -403,7 +381,7 @@ func main() {
 	if !checkFerryDataInDB(ferryData, dbData) {
 		notificationsChan <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
-			service,
+			currentExecutable,
 		)
 		return
 	}

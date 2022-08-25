@@ -19,9 +19,11 @@ import (
 
 	"github.com/shreyb/managed-tokens/db"
 	"github.com/shreyb/managed-tokens/kerberos"
+	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/vaultToken"
+	"github.com/shreyb/managed-tokens/worker"
 )
 
 func getAllAccountsFromConfig() []string {
@@ -304,4 +306,29 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 		return false
 	}
 	return true
+}
+
+func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
+	ferryDataChan chan<- db.FerryUIDDatum) {
+	var ferryRequestContext context.Context
+	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
+		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+	} else {
+		ferryRequestContext = ctx
+	}
+	entry, err := worker.GetFERRYUIDData(
+		ferryRequestContext,
+		username,
+		viper.GetString("ferry.host"),
+		viper.GetInt("ferry.port"),
+		authFunc(),
+		ferryDataChan,
+	)
+	if err != nil {
+		msg := "Could not get FERRY UID data"
+		log.WithField("username", username).Error(msg)
+		notificationsChan <- notifications.NewSetupError(msg+" for user "+username, currentExecutable)
+	} else {
+		ferryDataChan <- entry
+	}
 }
