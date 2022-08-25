@@ -39,7 +39,6 @@ func getAllAccountsFromConfig() []string {
 	return s
 }
 
-//TODO Fix this
 // withTLSAuth uses the passed in certificate ane key paths (hostCert, hostKey), and
 // path to a directory of CA certificates (caPath), to return a func that initializes
 // a TLS-secured *http.Client, send an HTTP request to a url, and returns the *http.Response object

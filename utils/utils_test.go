@@ -54,14 +54,14 @@ func TestTemplateToCommand(t *testing.T) {
 			template.Must(template.New("testBadExecution").Parse("This template should not execute due to missing {{.Args}}")),
 			struct{}{},
 			[]string{},
-			&templateExecuteError{"Could not execute template"},
+			&TemplateExecuteError{"Could not execute template"},
 		},
 		{
 			"Simple template, but should fail shlex",
 			template.Must(template.New("testBadShlex").Parse("\"this is a bad template.  It shouldn't work with shlex rules")),
 			struct{}{},
 			[]string{},
-			&templateArgsError{"Could not get arguments from template"},
+			&TemplateArgsError{"Could not get arguments from template"},
 		},
 	}
 
@@ -69,7 +69,7 @@ func TestTemplateToCommand(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				args, err := templateToCommand(test.template, test.templateArgs)
+				args, err := TemplateToCommand(test.template, test.templateArgs)
 				switch err == nil {
 				case true:
 					if test.expectedErr != nil {
