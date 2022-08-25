@@ -1,0 +1,91 @@
+# Global config items
+keytabPath: "/opt/managed-tokens/keytabs"
+condorCollectorHost: collectorhost.domain
+condorCreddHost: creddhost.domain
+kerberosPrincipalPattern: principal_pattern
+dbLocation: "/var/lib/managed-tokens/uid.db"
+
+# Performance/timeouts
+timeouts:
+  globalTimeout: 300s
+  kerberosTimeout: 20s
+  vaultStorerTimeout: 60s
+  pingTimeout: 10s
+  pushTimeout: 30s
+  ferryRequestTimeout: 30s
+
+
+# FERRY config
+ferry:
+  host: ferryhost.domain
+  port: 8445
+  caPath: "path/to/certificates"
+  hostCert: "/path/to/hostcert"
+  hostKey: "/path/to/hostkey"
+  serviceExperiment: fermilab
+  serviceRole: 
+  serviceKerberosPrincipal: "/path/to/service_principal"
+  serviceKeytabPath: "/path/to/service_kerberos_keytab"
+  vaultServer: vaultserver.domain
+
+
+# Email settings
+email:
+  from: admin_email@example.com
+  smtpHost: localhost
+  smtpPort: 25
+
+# Logfiles
+logs:
+  refresh-uids-from-ferry:
+    logfile: "/var/log/managed-tokens/refresh-uids-from-ferry.log"
+    debugfile: "/var/log/managed-tokens/refresh-uids-from-ferry.debug.log"
+  run-onboarding:
+    logfile: "/var/log/managed-tokens/run-onboarding.log"
+    debugfile: "/var/log/managed-tokens/run-onboarding.debug.log"
+  token-push:
+    logfile: "/var/log/managed-tokens/token-push.log"
+    debugfile: "/var/log/managed-tokens/token-push.debug.log"
+
+# Prometheus settings
+prometheus:
+  host: hostname.domain
+  jobname: "token_push_tracker"
+
+# Notifications
+notifications:
+  SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE 
+  admin_email: admin@example.com
+
+# Same as above, but used in test runs
+notifications_test:
+  SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE 
+  admin_email: admin@example.com
+
+# Experiment config items
+experiments:
+  dune:
+  # Example with overrides
+    emails: [email1@example.com]
+    roles:
+      production:
+        account: dunepro
+        keytabPath: "/special/path/to/keytab"
+        destinationNodes: [node1.fnal.gov]
+        userPrincipalOverride: "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
+        desiredUIDOverride: 12345 
+        condorCreddHostOverride: specialcreddhost.domain
+        condorCollectorHostOverride: specialcollectorhost.domain
+  mu2e:
+  # Minimum required configuration
+    emails: [email2@example.com]
+    roles:
+      production:
+        account: mu2epro 
+        destinationNodes: [node2.fnal.gov]
+
+
+
+templates:
+  serviceErrors: "/usr/share/managed-tokens/templates/serviceErrors.txt"
+  adminErrors:  "/usr/share/managed-tokens/templates/adminErrors.txt" 
