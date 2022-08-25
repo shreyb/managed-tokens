@@ -1,9 +1,11 @@
-package utils
+package environment
 
 import (
 	"context"
 	"os/exec"
 	"testing"
+
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 type testEnviron struct {
@@ -83,7 +85,7 @@ func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				cmd := kerberosEnvironmentWrappedCommand(context.Background(), test.environ, cmdExecutable)
+				cmd := KerberosEnvironmentWrappedCommand(context.Background(), test.environ, cmdExecutable)
 				found := false
 				for _, keyValue := range cmd.Env {
 					if keyValue == test.expectedKrb5ccNameSetting {
@@ -116,14 +118,14 @@ func TestEnvironmentWrappedCommand(t *testing.T) {
 		t.Error("Could not find executable true to run tests")
 		t.Fail()
 	}
-	cmd := environmentWrappedCommand(context.Background(), environ, cmdExecutable)
+	cmd := EnvironmentWrappedCommand(context.Background(), environ, cmdExecutable)
 
 	environKeyValSlice := make([]string, 0)
 	for _, envSetting := range environ.ToMap() {
 		environKeyValSlice = append(environKeyValSlice, envSetting)
 	}
 
-	if err := IsSliceSubSlice(environKeyValSlice, cmd.Env); err != nil {
+	if err := utils.IsSliceSubSlice(environKeyValSlice, cmd.Env); err != nil {
 		t.Errorf("Key-value pair in test environment not found in command environment: %s", err.Error())
 	}
 }

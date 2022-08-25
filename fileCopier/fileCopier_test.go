@@ -1,13 +1,15 @@
-package utils
+package fileCopier
 
 import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/shreyb/managed-tokens/environment"
 )
 
 func TestNewSSHFileCopier(t *testing.T) {
-	environ := &CommandEnvironment{}
+	environ := &environment.CommandEnvironment{}
 	testCopier := NewSSHFileCopier("", "", "", "", "", environ)
 
 	if _, ok := testCopier.(*rsyncSetup); !ok {

@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/environment"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -14,7 +14,7 @@ type Config struct {
 	KeytabPath    string
 	DesiredUID    uint32
 	ConfigPath    string
-	utils.CommandEnvironment
+	environment.CommandEnvironment
 }
 
 // NewConfig takes the config information from the global file and creates an exptConfig object

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/shreyb/managed-tokens/notifications"
+	"github.com/shreyb/managed-tokens/ping"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
@@ -50,16 +51,16 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}(success)
 
 			// Prepare my slice of PingNoders
-			nodes := make([]utils.PingNoder, 0, len(sc.Nodes))
+			nodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for _, node := range sc.Nodes {
-				nodes = append(nodes, utils.NewNode(node))
+				nodes = append(nodes, ping.NewNode(node))
 			}
 
 			pingContext, pingCancel := context.WithTimeout(ctx, pingTimeout)
 			defer pingCancel()
-			pingStatus := utils.PingAllNodes(pingContext, nodes...)
+			pingStatus := ping.PingAllNodes(pingContext, nodes...)
 
-			failedNodes := make([]utils.PingNoder, 0, len(sc.Nodes))
+			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
 				if status.Err != nil {
 					log.WithFields(log.Fields{

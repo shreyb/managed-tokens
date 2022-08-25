@@ -6,6 +6,8 @@ import (
 	"os/user"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/shreyb/managed-tokens/fileCopier"
+	"github.com/shreyb/managed-tokens/kerberos"
 	"github.com/shreyb/managed-tokens/metrics"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
@@ -65,7 +67,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}(pushSuccess)
 
 			// kswitch
-			if err := utils.SwitchKerberosCache(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
+			if err := kerberos.SwitchCache(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
@@ -121,7 +123,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 }
 
 func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, destinationFile string) error {
-	fileCopier := utils.NewSSHFileCopier(
+	f := fileCopier.NewSSHFileCopier(
 		sourceFile,
 		sc.Account,
 		node,
@@ -130,7 +132,7 @@ func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, desti
 		&sc.CommandEnvironment,
 	)
 
-	if err := utils.CopyToDestination(ctx, fileCopier); err != nil {
+	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
 		log.WithFields(log.Fields{
 			"experiment":          sc.Service.Experiment(),
 			"role":                sc.Service.Role(),

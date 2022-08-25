@@ -1,4 +1,4 @@
-package utils
+package fileCopier
 
 import (
 	"context"
@@ -9,6 +9,9 @@ import (
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/environment"
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 type FileCopier interface {
@@ -17,7 +20,7 @@ type FileCopier interface {
 
 // Added this stuff to make it work
 // func NewSSHFileCopier(source, account, node, destination, sshOptions string, env service.EnvironmentMapper) FileCopier {
-func NewSSHFileCopier(source, account, node, destination, sshOptions string, env EnvironmentMapper) FileCopier {
+func NewSSHFileCopier(source, account, node, destination, sshOptions string, env environment.EnvironmentMapper) FileCopier {
 	if sshOptions == "" {
 		sshOptions = sshOpts
 	}
@@ -49,7 +52,7 @@ type rsyncSetup struct {
 	node        string
 	destination string
 	sshOpts     string
-	EnvironmentMapper
+	environment.EnvironmentMapper
 }
 
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
@@ -67,13 +70,13 @@ func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
 }
 
 // rsyncFile runs rsync on a file at source, and syncs it with the destination account@node:dest
-func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptions string, environ EnvironmentMapper) error {
+func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptions string, environ environment.EnvironmentMapper) error {
 	rsyncExecutables := map[string]string{
 		"rsync": "",
 		"ssh":   "",
 	}
 
-	CheckForExecutables(rsyncExecutables)
+	utils.CheckForExecutables(rsyncExecutables)
 
 	cArgs := struct{ SSHExe, SSHOpts, SourcePath, Account, Node, DestPath string }{
 		SSHExe:     rsyncExecutables["ssh"],
@@ -84,8 +87,8 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 		DestPath:   dest,
 	}
 
-	args, err := templateToCommand(rsyncTemplate, cArgs)
-	var t1 *templateExecuteError
+	args, err := utils.TemplateToCommand(rsyncTemplate, cArgs)
+	var t1 *utils.TemplateExecuteError
 	if errors.As(err, &t1) {
 		retErr := fmt.Errorf("could not execute rsync template: %w", err)
 		log.WithFields(log.Fields{
@@ -97,7 +100,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 		}).Error(retErr.Error())
 		return retErr
 	}
-	var t2 *templateArgsError
+	var t2 *utils.TemplateArgsError
 	if errors.As(err, &t2) {
 		retErr := fmt.Errorf("could not get rsync command arguments from template: %w", err)
 		log.WithFields(log.Fields{
@@ -110,7 +113,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 		return retErr
 	}
 
-	cmd := kerberosEnvironmentWrappedCommand(ctx, environ, rsyncExecutables["rsync"], args...)
+	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, environ, rsyncExecutables["rsync"], args...)
 	if err := cmd.Run(); err != nil {
 		err := fmt.Sprintf("rsync command failed: %s", err.Error())
 		log.WithFields(log.Fields{

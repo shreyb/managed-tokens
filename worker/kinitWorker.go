@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 
+	"github.com/shreyb/managed-tokens/kerberos"
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
@@ -45,7 +46,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 			kerbContext, kerbCancel := context.WithTimeout(ctx, kerberosTimeout)
 			defer kerbCancel()
 
-			if err := utils.GetKerberosTicket(kerbContext, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
+			if err := kerberos.GetTicket(kerbContext, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 				msg := "Could not obtain kerberos ticket"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
@@ -55,7 +56,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				return
 			}
 
-			if err := utils.CheckKerberosPrincipal(kerbContext, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
+			if err := kerberos.CheckPrincipal(kerbContext, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 				msg := "Kerberos ticket verification failed"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),

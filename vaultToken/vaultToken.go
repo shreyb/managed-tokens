@@ -1,4 +1,4 @@
-package utils
+package vaultToken
 
 import (
 	"context"
@@ -9,6 +9,10 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/environment"
+	"github.com/shreyb/managed-tokens/kerberos"
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 var vaultExecutables = map[string]string{
@@ -19,14 +23,14 @@ var vaultExecutables = map[string]string{
 
 func init() {
 	os.Setenv("PATH", "/usr/bin:/usr/sbin")
-	if err := CheckForExecutables(vaultExecutables); err != nil {
+	if err := utils.CheckForExecutables(vaultExecutables); err != nil {
 		log.Fatal("Could not find path to condor executables")
 	}
 }
 
-func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, environment CommandEnvironment, interactive bool) error {
+func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, environment environment.CommandEnvironment, interactive bool) error {
 	// kswitch
-	if err := SwitchKerberosCache(ctx, userPrincipal, environment); err != nil {
+	if err := kerberos.SwitchCache(ctx, userPrincipal, environment); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithField("serviceName", serviceName).Error("Context timeout")
 			return ctx.Err()
@@ -62,8 +66,8 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 	return nil
 }
 
-func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer string, environment CommandEnvironment) error {
-	if err := SwitchKerberosCache(ctx, userPrincipal, environment); err != nil {
+func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer string, environ environment.CommandEnvironment) error {
+	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithField("service", serviceName).Error("Context timeout")
 			return ctx.Err()
@@ -80,7 +84,7 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 		serviceName,
 	}
 
-	htgettokenCmd := environmentWrappedCommand(ctx, &environment, vaultExecutables["htgettoken"], htgettokenArgs...)
+	htgettokenCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["htgettoken"], htgettokenArgs...)
 	// TODO Get rid of all this when it works
 	htgettokenCmd.Stdout = os.Stdout
 	htgettokenCmd.Stderr = os.Stderr
@@ -100,10 +104,10 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 	return nil
 }
 
-func getTokensandStoreinVault(ctx context.Context, serviceName string, environment CommandEnvironment, interactive bool) error {
+func getTokensandStoreinVault(ctx context.Context, serviceName string, environ environment.CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
-	getTokensAndStoreInVaultCmd := environmentWrappedCommand(ctx, &environment, vaultExecutables["condor_vault_storer"], serviceName)
+	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["condor_vault_storer"], serviceName)
 
 	log.WithField("service", serviceName).Info("Storing and obtaining vault token")
 

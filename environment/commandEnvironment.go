@@ -1,4 +1,4 @@
-package utils
+package environment
 
 type CommandEnvironment struct {
 	Krb5ccname          string

@@ -8,6 +8,7 @@ import (
 	"github.com/shreyb/managed-tokens/notifications"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/vaultToken"
 )
 
 const vaultStorerDefaultTimeoutStr string = "60s"
@@ -48,7 +49,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 			defer vaultStorerCancel()
 
-			if err := utils.StoreAndGetTokens(vaultStorerContext, sc.Service.Name(), sc.UserPrincipal, sc.CommandEnvironment, interactive); err != nil {
+			if err := vaultToken.StoreAndGetTokens(vaultStorerContext, sc.Service.Name(), sc.UserPrincipal, sc.CommandEnvironment, interactive); err != nil {
 				msg := "Could not store and get vault tokens"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
@@ -73,5 +74,5 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) e
 	vaultContext, vaultCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 	defer vaultCancel()
 
-	return utils.StoreAndGetTokens(vaultContext, sc.Service.Name(), sc.UserPrincipal, sc.CommandEnvironment, interactive)
+	return vaultToken.StoreAndGetTokens(vaultContext, sc.Service.Name(), sc.UserPrincipal, sc.CommandEnvironment, interactive)
 }

@@ -1,4 +1,4 @@
-package utils
+package kerberos
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"text/template"
 
+	"github.com/shreyb/managed-tokens/environment"
+	"github.com/shreyb/managed-tokens/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -25,20 +27,20 @@ var principalCheckRegexp = regexp.MustCompile("Default principal: (.+)")
 
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
-	if err := CheckForExecutables(kerberosExecutables); err != nil {
+	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
 		log.Fatal("Could not find kerberos executables")
 	}
 }
 
-func GetKerberosTicket(ctx context.Context, keytabPath, userPrincipal string, environment CommandEnvironment) error {
+func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ environment.CommandEnvironment) error {
 	// Kinit
 	cArgs := struct{ KeytabPath, UserPrincipal string }{
 		KeytabPath:    keytabPath,
 		UserPrincipal: userPrincipal,
 	}
 
-	args, err := templateToCommand(kerberosTemplates["kinit"], cArgs)
-	var t1 *templateExecuteError
+	args, err := utils.TemplateToCommand(kerberosTemplates["kinit"], cArgs)
+	var t1 *utils.TemplateExecuteError
 	if errors.As(err, &t1) {
 		retErr := fmt.Errorf("could not execute kinit template: %w", err)
 		log.WithFields(log.Fields{
@@ -47,7 +49,7 @@ func GetKerberosTicket(ctx context.Context, keytabPath, userPrincipal string, en
 		}).Error(retErr.Error())
 		return retErr
 	}
-	var t2 *templateArgsError
+	var t2 *utils.TemplateArgsError
 	if errors.As(err, &t2) {
 		retErr := fmt.Errorf("could not get kinit command arguments from template: %w", err)
 		log.WithFields(log.Fields{
@@ -57,7 +59,7 @@ func GetKerberosTicket(ctx context.Context, keytabPath, userPrincipal string, en
 		return retErr
 	}
 
-	createKerberosTicket := kerberosEnvironmentWrappedCommand(ctx, &environment, kerberosExecutables["kinit"], args...)
+	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
 	log.Info("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -81,10 +83,10 @@ func GetKerberosTicket(ctx context.Context, keytabPath, userPrincipal string, en
 
 }
 
-// func CheckKerberosPrincipalForServiceConfig(ctx context.Context, sc *service.Config) error {
-func CheckKerberosPrincipal(ctx context.Context, checkPrincipal string, environment CommandEnvironment) error {
+// func CheckPrincipalForServiceConfig(ctx context.Context, sc *service.Config) error {
+func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
 	// Verify principal matches config principal
-	checkForKerberosTicket := kerberosEnvironmentWrappedCommand(ctx, &environment, kerberosExecutables["klist"])
+	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
 
 	log.WithFields(log.Fields{}).Info("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
@@ -117,21 +119,21 @@ func CheckKerberosPrincipal(ctx context.Context, checkPrincipal string, environm
 	return nil
 }
 
-func SwitchKerberosCache(ctx context.Context, userPrincipal string, environment CommandEnvironment) error {
+func SwitchCache(ctx context.Context, userPrincipal string, environ environment.CommandEnvironment) error {
 	// kswitch
 	cArgs := struct{ UserPrincipal string }{
 		UserPrincipal: userPrincipal,
 	}
 
-	args, err := templateToCommand(kerberosTemplates["kswitch"], cArgs)
+	args, err := utils.TemplateToCommand(kerberosTemplates["kswitch"], cArgs)
 	if err != nil {
-		var t1 *templateExecuteError
+		var t1 *utils.TemplateExecuteError
 		if errors.As(err, &t1) {
 			retErr := fmt.Errorf("could not execute kswitch template: %w", err)
 			log.WithField("userPrincipal", userPrincipal).Error(retErr.Error())
 			return retErr
 		}
-		var t2 *templateArgsError
+		var t2 *utils.TemplateArgsError
 		if errors.As(err, &t2) {
 			retErr := fmt.Errorf("could not get kswitch command arguments from template: %w", err)
 			log.WithField("userPrincipal", userPrincipal).Error(retErr.Error())
@@ -139,7 +141,7 @@ func SwitchKerberosCache(ctx context.Context, userPrincipal string, environment 
 		}
 	}
 
-	switchkCache := kerberosEnvironmentWrappedCommand(ctx, &environment, kerberosExecutables["kswitch"], args...)
+	switchkCache := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kswitch"], args...)
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{

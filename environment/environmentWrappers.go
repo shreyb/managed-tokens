@@ -1,4 +1,4 @@
-package utils
+package environment
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"os/exec"
 )
 
-func kerberosEnvironmentWrappedCommand(ctx context.Context, environ EnvironmentMapper, name string, arg ...string) *exec.Cmd {
+func KerberosEnvironmentWrappedCommand(ctx context.Context, environ EnvironmentMapper, name string, arg ...string) *exec.Cmd {
 	envMapping := environ.ToEnvs()
 	os.Unsetenv(envMapping["Krb5ccname"])
 
@@ -20,7 +20,7 @@ func kerberosEnvironmentWrappedCommand(ctx context.Context, environ EnvironmentM
 	return cmd
 }
 
-func environmentWrappedCommand(ctx context.Context, environ EnvironmentMapper, name string, arg ...string) *exec.Cmd {
+func EnvironmentWrappedCommand(ctx context.Context, environ EnvironmentMapper, name string, arg ...string) *exec.Cmd {
 	for _, val := range environ.ToEnvs() {
 		os.Unsetenv(val)
 	}

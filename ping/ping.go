@@ -1,4 +1,4 @@
-package utils
+package ping
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/utils"
 )
 
 const pingArgs = "-W 5 -c 1 {{.Node}}"
@@ -46,7 +48,7 @@ func (n Node) PingNode(ctx context.Context) error {
 		return errors.New(err)
 	}
 
-	args, err := GetArgsFromTemplate(b.String())
+	args, err := utils.GetArgsFromTemplate(b.String())
 
 	if err != nil {
 		err := fmt.Sprintf("Could not get ping command arguments from template: %s", err.Error())
@@ -102,7 +104,7 @@ func PingAllNodes(ctx context.Context, nodes ...PingNoder) <-chan PingNodeStatus
 }
 
 func init() {
-	if err := CheckForExecutables(pingExecutables); err != nil {
+	if err := utils.CheckForExecutables(pingExecutables); err != nil {
 		log.WithField("executableGroup", "ping").Error("One or more required executables were not found in $PATH.  Will still attempt to run, but this will probably fail")
 	}
 }

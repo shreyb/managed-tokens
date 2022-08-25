@@ -1,4 +1,4 @@
-package utils
+package ping
 
 import (
 	"context"

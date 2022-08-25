@@ -100,7 +100,7 @@ func IsSliceSubSlice(sliceOne any, sliceTwo any) error {
 }
 
 // TODO Unit test this
-func templateToCommand(templ *template.Template, cmdArgs any) ([]string, error) {
+func TemplateToCommand(templ *template.Template, cmdArgs any) ([]string, error) {
 	args := make([]string, 0)
 
 	log.WithFields(log.Fields{
@@ -112,7 +112,7 @@ func templateToCommand(templ *template.Template, cmdArgs any) ([]string, error) 
 	if err := templ.Execute(&b, cmdArgs); err != nil {
 		errMsg := "Could not execute template"
 		log.Error(errMsg)
-		return args, &templateExecuteError{errMsg}
+		return args, &TemplateExecuteError{errMsg}
 	}
 
 	templateString := b.String()
@@ -122,15 +122,15 @@ func templateToCommand(templ *template.Template, cmdArgs any) ([]string, error) 
 	if err != nil {
 		errMsg := "Could not get command arguments from template"
 		log.Error(errMsg)
-		return args, &templateArgsError{errMsg}
+		return args, &TemplateArgsError{errMsg}
 	}
 	return args, nil
 }
 
-type templateExecuteError struct{ msg string }
+type TemplateExecuteError struct{ msg string }
 
-func (t *templateExecuteError) Error() string { return t.msg }
+func (t *TemplateExecuteError) Error() string { return t.msg }
 
-type templateArgsError struct{ msg string }
+type TemplateArgsError struct{ msg string }
 
-func (t *templateArgsError) Error() string { return t.msg }
+func (t *TemplateArgsError) Error() string { return t.msg }
