@@ -1,24 +1,21 @@
 package main
 
 import (
-
-	// "os/user"
-
 	"context"
 	"io/ioutil"
 	"os"
 	"path"
 	"time"
 
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/vaultToken"
-	"github.com/shreyb/managed-tokens/worker"
-
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/shreyb/managed-tokens/service"
+	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/vaultToken"
+	"github.com/shreyb/managed-tokens/worker"
 )
 
 var currentExecutable string
@@ -86,7 +83,9 @@ func init() {
 	if err != nil {
 		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
 	}
+}
 
+func init() {
 	// Set up logs
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.run-onboarding.debugfile"
@@ -110,8 +109,7 @@ func init() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
-	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
-	log.WithField("executable", currentExecutable).Infof("Using config file %s", viper.ConfigFileUsed())
+	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
 
 	// Test flag sets which notifications section from config we want to use.
 	if viper.GetBool("test") {
@@ -134,7 +132,7 @@ func init() {
 			log.WithFields(log.Fields{
 				"executable": currentExecutable,
 				timeoutKey:   timeoutString,
-			}).Info("Configured timeout") // TODO Make a debug
+			}).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -230,8 +228,7 @@ func main() {
 		if !kerberosTicketSuccess.GetSuccess() {
 			log.WithField(
 				"service", kerberosTicketSuccess.GetServiceName(),
-			).Error("Failed to obtain kerberos ticket. Stopping onboarding")
-			return
+			).Fatal("Failed to obtain kerberos ticket. Stopping onboarding")
 		}
 	}
 
@@ -246,8 +243,7 @@ func main() {
 		log.WithFields(log.Fields{
 			"experiment": serviceConfig.Service.Experiment(),
 			"role":       serviceConfig.Service.Role(),
-		}).Error("Could not generate refresh tokens and store vault token for service")
-		return
+		}).Fatal("Could not generate refresh tokens and store vault token for service")
 	}
 	if err := vaultToken.RemoveServiceVaultTokens(viper.GetString("service")); err != nil {
 		log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service")

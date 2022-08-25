@@ -110,8 +110,10 @@ func init() {
 	if err != nil {
 		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
 	}
+}
 
-	// Set up logs
+// Set up logs
+func init() {
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.refresh-uids-from-ferry.debugfile"
 	logConfigLookup := "logs.refresh-uids-from-ferry.logfile"
@@ -134,8 +136,7 @@ func init() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
-	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
-	log.WithField("executable", currentExecutable).Infof("Using config file %s", viper.ConfigFileUsed())
+	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
 
 	if viper.GetBool("test") {
 		log.WithField("executable", currentExecutable).Info("Running in test mode")
@@ -157,7 +158,7 @@ func init() {
 			log.WithFields(log.Fields{
 				"executable": currentExecutable,
 				timeoutKey:   timeoutString,
-			}).Info("Configured timeout") // TODO Make a debug
+			}).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -194,7 +195,6 @@ func init() {
 }
 
 func main() {
-	// TODO:  See if some of these funcs can be moved to utils
 	var dbLocation string
 
 	// Global Context
@@ -203,7 +203,10 @@ func main() {
 	var err error
 
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
+		log.WithField("executable", currentExecutable).Infof(
+			"Global timeout not configured in config file.  Using default global timeout of %s",
+			globalTimeoutDefaultStr,
+		)
 		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
 			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
 		}
@@ -309,8 +312,8 @@ func main() {
 			sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 			if err != nil {
 				msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-				log.WithField("executable", currentExecutable).Error(msg)
 				notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
+				log.WithField("executable", currentExecutable).Error(msg)
 				os.Exit(1)
 			}
 			defer func() {
@@ -352,7 +355,7 @@ func main() {
 		log.Infof(strings.Join(ferryDataStringSlice, "; "))
 
 		log.Info("Test mode finished")
-		os.Exit(0)
+		return
 	}
 
 	// INSERT all collected FERRY data into FERRYUIDDatabase
@@ -379,6 +382,8 @@ func main() {
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
+		msg := "Verification of INSERT failed.  Please check the logs"
+		log.Error(msg)
 		notificationsChan <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
 			currentExecutable,

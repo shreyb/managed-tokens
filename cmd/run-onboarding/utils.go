@@ -7,10 +7,11 @@ import (
 	"path"
 	"strings"
 
-	"github.com/shreyb/managed-tokens/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/shreyb/managed-tokens/service"
 )
 
 // Custom usage function for positional argument.
@@ -55,8 +56,7 @@ func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment str
 	return func(sc *service.Config) error {
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
 		if err != nil {
-			log.Error("Error parsing Kerberos Principal Template")
-			log.Error(err)
+			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
 			return err
 		}
 		userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"

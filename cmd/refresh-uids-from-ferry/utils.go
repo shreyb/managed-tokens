@@ -34,7 +34,7 @@ func getAllAccountsFromConfig() []string {
 		for role := range viper.GetStringMap(roleConfigPath) {
 			accountConfigPath := roleConfigPath + "." + role + ".account"
 			account := viper.GetString(accountConfigPath)
-			log.WithField("account", account).Info("Found account")
+			log.WithField("account", account).Debug("Found account")
 			s = append(s, account)
 		}
 	}
@@ -143,15 +143,13 @@ func withKerberosJWTAuth(serviceConfig *service.Config) func() func(context.Cont
 
 			bearerBytes, err := ioutil.ReadFile(bearerTokenDefaultLocation)
 			if err != nil {
-				log.Error("Could not open bearer token file for reading")
-				log.Error(err)
+				log.Errorf("Could not open bearer token file for reading, %s", err)
 				return &http.Response{}, err
 			}
 
 			// Validate token
 			if _, err := jwt.Parse(bearerBytes); err != nil {
-				log.Error("Token validation failed: not a valid bearer (JWT) token")
-				log.Error(err)
+				log.Errorf("Token validation failed: not a valid bearer (JWT) token, %s", err)
 				return &http.Response{}, err
 			}
 
@@ -162,14 +160,13 @@ func withKerberosJWTAuth(serviceConfig *service.Config) func() func(context.Cont
 
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
-				log.Error("Could not initialize HTTP request")
+				log.Errorf("Could not initialize HTTP request, %s", err)
 				return &http.Response{}, err
 			}
 			req.Header.Add("Authorization", bearerHeader)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				log.Error("Could not send request")
-				log.Error(err)
+				log.Errorf("Could not send request, %s", err)
 				return &http.Response{}, err
 			}
 
@@ -302,7 +299,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 	}
 
 	if err := utils.IsSliceSubSlice(ferrySlice, dbSlice); err != nil {
-		log.Errorf("Verification of INSERT failed: %s", err.Error())
+		log.Errorf("Verification of INSERT failed: %s", err)
 		return false
 	}
 	return true
