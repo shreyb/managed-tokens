@@ -88,8 +88,8 @@ func init() {
 func init() {
 	// Set up logs
 	log.SetLevel(log.DebugLevel)
-	debugLogConfigLookup := "logs.run-onboarding.debugfile"
-	logConfigLookup := "logs.run-onboarding.logfile"
+	debugLogConfigLookup := "logs.run-onboarding-managed-tokens.debugfile"
+	logConfigLookup := "logs.run-onboarding-managed-tokens.logfile"
 	// Debug log
 	log.AddHook(lfshook.NewHook(lfshook.PathMap{
 		log.DebugLevel: viper.GetString(debugLogConfigLookup),
