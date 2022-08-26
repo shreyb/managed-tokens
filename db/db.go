@@ -25,8 +25,8 @@ const (
 var (
 	createUIDTableStatement = `
 	CREATE TABLE uids (
-	username STRING NOT NULL PRIMARY KEY, 
-	uid INTEGER NOT NULL 
+	username STRING NOT NULL PRIMARY KEY,
+	uid INTEGER NOT NULL
 	);
 	`
 	insertIntoUIDTableStatement = `

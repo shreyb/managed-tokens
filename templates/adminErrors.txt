@@ -2,7 +2,7 @@ The following errors were reported by the Managed Tokens service at {{.Timestamp
 
 {{range $service, $adminData := .AdminErrors}}
 {{ $service }}
-{{ if $adminData.SetupErrors }}Setup errors: 
+{{ if $adminData.SetupErrors }}Setup errors:
 {{ range $adminData.SetupErrors }}
 {{ . }}
 {{end}}

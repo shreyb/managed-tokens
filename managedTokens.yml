@@ -23,7 +23,7 @@ ferry:
   hostCert: "/path/to/hostcert"
   hostKey: "/path/to/hostkey"
   serviceExperiment: fermilab
-  serviceRole: 
+  serviceRole:
   serviceKerberosPrincipal: "/path/to/service_principal"
   serviceKeytabPath: "/path/to/service_kerberos_keytab"
   vaultServer: vaultserver.domain
@@ -54,12 +54,12 @@ prometheus:
 
 # Notifications
 notifications:
-  SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE 
+  SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE
   admin_email: admin@example.com
 
 # Same as above, but used in test runs
 notifications_test:
-  SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE 
+  SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE
   admin_email: admin@example.com
 
 # Experiment config items
@@ -73,7 +73,7 @@ experiments:
         keytabPath: "/special/path/to/keytab"
         destinationNodes: [node1.fnal.gov]
         userPrincipalOverride: "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
-        desiredUIDOverride: 12345 
+        desiredUIDOverride: 12345
         condorCreddHostOverride: specialcreddhost.domain
         condorCollectorHostOverride: specialcollectorhost.domain
   mu2e:
@@ -81,11 +81,11 @@ experiments:
     emails: [email2@example.com]
     roles:
       production:
-        account: mu2epro 
+        account: mu2epro
         destinationNodes: [node2.fnal.gov]
 
 
 
 templates:
   serviceErrors: "/usr/share/managed-tokens/templates/serviceErrors.txt"
-  adminErrors:  "/usr/share/managed-tokens/templates/adminErrors.txt" 
+  adminErrors:  "/usr/share/managed-tokens/templates/adminErrors.txt"

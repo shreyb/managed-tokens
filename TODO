@@ -1,7 +1,5 @@
 For all TODOs that are more general
 
-* Update to Go 1.19
-* add pre-commit (https://github.com/dnephin/pre-commit-golang)
 * RPM stuff
 	* versioning
     * In addition to managed-proxies stuff, make sure that we create /var/lib/managed-tokens owned by rexbatch
@@ -9,11 +7,11 @@ For all TODOs that are more general
 * Check import order in all files
 * Documentation on github
     * Configurable timeouts (note, we want production to NOT have these set.  Maybe we can comment them out in the stock file?
-        * globalTimeout      
-		* kerberosTimeout    
-		* vaultstorerTimeout 
-		* pingTimeout        
-		* pushTimeout        
+        * globalTimeout
+		* kerberosTimeout
+		* vaultstorerTimeout
+		* pingTimeout
+		* pushTimeout
         * ferryrequestTimeout
 		* dbTimeout
 * Get a license for this repo

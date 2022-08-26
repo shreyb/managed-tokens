@@ -119,7 +119,7 @@ func init() {
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
+		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
 	}
 
 }

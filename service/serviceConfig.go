@@ -23,11 +23,13 @@ type Config struct {
 // NewConfig("my_expt", foo), to set the Config.Name to "bar".
 //
 // To pass in something that's dynamic, define a function that returns a func(*Config).   e.g.:
-// func foo(bar int, e *Config) func(*Config) {
-//     baz = bar + 3
-//     return func(*Config) {
-//          e.spam = baz
-//        }
+//
+//	func foo(bar int, e *Config) func(*Config) {
+//	    baz = bar + 3
+//	    return func(*Config) {
+//	         e.spam = baz
+//	       }
+//
 // If you then pass in foo(3), like NewConfig("my_expt", foo(3)), then Config.spam will be set to 6
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
 func NewConfig(service Service, options ...func(*Config) error) (*Config, error) {
