@@ -53,7 +53,7 @@ func directNotificationsToManagers(ctx context.Context) {
 				if ch, ok := value.(notifications.EmailManager); ok {
 					close(ch)
 				} else {
-					log.Fatalf("Registered service notification channel is of wrong type %T.  Expected chan notifications.Notification", ch)
+					log.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notifications.Notification", ch)
 				}
 
 				return true

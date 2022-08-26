@@ -74,8 +74,7 @@ func setUserPrincipal(serviceConfigPath, experiment string) func(sc *service.Con
 	return func(sc *service.Config) error {
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
 		if err != nil {
-			log.Error("Error parsing Kerberos Principal Template")
-			log.Error(err)
+			log.Errorf("Error parsing Kerberos Principal Template: %s", err)
 			return err
 		}
 		userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"
@@ -127,7 +126,7 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 			sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
 		} else {
 			// Get UID from SQLite DB that should be kept up to date by refresh-uids-from-ferry
-			func() {
+			func() error {
 				var dbLocation string
 				var uid int
 
@@ -142,20 +141,22 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 
 				ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
 				if err != nil {
-					log.WithField("executable", currentExecutable).Fatal("Could not open or create FERRYUIDDatabase")
+					log.WithField("executable", currentExecutable).Error("Could not open or create FERRYUIDDatabase")
+					return err
 				}
 				defer ferryUidDb.Close()
 
 				uid, err = ferryUidDb.GetUIDByUsername(ctx, username)
 				if err != nil {
 					log.Error("Could not get UID by username")
-					return
+					return err
 				}
 				log.WithFields(log.Fields{
 					"username": username,
 					"uid":      uid,
 				}).Debug("Got UID")
 				sc.DesiredUID = uint32(uid)
+				return nil
 			}()
 		}
 		return nil

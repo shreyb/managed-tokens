@@ -122,7 +122,10 @@ func init() {
 		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %w", err)
 	}
 
-	// Set up logs
+}
+
+// Set up logs
+func init() {
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.token-push.debugfile"
 	logConfigLookup := "logs.token-push.logfile"
@@ -145,8 +148,7 @@ func init() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
-	// log.Debugf("Using config file %s", viper.ConfigFileUsed())
-	log.WithField("executable", currentExecutable).Infof("Using config file %s", viper.ConfigFileUsed())
+	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
 
 }
 
@@ -187,7 +189,7 @@ func init() {
 			log.WithFields(log.Fields{
 				"executable": currentExecutable,
 				"timeoutKey": timeoutKey,
-			}).Info("Configured timeout") // TODO Make a debug
+			}).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -354,7 +356,6 @@ func main() {
 					// setNotificationsChan(ctx, serviceConfigPath, s, &notificationsWg),
 				)
 				if err != nil {
-					// TODO Something more descriptive
 					log.WithFields(log.Fields{
 						"experiment": s.Experiment(),
 						"role":       s.Role(),
@@ -395,7 +396,7 @@ func main() {
 	for _, failure := range failedKerberosConfigs {
 		log.WithField(
 			"service", failure.Service.Name(),
-		).Info("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
+		).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
 	}
 	if len(serviceConfigs) == 0 {
 		return
@@ -411,7 +412,7 @@ func main() {
 	for _, failure := range failedVaultConfigs {
 		log.WithField(
 			"service", failure.Service.Name(),
-		).Info("Failed to obtain vault token.  Will not try to push vault token to service nodes")
+		).Error("Failed to obtain vault token.  Will not try to push vault token to service nodes")
 	}
 
 	// For any successful services, make sure we remove all the vault tokens when we're done
@@ -434,7 +435,7 @@ func main() {
 	}
 
 	if len(serviceConfigs) == 0 {
-		log.WithField("executable", currentExecutable).Debug("No more serviceConfigs to operate on.  Cleaning up now")
+		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
 		return
 	}
 
