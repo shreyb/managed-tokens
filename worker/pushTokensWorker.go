@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/user"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shreyb/managed-tokens/fileCopier"
@@ -56,6 +57,9 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
+		successNodes := make(map[string]struct{})
+		failNodes := make(map[string]struct{})
+
 		pushSuccess := &pushTokenSuccess{
 			serviceName: sc.Service.Name(),
 			success:     true,
@@ -92,7 +96,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}
 
 			// Send to nodes
-			// TODO If it's a context timeout, tell the notifications
 			for _, destinationNode := range sc.Nodes {
 				for _, destinationFilename := range destinationFilenames {
 					pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
@@ -103,20 +106,43 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						"node":       destinationNode,
 					}).Debug("Attempting to push tokens to destination node")
 					if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
-						log.WithFields(log.Fields{
-							"experiment": sc.Service.Experiment(),
-							"role":       sc.Service.Role(),
-						}).Error("Error pushing vault tokens to destination node")
+						var notificationErrorString string
+						if pushContext.Err() != nil {
+							notificationErrorString = pushContext.Err().Error()
+							log.WithFields(log.Fields{
+								"experiment": sc.Service.Experiment(),
+								"role":       sc.Service.Role(),
+							}).Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
+						} else {
+							notificationErrorString = err.Error()
+							log.WithFields(log.Fields{
+								"experiment": sc.Service.Experiment(),
+								"role":       sc.Service.Role(),
+							}).Error("Error pushing vault tokens to destination node")
+						}
 						pushSuccess.success = false
-						chans.GetNotificationsChan() <- notifications.NewPushError(err.Error(), sc.Service.Name(), destinationNode)
+						failNodes[destinationNode] = struct{}{}
+						chans.GetNotificationsChan() <- notifications.NewPushError(notificationErrorString, sc.Service.Name(), destinationNode)
 					}
 				}
 				if pushSuccess.success {
 					tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
+					successNodes[destinationNode] = struct{}{}
 				}
 			}
-			// TODO Do an INFO logging of successes and failures across service
+
 		}()
+
+		successesSlice := make([]string, 0, len(successNodes))
+		failuresSlice := make([]string, 0, len(failNodes))
+		for successNode := range successNodes {
+			successesSlice = append(successesSlice, successNode)
+		}
+		for failNode := range failNodes {
+			failuresSlice = append(failuresSlice, failNode)
+		}
+		log.WithField("service", sc.Service.Name()).Infof("Successful nodes: %s", strings.Join(successesSlice, ", "))
+		log.WithField("service", sc.Service.Name()).Infof("Failed nodes: %s", strings.Join(failuresSlice, ", "))
 	}
 }
 
