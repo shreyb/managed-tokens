@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/user"
@@ -61,7 +60,7 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 		}
 
 		// Load CA certs
-		caFiles, err := ioutil.ReadDir(viper.GetString("ferry.caPath"))
+		caFiles, err := os.ReadDir(viper.GetString("ferry.caPath"))
 		if err != nil {
 			log.WithField("caPath", viper.GetString("ferry.caPath")).Fatal(err)
 
@@ -73,7 +72,7 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 			}
 		}
 		for _, f := range caCertSlice {
-			caCert, err := ioutil.ReadFile(f)
+			caCert, err := os.ReadFile(f)
 			if err != nil {
 				log.WithField("filename", f).Warn(err)
 			}
@@ -141,7 +140,7 @@ func withKerberosJWTAuth(serviceConfig *service.Config) func() func(context.Cont
 				log.Info("Removed bearer token file")
 			}()
 
-			bearerBytes, err := ioutil.ReadFile(bearerTokenDefaultLocation)
+			bearerBytes, err := os.ReadFile(bearerTokenDefaultLocation)
 			if err != nil {
 				log.Errorf("Could not open bearer token file for reading, %s", err)
 				return &http.Response{}, err
@@ -240,7 +239,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 	s := service.NewService(serviceName)
 
 	// Get krb5ccname directory
-	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

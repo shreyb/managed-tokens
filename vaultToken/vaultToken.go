@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/user"
 	"strings"
@@ -153,7 +152,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 
 // validateVaultToken verifies that a vault token (service token as Hashicorp calls them) indicated by the filename is valid
 func validateVaultToken(vaultTokenFilename string) error {
-	vaultTokenBytes, err := ioutil.ReadFile(vaultTokenFilename)
+	vaultTokenBytes, err := os.ReadFile(vaultTokenFilename)
 	if err != nil {
 		log.WithField("filename", vaultTokenFilename).Error("Could not read tokenfile for verification.")
 		return err

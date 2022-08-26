@@ -2,7 +2,7 @@ package notifications
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 	"strings"
 	"text/template"
 
@@ -90,7 +90,7 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 func (e *email) prepareEmailWithTemplate() (string, error) {
 	var b strings.Builder
 
-	templateData, err := ioutil.ReadFile(e.templatePath)
+	templateData, err := os.ReadFile(e.templatePath)
 	if err != nil {
 		log.Errorf("Could not read service error template file: %s", err)
 		return "", err

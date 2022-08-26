@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -303,7 +302,7 @@ func main() {
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := ioutil.TempDir("", "managed-tokens")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

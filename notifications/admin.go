@@ -3,7 +3,7 @@ package notifications
 import (
 	"context"
 	"errors"
-	"io/ioutil"
+	"os"
 	"strings"
 	"sync"
 	"text/template"
@@ -67,7 +67,7 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 	adminErrorsMapFinal := prepareAdminErrorsForMessage()
 
 	timestamp := time.Now().Format(time.RFC822)
-	templateData, err := ioutil.ReadFile(adminTemplatePath)
+	templateData, err := os.ReadFile(adminTemplatePath)
 	if err != nil {
 		log.WithField("caller", "SendAdminNotifications").Errorf("Could not read admin error template file: %s", err)
 		return err

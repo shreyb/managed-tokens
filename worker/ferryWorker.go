@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,7 +88,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.WithField("account", username).Error("Could not read body from HTTP response")
 		return &entry, err

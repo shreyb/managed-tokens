@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 
@@ -76,7 +76,7 @@ func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 
 	// Parse the response to make sure we're good
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioutil.ReadAll(resp.Body)
+		body, _ := io.ReadAll(resp.Body)
 		err := errors.New("could not send slack message")
 		log.WithFields(log.Fields{
 			"url":              s.url,
