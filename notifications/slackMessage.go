@@ -86,6 +86,6 @@ func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 		}).Error(err)
 		return err
 	}
-	log.Info("Slack message sent")
+	log.Debug("Slack message sent")
 	return nil
 }

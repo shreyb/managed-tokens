@@ -68,7 +68,7 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 		} else {
 			log.WithFields(log.Fields{
 				"recipient": strings.Join(e.to, ", "),
-			}).Info("Sent email")
+			}).Debug("Sent email")
 		}
 		return err
 	case <-ctx.Done():

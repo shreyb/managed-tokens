@@ -71,12 +71,10 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
-				}).Error("Could not switch utils caches")
+				}).Error("Could not switch kerberos cache")
 				return
 			}
 
-			// TODO Hopefully we won't need this bit with the current UID if I can get htgettoken to write out vault tokens to a random tempfile
-			// TODO Delete the source file.  Like with a defer os.Remove or something like that
 			currentUser, err := user.Current()
 			if err != nil {
 				log.WithFields(log.Fields{

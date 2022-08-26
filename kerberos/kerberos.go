@@ -60,7 +60,7 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	}
 
 	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
-	log.Info("Now creating new kerberos ticket with keytab")
+	log.Debug("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{
@@ -88,7 +88,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	// Verify principal matches config principal
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
 
-	log.WithFields(log.Fields{}).Info("Checking user principal against configured principal")
+	log.WithFields(log.Fields{}).Debug("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithField("caller", "CheckKerberosPrincipal").Error("Context timeout")
@@ -98,7 +98,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 		return err
 
 	} else {
-		log.WithField("caller", "CheckKerberosPrincipal").Infof("%s", stdoutStderr)
+		log.WithField("caller", "CheckKerberosPrincipal").Debugf("%s", stdoutStderr)
 
 		matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
 		if len(matches) != 2 {
@@ -107,8 +107,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 			return errors.New(err)
 		}
 		principal := string(matches[1])
-		// TODO Make this a debug
-		log.WithField("caller", "CheckKerberosPrincipal").Infof("Found principal: %s", principal)
+		log.WithField("caller", "CheckKerberosPrincipal").Debugf("Found principal: %s", principal)
 
 		if principal != checkPrincipal {
 			err := fmt.Sprintf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)

@@ -20,13 +20,12 @@ func CheckForExecutables(exeMap map[string]string) error {
 	for exe := range exeMap {
 		pth, err := exec.LookPath(exe)
 		if err != nil {
-			msg := fmt.Sprintf("%s was not found in $PATH", exe)
-			log.Error(msg)
-			return errors.New(msg)
+			err := fmt.Errorf("%s was not found in $PATH: %w", exe, err)
+			log.Error(err)
+			return err
 		}
 		exeMap[exe] = pth
-		// TODO Make this a debug
-		log.Infof("Using %s executable at %s", exe, pth)
+		log.Debugf("Using %s executable at %s", exe, pth)
 	}
 	return nil
 }
@@ -47,8 +46,7 @@ func CheckRunningUserNotRoot() error {
 		log.Error(msg)
 		return errors.New(msg)
 	}
-	//TODO Make this a debug
-	log.Infof("Current user is %s", currentUser.Username)
+	log.Debugf("Current user is %s", currentUser.Username)
 	return nil
 }
 
@@ -65,7 +63,6 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 	}
 
 	log.Debugf("Enumerated args to command are: %s", debugSlice)
-
 	return args, nil
 }
 
@@ -110,7 +107,7 @@ func TemplateToCommand(templ *template.Template, cmdArgs any) ([]string, error) 
 
 	var b strings.Builder
 	if err := templ.Execute(&b, cmdArgs); err != nil {
-		errMsg := "Could not execute template"
+		errMsg := fmt.Sprintf("Could not execute template: %s", err)
 		log.Error(errMsg)
 		return args, &TemplateExecuteError{errMsg}
 	}
@@ -120,7 +117,7 @@ func TemplateToCommand(templ *template.Template, cmdArgs any) ([]string, error) 
 
 	args, err := GetArgsFromTemplate(templateString)
 	if err != nil {
-		errMsg := "Could not get command arguments from template"
+		errMsg := fmt.Sprintf("Could not get command arguments from template: %s", err)
 		log.Error(errMsg)
 		return args, &TemplateArgsError{errMsg}
 	}

@@ -1,6 +1,7 @@
 For all TODOs that are more general
 
-* Check all the errors to make sure they're the right level, and useful
+* Update to Go 1.19
+* add pre-commit (https://github.com/dnephin/pre-commit-golang)
 * RPM stuff
 	* versioning
     * In addition to managed-proxies stuff, make sure that we create /var/lib/managed-tokens owned by rexbatch

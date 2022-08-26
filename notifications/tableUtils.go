@@ -2,12 +2,12 @@ package notifications
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/olekukonko/tablewriter"
+	log "github.com/sirupsen/logrus"
 )
 
 // PrepareTableStringFromMap formats a map[string]string and appends a message onto the beginning

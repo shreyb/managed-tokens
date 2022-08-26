@@ -69,11 +69,10 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 					}).Error("Error pinging node")
 					failedNodes = append(failedNodes, status.PingNoder)
 				} else {
-					// TODO: Make debug
 					log.WithFields(log.Fields{
 						"service": sc.Service.Name(),
 						"node":    status.PingNoder.String(),
-					}).Info("Successfully pinged node")
+					}).Debug("Successfully pinged node")
 				}
 			}
 			if len(failedNodes) == 0 {

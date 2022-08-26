@@ -86,7 +86,7 @@ func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
 		log.WithField("filename", filename).Error(msg)
 		return &f, &ferryUIDDatabaseCheckError{msg}
 	}
-	log.WithField("filename", filename).Info("FERRYUIDDatabase connection ready")
+	log.WithField("filename", filename).Debug("FERRYUIDDatabase connection ready")
 	return &f, nil
 }
 
@@ -135,14 +135,15 @@ func (f *FERRYUIDDatabase) createUidsTable() error {
 		log.Error(err)
 		return err
 	}
-	log.Info("Created uid table in FERRYUIDDatabase")
+	log.Debug("Created uid table in FERRYUIDDatabase")
 	return nil
 }
 
 func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		log.Fatal("Could not parse db timeout duration")
+		log.Error("Could not parse db timeout duration")
+		return err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
@@ -153,8 +154,7 @@ func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, fer
 			log.Error("Context timeout")
 			return dbContext.Err()
 		}
-		log.Error(err)
-		log.Error("Could not open transaction to database")
+		log.Errorf("Could not open transaction to database: %s", err)
 		return err
 	}
 
@@ -164,8 +164,7 @@ func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, fer
 			log.Error("Context timeout")
 			return dbContext.Err()
 		}
-		log.Error(err)
-		log.Error("Could not prepare INSERT statement to database")
+		log.Errorf("Could not prepare INSERT statement to database: %s", err)
 		return err
 	}
 	defer insertStatement.Close()
@@ -177,8 +176,7 @@ func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, fer
 				log.Error("Context timeout")
 				return dbContext.Err()
 			}
-			log.Error(err)
-			log.Error("Could not insert FERRY data into database")
+			log.Errorf("Could not insert FERRY data into database: %s", err)
 			return err
 		}
 	}
@@ -189,12 +187,11 @@ func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, fer
 			log.Error("Context timeout")
 			return dbContext.Err()
 		}
-		log.Error(err)
-		log.Error("Could not commit transaction to database.  Rolling back.")
+		log.Errorf("Could not commit transaction to database.  Rolling back.  Error: %s", err)
 		return err
 	}
 
-	log.Info("Inserted data into database")
+	log.Info("Inserted FERRY data into database")
 	return nil
 }
 
@@ -206,7 +203,8 @@ func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDa
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		log.Fatal("Could not parse db timeout duration")
+		log.Error("Could not parse db timeout duration")
+		return data, err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
@@ -217,8 +215,7 @@ func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDa
 			log.Error("Context timeout")
 			return data, dbContext.Err()
 		}
-		log.Error("Error running SELECT query against database")
-		log.Error(err)
+		log.Errorf("Error running SELECT query against database: %s", err)
 		return data, err
 	}
 	defer rows.Close()
@@ -229,8 +226,7 @@ func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDa
 				log.Error("Context timeout")
 				return data, dbContext.Err()
 			}
-			log.Error("Error retrieving results of SELECT query")
-			log.Error(err)
+			log.Errorf("Error retrieving results of SELECT query: %s", err)
 			return data, err
 		}
 		data = append(data, &checkDatum{
@@ -252,7 +248,8 @@ func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		log.Fatal("Could not parse db timeout duration")
+		log.Error("Could not parse db timeout duration")
+		return uid, err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
@@ -263,8 +260,7 @@ func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string
 			log.Error("Context timeout")
 			return uid, dbContext.Err()
 		}
-		log.Error("Could not prepare query to get UID")
-		log.Error(err)
+		log.Errorf("Could not prepare query to get UID: %s", err)
 		return uid, err
 	}
 	defer stmt.Close()
@@ -275,8 +271,7 @@ func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string
 			log.Error("Context timeout")
 			return uid, dbContext.Err()
 		}
-		log.Error("Could not execute query to get UID")
-		log.Error(err)
+		log.Errorf("Could not execute query to get UID: %s", err)
 		return uid, err
 	}
 	return uid, nil

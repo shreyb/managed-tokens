@@ -21,18 +21,10 @@ type EmailManager chan Notification
 
 // NewServiceEmailManager returns a ServiceEmailManager channel for callers to send Notifications on.  It will collect messages, and when Manager is closed, will send emails, depending on nConfig.IsTest
 func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email) EmailManager {
-	// func NewManager(ctx context.Context, wg *sync.WaitGroup, nConfig Config) Manager {
-	// var isTest bool
 	c := make(EmailManager)
 	adminChan := make(chan Notification)
 	adminErrors.writerCount.Add(1)
 	go adminErrorAdder(adminChan)
-
-	// // If the passed in *email object has a blank recipients list, we consider this a test run
-	// if len(e.to) == 0 {
-	// 	log.Info("Recipients list is empty - assuming we are running in test mode, and will not send service emails")
-	// 	isTest = true
-	// }
 
 	go func() {
 		// var serviceErrorsTable string
@@ -59,12 +51,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 			case n, chanOpen := <-c:
 				// Channel is closed --> send notifications
 				if !chanOpen {
-					// if isTest {
-					// 	return
-					// }
-					// If running for real, send the service email
 					if len(serviceErrorsTable) > 0 {
-						// if err := SendServiceEmail(ctx, nConfig, exptErrorTable); err != nil {
 						tableString := aggregateServicePushErrors(serviceErrorsTable)
 						msg, err := prepareServiceEmail(ctx, tableString, e)
 						if err != nil {
@@ -86,7 +73,6 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 				if nValue, ok := n.(*pushError); ok {
 					serviceErrorsTable[nValue.node] = n.GetMessage()
 				}
-				// addErrorToAdminErrors(n)
 				adminChan <- n
 			}
 		}

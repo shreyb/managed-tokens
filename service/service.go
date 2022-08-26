@@ -17,9 +17,8 @@ type Service interface {
 }
 
 func NewService(serviceName string) Service {
-	s := &service{}
+	s := &service{name: serviceName}
 
-	s.name = serviceName
 	matches := serviceWithRolePattern.FindStringSubmatch(serviceName)
 	if len(matches) == 3 {
 		s.experiment = matches[1]

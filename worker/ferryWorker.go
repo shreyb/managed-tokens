@@ -70,8 +70,8 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 
 	var b strings.Builder
 	if err := ferryURLUIDTemplate.Execute(&b, ferryAPIConfig); err != nil {
-		log.Errorf("Could not execute ferryURLUID template")
-		log.Fatal(err)
+		fatalErr := fmt.Errorf("could not execute ferryURLUID template: %w", err)
+		log.Fatal(fatalErr)
 	}
 
 	ferryRequestCtx, ferryRequestCancel := context.WithTimeout(ctx, ferryRequestTimeout)
@@ -96,14 +96,12 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 
 	parsedResponse := ferryUIDResponse{}
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
-		log.WithField("account", username).Error("Could not unmarshal FERRY response")
-		log.WithField("account", username).Error(err)
+		log.WithField("account", username).Errorf("Could not unmarshal FERRY response: %s", err)
 		return &entry, err
 	}
 
 	if parsedResponse.FerryStatus == "failure" {
-		log.WithField("account", username).Error("FERRY server error")
-		log.Error(parsedResponse.FerryError)
+		log.WithField("account", username).Errorf("FERRY server error: %s", parsedResponse.FerryError)
 		return &entry, errors.New("unspecified FERRY error.  Check logs")
 	}
 

@@ -15,8 +15,7 @@ var (
 func PushToPrometheus() error {
 	pusher := push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(MetricsRegistry)
 	if err := pusher.Add(); err != nil {
-		log.Error("Could not push metrics to the prometheus pushgateway")
-		log.Error(err)
+		log.Errorf("Could not push metrics to the prometheus pushgateway: %s", err)
 		return err
 	}
 	return nil

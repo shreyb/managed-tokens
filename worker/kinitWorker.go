@@ -64,11 +64,10 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				}).Error(msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 			} else {
-				// TODO Make this debug
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
-				}).Info("Kerberos ticket obtained and verified")
+				}).Debug("Kerberos ticket obtained and verified")
 				success.success = true
 			}
 		}()

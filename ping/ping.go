@@ -2,7 +2,6 @@ package ping
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -43,17 +42,17 @@ func (n Node) PingNode(ctx context.Context) error {
 	}
 
 	if err := pingTemplate.Execute(&b, pArgs); err != nil {
-		err := fmt.Sprintf("Could not execute ping template: %s", err.Error())
+		err := fmt.Errorf("could not execute ping template: %w", err)
 		log.Error(err)
-		return errors.New(err)
+		return err
 	}
 
 	args, err := utils.GetArgsFromTemplate(b.String())
 
 	if err != nil {
-		err := fmt.Sprintf("Could not get ping command arguments from template: %s", err.Error())
+		err := fmt.Errorf("could not get ping command arguments from template: %w", err)
 		log.WithField("templateStringsBuilder", b.String()).Error(err)
-		return errors.New(err)
+		return err
 	}
 
 	cmd := exec.CommandContext(ctx, pingExecutables["ping"], args...)

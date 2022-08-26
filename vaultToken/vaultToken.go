@@ -36,7 +36,7 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 			log.WithField("serviceName", serviceName).Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("serviceName", serviceName).Error("Could not switch kerberos caches")
+		log.WithField("serviceName", serviceName).Errorf("Could not switch kerberos caches: %s", err)
 		return err
 	}
 
@@ -46,7 +46,7 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 			log.WithField("serviceName", serviceName).Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("serviceName", serviceName).Error("Could not obtain vault token")
+		log.WithField("serviceName", serviceName).Errorf("Could not obtain vault token: %s", err)
 		return err
 	}
 
@@ -62,18 +62,18 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 		return err
 	}
 
-	// TODO Make this a debug
-	log.WithField("service", serviceName).Info("Validated vault token")
+	log.WithField("service", serviceName).Debug("Validated vault token")
 	return nil
 }
 
+// TODO STILL UNDER DEVELOPMENT
 func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer string, environ environment.CommandEnvironment) error {
 	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithField("service", serviceName).Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("service", serviceName).Error("Could not switch kerberos caches")
+		log.WithField("service", serviceName).Errorf("Could not switch kerberos caches: %s", err)
 		return err
 	}
 
@@ -101,7 +101,7 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 		return err
 	}
 
-	log.WithField("service", serviceName).Info("Successfully got vault token")
+	log.WithField("service", serviceName).Debug("Successfully got vault token")
 	return nil
 }
 
@@ -129,7 +129,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 				log.WithField("service", serviceName).Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithField("service", serviceName).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err.Error())
+			log.WithField("service", serviceName).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 			return err
 		}
 	} else {
@@ -138,11 +138,11 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 				log.WithField("service", serviceName).Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithField("service", serviceName).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err.Error())
+			log.WithField("service", serviceName).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 			log.WithField("service", serviceName).Errorf("%s", stdoutStderr)
 			return err
 		} else {
-			log.WithField("service", serviceName).Infof("%s", stdoutStderr)
+			log.WithField("service", serviceName).Debugf("%s", stdoutStderr)
 		}
 	}
 
@@ -229,7 +229,7 @@ func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 	}
 	condorLocation, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
-		log.Error("Could not get default vault location")
+		log.Error("Could not get condor vault location")
 		return vaultTokenLocations, err
 	}
 
