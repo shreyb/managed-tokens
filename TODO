@@ -2,7 +2,8 @@ For all TODOs that are more general
 
 * RPM stuff
 	* versioning
-    * In addition to managed-proxies stuff, make sure that we create /var/lib/managed-tokens owned by rexbatch
+	* makefile
+	* spec file
 * In-code documentation
 * Check import order in all files
 * Documentation on github
