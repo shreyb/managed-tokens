@@ -77,7 +77,5 @@ install -d %{_sharedstatedir}/%{name} -m 0774 -o rexbatch -g fife
 }
 
 %changelog
-
-* Tue Feb 5 2019 Shreyas Bhat <sbhat@fnal.gov> - 2.0
-
-First version of the managed proxies RPM
+* Mon Aug 29 2022 Shreyas Bhat <sbhat@fnal.gov> - 0.1.0
+First version of the managed tokens RPM
