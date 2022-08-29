@@ -1,7 +1,6 @@
 For all TODOs that are more general
 
 * RPM stuff
-	* versioning
 	* makefile
 	* spec file
 * In-code documentation

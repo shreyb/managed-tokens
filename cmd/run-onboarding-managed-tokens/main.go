@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/packaging"
 	"github.com/shreyb/managed-tokens/service"
 	"github.com/shreyb/managed-tokens/utils"
 	"github.com/shreyb/managed-tokens/vaultToken"
@@ -22,6 +21,7 @@ import (
 var (
 	currentExecutable string
 	buildTimestamp    string
+	version           string
 )
 
 const globalTimeoutDefaultStr string = "300s"
@@ -62,7 +62,7 @@ func init() {
 	viper.BindPFlags(pflag.CommandLine)
 
 	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens version %s, build %s\n", packaging.Version, buildTimestamp)
+		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
 		os.Exit(0)
 	}
 
