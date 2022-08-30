@@ -48,7 +48,6 @@ build:
 
 
 clean:
-# TODO Check for existence of file before deleting it
-	rm $(SOURCEDIR).tar.gz
-	rm -Rf $(SOURCEDIR)
-	rm $(NAME)-$(rpmVersion)*.rpm
+	(test -e $(SOURCEDIR).tar.gz) && (rm $(SOURCEDIR).tar.gz)
+	(test -e $(SOURCEDIR)) && (rm -Rf $(SOURCEDIR))
+	(test -e $(NAME)-$(rpmVersion)*.rpm) && (rm $(NAME)-$(rpmVersion)*.rpm)

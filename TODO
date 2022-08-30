@@ -1,8 +1,5 @@
 For all TODOs that are more general
 
-* RPM stuff
-	* makefile
-	* spec file
 * In-code documentation
 * Check import order in all files
 * Documentation on github
