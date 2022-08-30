@@ -10,6 +10,7 @@ specfile := $(ROOTDIR)/packaging/$(NAME).spec
 all: build tarball spec rpm
 .PHONY: all clean build tarball spec rpm
 
+
 rpm: rpmSourcesDir := $$HOME/rpmbuild/SOURCES
 rpm: rpmSpecsDir := $$HOME/rpmbuild/SPECS
 rpm: rpmDir := $$HOME/rpmbuild/RPMS/x86_64/
@@ -18,9 +19,9 @@ rpm: spec tarball
 	cp $(SOURCEDIR).tar.gz $(rpmSourcesDir)/
 	cd $(rpmSpecsDir); \
 	rpmbuild -ba ${NAME}.spec
-	# $(eval rpmFile := $(shell find $$HOME/rpmbuild/RPMS -type f -name "$(NAME)-$(rpmVersion)*.rpm" -cmin -1))
-	cp $$HOME/rpmbuild/RPMS/x86_64/$(NAME)-$(rpmVersion)*.rpm $(ROOTDIR)/
+	find $$HOME/rpmbuild/RPMS -type f -name "$(NAME)-$(rpmVersion)*.rpm" -cmin 1 -exec cp {} $(ROOTDIR)/ \;
 	echo "Created RPM and copied it to current working directory"
+
 
 spec:
 	sed -Ei 's/Version\:[ ]*.+/Version:        $(rpmVersion)/' $(specfile)
@@ -34,7 +35,6 @@ tarball: build
 	cp -r $(ROOTDIR)/templates/ $(SOURCEDIR)/templates
 	tar -czf $(SOURCEDIR).tar.gz $(SOURCEDIR)
 	echo "Built deployment tarball"
-
 
 
 build:
