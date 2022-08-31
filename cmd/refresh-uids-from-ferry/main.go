@@ -44,12 +44,6 @@ var (
 	notificationsChan  notifications.EmailManager
 )
 
-var (
-	startSetup      time.Time
-	startProcessing time.Time
-	prometheusUp    = true
-)
-
 // Metrics
 var (
 	promDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -71,9 +65,14 @@ var (
 	)
 )
 
+var (
+	startSetup      time.Time
+	startProcessing time.Time
+	prometheusUp    = true
+)
+
 func init() {
 	const configFile string = "managedTokens"
-
 	startSetup = time.Now()
 
 	// Get current executable name
@@ -204,6 +203,14 @@ func init() {
 	metrics.MetricsRegistry.MustRegister(ferryRefreshTime)
 }
 
+// Order of operations:
+// 0.  Setup (global context, set up admin notification emails)
+// 1. Open database to record FERRY data
+// 2. a. Choose authentication method to FERRY
+// 2. b. Query FERRY for data
+// 3. Insert data into database
+// 4. Verify that INSERTed data matches response data from FERRY
+// 5. Push metrics and send necessary notifications
 func main() {
 	var dbLocation string
 
@@ -245,7 +252,7 @@ func main() {
 		viper.GetString(prefix + "slack_alerts_url"),
 	)
 	adminNotifications = append(adminNotifications, email, slackMessage)
-	notificationsChan = notifications.NewAdminEmailManager(ctx, email)
+	notificationsChan = notifications.NewAdminEmailManager(ctx, email) // Listen for messages from run
 	defer func() {
 		close(notificationsChan)
 		if err := notifications.SendAdminNotifications(
@@ -296,8 +303,8 @@ func main() {
 	// Start up worker to aggregate all FERRY data
 	ferryData := make([]db.FerryUIDDatum, 0)
 	ferryDataChan := make(chan db.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
-	aggFERRYDataDone := make(chan struct{})      // Channel to close when FERRY data aggregation is done
 
+	aggFERRYDataDone := make(chan struct{}) // Channel to close when FERRY data aggregation is done
 	go func(ferryDataChan <-chan db.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
 		for ferryDatum := range ferryDataChan {
