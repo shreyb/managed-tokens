@@ -15,7 +15,6 @@ import (
 )
 
 // Custom usage function for positional argument.
-// Thanks https://stackoverflow.com/a/31873508
 func onboardingUsage() {
 	fmt.Printf("Usage: %s [OPTIONS] service...\n", os.Args[0])
 	fmt.Printf("service must be of the form 'experiment_role', e.g. 'dune_production'\n")
@@ -24,6 +23,7 @@ func onboardingUsage() {
 
 // Functional options for initialization of serviceConfigs
 
+// setCondorCredHost sets the _condor_CREDD_HOST environment variable in the service.Config's environment
 func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		addString := "_condor_CREDD_HOST="
@@ -38,6 +38,7 @@ func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error
 	}
 }
 
+// setCondorCollectorHost sets the _condor_COLLECTOR_HOST environment variable in the service.Config's environment
 func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		addString := "_condor_COLLECTOR_HOST="
@@ -52,9 +53,10 @@ func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) e
 	}
 }
 
+// setUserPrincipalAndHtgettokenopts sets a service.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
 func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
-		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
+		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))
 		if err != nil {
 			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
 			return err
@@ -82,6 +84,8 @@ func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment str
 	}
 }
 
+// setKeytabOverride checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
+// If the override does not exist, it uses the configuration to calculate the default path to the keytab for a service.Config
 func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		keytabConfigPath := serviceConfigPath + ".keytabPath"
@@ -102,6 +106,7 @@ func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error 
 	}
 }
 
+// account sets the account field in the service.Config object
 func account(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.Account = viper.GetString(serviceConfigPath + ".account")

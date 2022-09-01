@@ -163,10 +163,10 @@ func init() {
 	}
 }
 
+// Order of operations:
+// 1. Generate kerberos principal for service
+// 2. Store (and obtain) vault tokens for service, running in interactive mode so user can authenticate if needed
 func main() {
-	// Order of operations:
-	// 1. Generate kerberos principal for service
-	// 2. Store (and obtain) vault tokens for service
 	var serviceConfig *service.Config
 
 	var globalTimeout time.Duration
@@ -222,7 +222,6 @@ func main() {
 			account(serviceConfigPath),
 		)
 		if err != nil {
-			// Something more descriptive
 			log.WithFields(log.Fields{
 				"experiment": s.Experiment(),
 				"role":       s.Role(),

@@ -195,8 +195,7 @@ func setKeytabPath() func(sc *service.Config) error {
 	}
 }
 
-// setUserPrincipalAndHtgettokenopts sets a service.Config's kerberos principal
-// and with it, the HTGETTOKENOPTS environment variable
+// setUserPrincipalAndHtgettokenopts sets a service.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
 func setUserPrincipalAndHtgettokenopts() func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.UserPrincipal = viper.GetString("ferry.serviceKerberosPrincipal")
