@@ -25,7 +25,6 @@ import (
 	"github.com/shreyb/managed-tokens/worker"
 )
 
-// TODO Clean up these var declarations
 var (
 	currentExecutable string
 	buildTimestamp    string
@@ -33,11 +32,6 @@ var (
 )
 
 const globalTimeoutDefaultStr string = "300s"
-
-var (
-	services       []service.Service
-	serviceConfigs = make(map[string]*service.Config)
-)
 
 var (
 	timeouts          = make(map[string]time.Duration)
@@ -77,7 +71,12 @@ var (
 	})
 )
 
-// Initial setup.  Read flags, find config file, setup logs
+var (
+	services       []service.Service
+	serviceConfigs = make(map[string]*service.Config)
+)
+
+// Initial setup.  Read flags, find config file
 func init() {
 	const configFile string = "managedTokens"
 	startSetup = time.Now()
@@ -112,9 +111,6 @@ func init() {
 		os.Exit(0)
 	}
 
-	if viper.GetBool("test") {
-		log.WithField("executable", currentExecutable).Info("Running in test mode")
-	}
 	// Get config file
 	// Check for override
 	if config := viper.GetString("configfile"); config != "" {
@@ -130,7 +126,6 @@ func init() {
 	if err != nil {
 		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
 	}
-
 }
 
 // Set up logs
@@ -159,28 +154,9 @@ func init() {
 
 	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
 
-}
-
-// Prep admin notifications
-func init() {
-	var prefix string
 	if viper.GetBool("test") {
-		prefix = "notifications_test."
-	} else {
-		prefix = "notifications."
+		log.WithField("executable", currentExecutable).Info("Running in test mode")
 	}
-
-	now := time.Now().Format(time.RFC822)
-	email := notifications.NewEmail(
-		viper.GetString("email.from"),
-		viper.GetStringSlice(prefix+"admin_email"),
-		"Managed Tokens Errors "+now,
-		viper.GetString("email.smtphost"),
-		viper.GetInt("email.smtpport"),
-		"",
-	)
-	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
-	adminNotifications = append(adminNotifications, email, slackMessage)
 }
 
 // Setup of timeouts, if they're set
@@ -234,6 +210,28 @@ func init() {
 	metrics.MetricsRegistry.MustRegister(servicePushFailureCount)
 }
 
+// Prep admin notifications
+func init() {
+	var prefix string
+	if viper.GetBool("test") {
+		prefix = "notifications_test."
+	} else {
+		prefix = "notifications."
+	}
+
+	now := time.Now().Format(time.RFC822)
+	email := notifications.NewEmail(
+		viper.GetString("email.from"),
+		viper.GetStringSlice(prefix+"admin_email"),
+		"Managed Tokens Errors "+now,
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		"",
+	)
+	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
+	adminNotifications = append(adminNotifications, email, slackMessage)
+}
+
 // Setup of services
 func init() {
 	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
@@ -266,8 +264,9 @@ func init() {
 }
 
 func main() {
-	// The general order of operations is this:
+	// Order of operations:
 	//
+	// 0. Setup (global context, generate service.Configs, set up notification listeners)
 	// 1. Get kerberos tickets
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
@@ -361,7 +360,6 @@ func main() {
 					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
-					// setNotificationsChan(ctx, serviceConfigPath, s, &notificationsWg),
 				)
 				if err != nil {
 					log.WithFields(log.Fields{
