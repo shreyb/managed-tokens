@@ -376,7 +376,8 @@ func main() {
 	}()
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
-	go directNotificationsToManagers(ctx)
+	// // Start up our notifications listener/aggregator
+	// go directNotificationsToManagers(ctx)
 
 	// Setup done.  Push prometheus metrics
 	log.WithField("executable", currentExecutable).Debug("Setup complete")

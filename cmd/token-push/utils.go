@@ -20,7 +20,7 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(
 	// Channels, context, and worker for getting kerberos tickets
 	var useCtx context.Context
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
-	registerWorkerNotificationChans(channels.GetNotificationsChan())
+	startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {
 		useCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
 	} else {

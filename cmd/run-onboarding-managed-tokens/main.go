@@ -35,6 +35,7 @@ var (
 	}
 )
 
+// Initial setup.  Read flags, find config file
 func init() {
 	const configFile string = "managedTokens"
 
