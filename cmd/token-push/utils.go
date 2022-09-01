@@ -163,13 +163,6 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 	}
 }
 
-func serviceConfigViperPath(serviceConfigPath string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.ConfigPath = serviceConfigPath
-		return nil
-	}
-}
-
 func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname

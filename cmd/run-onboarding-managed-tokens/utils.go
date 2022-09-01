@@ -114,13 +114,8 @@ func account(serviceConfigPath string) func(sc *service.Config) error {
 	}
 }
 
-func serviceConfigViperPath(serviceConfigPath string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.ConfigPath = serviceConfigPath
-		return nil
-	}
-}
-
+// setkrb5ccname sets the KRB5CCNAME directory environment variable in the service.Config's
+// environment
 func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname

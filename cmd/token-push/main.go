@@ -353,7 +353,6 @@ func main() {
 				defer serviceConfigSetupWg.Done()
 				sc, err := service.NewConfig(
 					s,
-					serviceConfigViperPath(serviceConfigPath),
 					setkrb5ccname(krb5ccname),
 					setCondorCreddHost(serviceConfigPath),
 					setCondorCollectorHost(serviceConfigPath),

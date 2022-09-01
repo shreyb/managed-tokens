@@ -213,7 +213,6 @@ func main() {
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 		serviceConfig, err = service.NewConfig(
 			s,
-			serviceConfigViperPath(serviceConfigPath),
 			setkrb5ccname(krb5ccname),
 			setCondorCreddHost(serviceConfigPath),
 			setCondorCollectorHost(serviceConfigPath),

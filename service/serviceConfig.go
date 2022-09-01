@@ -13,7 +13,6 @@ type Config struct {
 	Account       string
 	KeytabPath    string
 	DesiredUID    uint32
-	ConfigPath    string
 	environment.CommandEnvironment
 }
 
