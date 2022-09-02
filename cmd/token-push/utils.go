@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+// startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *service.Configs
+// and send notification.Notifications on, and sends *service.Configs to the worker
 func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
 	serviceConfigs map[string]*service.Config, timeoutCheckKey string) worker.ChannelsForWorkers {
 	// Channels, context, and worker for getting kerberos tickets
@@ -28,19 +30,43 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(
 	}
 	go workerFunc(useCtx, channels)
 	if len(serviceConfigs) > 0 { // We add this check because if there are no serviceConfigs, don't load them into any channel
-		loadServiceConfigsIntoChannel(channels.GetServiceConfigChan(), serviceConfigs)
+		serviceConfigSlice := make([]*service.Config, 0, len(serviceConfigs))
+		for _, sc := range serviceConfigs {
+			serviceConfigSlice = append(serviceConfigSlice, sc)
+		}
+		loadServiceConfigsIntoChannel(channels.GetServiceConfigChan(), serviceConfigSlice)
 	}
 	return channels
 }
 
-func loadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceConfigs map[string]*service.Config) {
+// loadServiceConfigsIntoChannel loads *service.Config objects into a channel, usually for use by a worker, and then closes the channel
+func loadServiceConfigsIntoChannel(chanToLoad chan<- *service.Config, serviceConfigSlice []*service.Config) {
 	defer close(chanToLoad)
 	for _, sc := range serviceConfigs {
 		chanToLoad <- sc
 	}
 }
 
+// removeFailedServiceConfigs reads the worker.SuccessReporter chan from the passed in worker.ChannelsForWorkers object, and
+// removes any *service.Config objects from the passed in serviceConfigs map.  It returns a slice of the *service.Configs that
+// were removed
+func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs map[string]*service.Config) []*service.Config {
+	failedConfigs := make([]*service.Config, 0, len(serviceConfigs))
+	for workerSuccess := range chans.GetSuccessChan() {
+		if !workerSuccess.GetSuccess() {
+			log.WithField(
+				"service", workerSuccess.GetServiceName(),
+			).Debug("Removing serviceConfig from list of configs to use")
+			failedConfigs = append(failedConfigs, serviceConfigs[workerSuccess.GetServiceName()])
+			delete(serviceConfigs, workerSuccess.GetServiceName())
+		}
+	}
+	return failedConfigs
+}
+
 // Functional options for service.Config initialization
+
+// setCondorCredHost sets the _condor_CREDD_HOST environment variable in the service.Config's environment
 func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		addString := "_condor_CREDD_HOST="
@@ -55,6 +81,7 @@ func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error
 	}
 }
 
+// setCondorCollectorHost sets the _condor_COLLECTOR_HOST environment variable in the service.Config's environment
 func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		addString := "_condor_COLLECTOR_HOST="
@@ -69,7 +96,7 @@ func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) e
 	}
 }
 
-// setUserPrincipal blah blah.  It also adds the proper --credkey flag to the *service.Config's CommandEnvironment.HtgettokenOpts string
+// setUserPrincipalAndHtgettokenopts sets a service.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
 func setUserPrincipal(serviceConfigPath, experiment string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")) // TODO Maybe move this out so it's not evaluated every experiment
@@ -100,6 +127,8 @@ func setUserPrincipal(serviceConfigPath, experiment string) func(sc *service.Con
 	}
 }
 
+// setKeytabOverride checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
+// If the override does not exist, it uses the configuration to calculate the default path to the keytab for a service.Config
 func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		keytabConfigPath := serviceConfigPath + ".keytabPath"
@@ -120,6 +149,11 @@ func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error 
 	}
 }
 
+// setDesiredUIByOverrideOrLookup sets the service.Config's DesiredUID field by checking the configuration for the "account"
+// field.  It then checks the configuration to see if there is a configured override for the UID.  If it not overridden,
+// the default behavior is to query the managed tokens database that should be populated by the refresh-uids-from-ferry executable.
+//
+// If the default behavior is not possible, the configuration should have a desiredUIDOverride field to allow token-push to run properly
 func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath string) func(*service.Config) error {
 	return func(sc *service.Config) error {
 		if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
@@ -163,6 +197,7 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 	}
 }
 
+// setkrb5ccname sets the KRB5CCNAME directory environment variable in the service.Config's environment
 func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
@@ -170,6 +205,7 @@ func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
 	}
 }
 
+// destinationNodes sets the Nodes field in the service.Config object from the configuration's serviceConfigPath.destinationNodes field
 func destinationNodes(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.Nodes = viper.GetStringSlice(serviceConfigPath + ".destinationNodes")
@@ -177,23 +213,10 @@ func destinationNodes(serviceConfigPath string) func(sc *service.Config) error {
 	}
 }
 
+// account sets the Account field in the service.Config object from the configuration's serviceConfigPath.account field
 func account(serviceConfigPath string) func(sc *service.Config) error {
 	return func(sc *service.Config) error {
 		sc.Account = viper.GetString(serviceConfigPath + ".account")
 		return nil
 	}
-}
-
-func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs map[string]*service.Config) []*service.Config {
-	failedConfigs := make([]*service.Config, 0, len(serviceConfigs))
-	for workerSuccess := range chans.GetSuccessChan() {
-		if !workerSuccess.GetSuccess() {
-			log.WithField(
-				"service", workerSuccess.GetServiceName(),
-			).Debug("Removing serviceConfig from list of configs to use")
-			failedConfigs = append(failedConfigs, serviceConfigs[workerSuccess.GetServiceName()])
-			delete(serviceConfigs, workerSuccess.GetServiceName())
-		}
-	}
-	return failedConfigs
 }
