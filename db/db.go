@@ -46,12 +46,14 @@ var (
 	`
 )
 
+// FerryUIDDatum represents a piece of data from FERRY that encompasses username to UID mapping
 type FerryUIDDatum interface {
 	Username() string
 	Uid() int
 	String() string
 }
 
+// FERRYUIDDatabase is a database in which FERRY username to uid mappings are stored
 type FERRYUIDDatabase struct {
 	filename string
 	db       *sql.DB
@@ -90,10 +92,12 @@ func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
 	return &f, nil
 }
 
+// Close closes the FERRYUIDDatabase
 func (f *FERRYUIDDatabase) Close() error {
 	return f.db.Close()
 }
 
+// initialize prepares a new FERRYUIDDatabase for use
 func (f *FERRYUIDDatabase) initialize() error {
 	var err error
 	if f.db, err = sql.Open("sqlite3", f.filename); err != nil {
@@ -115,6 +119,7 @@ func (f *FERRYUIDDatabase) initialize() error {
 	return nil
 }
 
+// check makes sure that an object claiming to be a FERRYUIDDatabase actually is, by checking the ApplicationID
 func (f *FERRYUIDDatabase) check() error {
 	var dbApplicationId int
 	err := f.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId)
@@ -130,6 +135,7 @@ func (f *FERRYUIDDatabase) check() error {
 	return nil
 }
 
+// createUidsTable creates a database table in the FERRYUIDDatabase that holds the username to UID mapping
 func (f *FERRYUIDDatabase) createUidsTable() error {
 	if _, err := f.db.Exec(createUIDTableStatement); err != nil {
 		log.Error(err)
@@ -139,6 +145,9 @@ func (f *FERRYUIDDatabase) createUidsTable() error {
 	return nil
 }
 
+// InsertUidsIntoTableFromFERRY takes a slice of FERRYUIDDatum and inserts the data it represents into the FERRYUIDDatabase.
+// If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
+// with the information in the FERRYUIDDatum
 func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
@@ -195,6 +204,8 @@ func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, fer
 	return nil
 }
 
+// ConfirmUIDsInTable returns all the user to UID mapping information in the FERRYUIDDatabase in the form of
+// a FERRYUIDDatum slice
 func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
 	var username string
 	var uid int
@@ -243,6 +254,7 @@ func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDa
 	return data, nil
 }
 
+// GetUIDByUsername queries the FERRYUIDDatabase for a UID, given a username
 func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
 	var uid int
 
@@ -277,6 +289,7 @@ func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string
 	return uid, nil
 }
 
+// checkDatum hold a username and uid. It implements the FERRYUIDDatum interface
 type checkDatum struct {
 	username string
 	uid      int
@@ -286,10 +299,12 @@ func (c *checkDatum) Username() string { return c.username }
 func (c *checkDatum) Uid() int         { return c.uid }
 func (c *checkDatum) String() string   { return fmt.Sprintf("Username: %s, Uid: %d", c.username, c.uid) }
 
+// ferryUIDDatabaseCreateError is returned when the FERRYUIDDatabase cannot be created
 type ferryUIDDatabaseCreateError struct{ msg string }
 
 func (f *ferryUIDDatabaseCreateError) Error() string { return f.msg }
 
+// ferryUIDDatabaseCheckError is returned when the FERRYUIDDatabase fails the verification check
 type ferryUIDDatabaseCheckError struct{ msg string }
 
 func (f *ferryUIDDatabaseCheckError) Error() string { return f.msg }
