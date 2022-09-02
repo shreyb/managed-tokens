@@ -49,6 +49,8 @@ func (b *badTestEnviron) ToEnvs() map[string]string {
 	return m
 }
 
+// TestKerberosEnvironmentWrappedCommand uses various types that implement EnvironmentMapper, and makes sure that KerberosEnvironmentWrappedCommand
+// sets the kerberos-related environment variables properly
 func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 	type testCase struct {
 		description               string
@@ -104,8 +106,8 @@ func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 	}
 }
 
-// TestEnvironmentWrappedCommand makes sure that the service.EnvironmentMapper we pass to
-// EnvironmentWrappedCommand gives us the right command environment
+// TestEnvironmentWrappedCommand makes sure that the service.EnvironmentMapper we pass to EnvironmentWrappedCommand gives us the
+// right command environment
 func TestEnvironmentWrappedCommand(t *testing.T) {
 	environ := &testEnviron{
 		Krb5ccname: "krb5ccnametest",

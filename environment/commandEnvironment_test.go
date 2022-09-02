@@ -17,6 +17,7 @@ var cmdEnvPartial CommandEnvironment = CommandEnvironment{
 	CondorCreddHost: "condor_credd_host_setting",
 }
 
+// TestCommandEnvironmentToMap checks to see if various CommandEnvironments get translated properly to maps
 func TestCommandEnvironmentToMap(t *testing.T) {
 	type testCase struct {
 		description string
@@ -56,6 +57,7 @@ func TestCommandEnvironmentToMap(t *testing.T) {
 	}
 }
 
+// TestCommandEnvironmentToEnvs checks to see if various CommandEnvironments get translated properly to maps of environment variable assignments
 func TestCommandEnvironmentToEnvs(t *testing.T) {
 	type testCase struct {
 		description string
