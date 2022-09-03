@@ -32,8 +32,8 @@ func init() {
 	}
 }
 
+// GetTicket uses the keytabPath and userPrincipal to obtain a kerberos ticket
 func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ environment.CommandEnvironment) error {
-	// Kinit
 	cArgs := struct{ KeytabPath, UserPrincipal string }{
 		KeytabPath:    keytabPath,
 		UserPrincipal: userPrincipal,
@@ -83,9 +83,8 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 
 }
 
-// func CheckPrincipalForServiceConfig(ctx context.Context, sc *service.Config) error {
+// CheckPrincipal verifies that the kerberos ticket principal matches checkPrincipal
 func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
-	// Verify principal matches config principal
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
 
 	log.WithFields(log.Fields{}).Debug("Checking user principal against configured principal")
@@ -118,8 +117,8 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	return nil
 }
 
+// SwitchCache queries the kerberos cache and switch kerberos caches to the requested principal userPrincpal
 func SwitchCache(ctx context.Context, userPrincipal string, environ environment.CommandEnvironment) error {
-	// kswitch
 	cArgs := struct{ UserPrincipal string }{
 		UserPrincipal: userPrincipal,
 	}

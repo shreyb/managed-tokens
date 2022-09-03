@@ -8,10 +8,11 @@ import (
 )
 
 var (
+	// MetricsRegistry is a prometheus registry that can be exported and used by importing libraries
 	MetricsRegistry = prometheus.NewRegistry()
 )
 
-// PushToPrometheus uses the MetricsRegistry to push registered metrics to the configured Prometheus pushgateway
+// PushToPrometheus uses the package MetricsRegistry to push registered metrics to the configured Prometheus pushgateway
 func PushToPrometheus() error {
 	pusher := push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(MetricsRegistry)
 	if err := pusher.Add(); err != nil {
