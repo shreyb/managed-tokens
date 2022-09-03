@@ -85,7 +85,7 @@ func directNotificationsToManagers(ctx context.Context) {
 	}
 }
 
-// closeRegisteredNotificationsChans closes all the chans registered in serviceNotificationChanMap
+// closeRegisteredNotificationsChans closes all the channels registered in serviceNotificationChanMap
 func closeRegisteredNotificationsChans() {
 	serviceNotificationChanMap.Range(
 		func(key, value any) bool {
