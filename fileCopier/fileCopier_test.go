@@ -8,6 +8,8 @@ import (
 	"github.com/shreyb/managed-tokens/environment"
 )
 
+// TestNewSSHFileCopier asserts that the type of the returned object from NewSSHFileCopier
+// is an *rsyncSetup
 func TestNewSSHFileCopier(t *testing.T) {
 	environ := &environment.CommandEnvironment{}
 	testCopier := NewSSHFileCopier("", "", "", "", "", environ)
@@ -29,6 +31,8 @@ func (f *fakeCopierProtocolSetup) copyToDestination(ctx context.Context) error {
 	return f.err
 }
 
+// TestCopyToDestination checks that CopyToDestination properly wraps a FileCopier's
+// copyToDestination method and handles the error returned properly
 func TestCopyToDestination(t *testing.T) {
 	testCases := []struct {
 		description string

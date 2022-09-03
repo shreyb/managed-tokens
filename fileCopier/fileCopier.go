@@ -14,12 +14,15 @@ import (
 	"github.com/shreyb/managed-tokens/utils"
 )
 
+// FileCopier is an exported interface for objects that manage the copying of a file
 type FileCopier interface {
 	copyToDestination(ctx context.Context) error
 }
 
 // Added this stuff to make it work
 // func NewSSHFileCopier(source, account, node, destination, sshOptions string, env service.EnvironmentMapper) FileCopier {
+
+// NewSSHFileCopier returns a FileCopier object that copies a file via ssh
 func NewSSHFileCopier(source, account, node, destination, sshOptions string, env environment.EnvironmentMapper) FileCopier {
 	if sshOptions == "" {
 		sshOptions = sshOpts
@@ -34,6 +37,7 @@ func NewSSHFileCopier(source, account, node, destination, sshOptions string, env
 	}
 }
 
+// CopyToDestination wraps a FileCopier's copyToDestination method
 func CopyToDestination(ctx context.Context, f FileCopier) error {
 	return f.copyToDestination(ctx)
 }
@@ -45,7 +49,7 @@ const (
 	sshOpts   = "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
 )
 
-// Type rsyncSetup contains the information needed to rsync a file to a certain destination
+// Type rsyncSetup contains the information needed copy a file to a specified destination via rsync
 type rsyncSetup struct {
 	source      string
 	account     string
