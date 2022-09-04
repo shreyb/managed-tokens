@@ -113,6 +113,14 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 	return nil
 }
 
+func adminErrorAdder(adminChan <-chan Notification) {
+	defer adminErrors.writerCount.Done()
+	for n := range adminChan {
+		addErrorToAdminErrors(n)
+	}
+}
+
+// addErrorToAdminErrors takes the passed in Notification, type-checks it, and adds it to the appropriate field of adminErrors
 func addErrorToAdminErrors(n Notification) {
 	// is the service key there?
 	// If so, grab the AdminData struct, set it aside

@@ -117,20 +117,8 @@ func NewAdminEmailManager(ctx context.Context, e *email) EmailManager {
 	return c
 }
 
-func adminErrorAdder(adminChan <-chan Notification) {
-	defer adminErrors.writerCount.Done()
-	for n := range adminChan {
-		addErrorToAdminErrors(n)
-	}
-}
-
-func aggregateServicePushErrors(servicePushErrors map[string]string) string {
-	helpText := "The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:"
-	header := []string{"Node", "Error"}
-	return PrepareTableStringFromMap(servicePushErrors, helpText, header)
-}
-
-// SendServiceEmail sends an service-specific error message email based on nConfig.  It expects a valid template file configured at notifications.service_template
+// prepareServiceEmail sets a passed-in email object's templateStruct field to the passed in errorTable, and returns a string that contains
+// email text according to the passed in errorTable and the email object's templatePath
 func prepareServiceEmail(ctx context.Context, errorTable string, e *email) (string, error) {
 	timestamp := time.Now().Format(time.RFC822)
 	e.templateStruct = struct {
