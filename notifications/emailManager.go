@@ -8,18 +8,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// ServiceEmailManager is simply a channel on which Notification objects can be sent and received
+// The two EmailManager funcs here, NewServiceEmailManager, and NewAdminEmailManager, are the primary interfaces by which calling code
+// should send notifications that need to eventually be send via email.  Either of these will sort error notifications properly.const
+//
+// We expect callers to call NewServiceEmailManager if they are running any of the utilities for a service, and want to abstract away the
+// notification sorting and sending.
+//
+// NewAdminEmailManager can be called if the notifications will only be sent to admins.  In this case, the calling code is expected to
+// separately run SendAdminNotifications to actually send the accumulated data.
+
+// EmailManager is simply a channel on which Notification objects can be sent and received
 type EmailManager chan Notification
 
-// Some notes to go away later.
-// . We expect callers to call NewManager if they want to run for real,and send notifications which either have single setuperrors, or the aggregated
-// list of runerrors
-// Caller should also instantiate email object with NewEmail(), pass in here
-//
-// For Admin notifications, we expect caller to instantiate admin email object, admin slackMessage object, and pass them in.  Caller will handle case of
-// whether it's running a test or not by setting the "to" field in the *email object
-
-// NewServiceEmailManager returns a ServiceEmailManager channel for callers to send Notifications on.  It will collect messages, and when Manager is closed, will send emails, depending on nConfig.IsTest
+// NewServiceEmailManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
+// to the underlying type of the Notification, and when EmailManager is closed, will send emails
 func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email) EmailManager {
 	c := make(EmailManager)
 	adminChan := make(chan Notification)
@@ -81,6 +83,9 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	return c
 }
 
+// NewAdminEmailManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
+// to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
+// via email (or otherwise)
 func NewAdminEmailManager(ctx context.Context, e *email) EmailManager {
 	c := make(EmailManager)
 	adminChan := make(chan Notification)
@@ -108,7 +113,6 @@ func NewAdminEmailManager(ctx context.Context, e *email) EmailManager {
 				if !chanOpen {
 					return
 				} else {
-					// addErrorToAdminErrors(n)
 					adminChan <- n
 				}
 			}

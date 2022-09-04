@@ -25,7 +25,7 @@ func (e *email) From() string    { return e.from }
 func (e *email) To() []string    { return e.to }
 func (e *email) Subject() string { return e.subject }
 
-// WithSlackMessage is an exported func that allows callers to instantiate a slack message in the notifications Manager
+// NewEmail returns an *email that can be used to send a message using SendMessage()
 func NewEmail(from string, to []string, subject, smtpHost string, smtpPort int, templatePath string) *email {
 	return &email{
 		from:         from,
@@ -37,7 +37,7 @@ func NewEmail(from string, to []string, subject, smtpHost string, smtpPort int, 
 	}
 }
 
-// SendMessage sends message as an email based on the Config
+// sendMessage sends message as an email based on the email object configuration
 func (e *email) sendMessage(ctx context.Context, message string) error {
 
 	emailDialer := gomail.Dialer{
@@ -87,6 +87,8 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 
 }
 
+// prepareEmailWithTemplate uses an email object's templatePath and templateStruct fields to return a string with the template from templatePath
+// filled with the data from templateStruct
 func (e *email) prepareEmailWithTemplate() (string, error) {
 	var b strings.Builder
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 )
 
+// TestAddSetupErrorToAdminErrors makes sure that setup errors get added to the AdminErrors global var properly
 func TestAddSetupErrorToAdminErrors(t *testing.T) {
 	adminErrors = packageErrors{}
 	type testCase struct {
@@ -71,6 +72,7 @@ func TestAddSetupErrorToAdminErrors(t *testing.T) {
 	}
 }
 
+// TestAddPushErrorToAdminErrors checks that push errors get added to the AdminErrors global variable properly
 func TestAddPushErrorToAdminErrors(t *testing.T) {
 	adminErrors = packageErrors{}
 	type testCase struct {
@@ -148,6 +150,7 @@ func TestAddPushErrorToAdminErrors(t *testing.T) {
 	}
 }
 
+// TestPrepareAdminErrorsForMessage checks that a set of setup errors and push errors gets properly translated into a table for sending notifications
 func TestPrepareAdminErrorsForMessage(t *testing.T) {
 	adminErrors = packageErrors{}
 	finalCheckData := make(map[string]AdminDataFinal)
@@ -253,6 +256,7 @@ func TestPrepareAdminErrorsForMessage(t *testing.T) {
 	}
 }
 
+// TestIsEmpty checks the adminData.isEmpty method to make sure that it returns the expected result, given a few different pieces of test data
 func TestIsEmpty(t *testing.T) {
 	type testCase struct {
 		description    string

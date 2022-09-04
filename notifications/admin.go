@@ -12,6 +12,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// For Admin notifications, we expect caller to instantiate admin email object, admin slackMessage object, and pass them to SendAdminNotifications.
+
+// packageErrors is a concurrent-safe struct that holds information about all the errors encountered while running package funcs and methods
+// It also includes a sync.Mutex and a sync.WaitGroup to coordinate data access
 type packageErrors struct {
 	errorsMap   sync.Map
 	writerCount sync.WaitGroup
@@ -19,22 +23,25 @@ type packageErrors struct {
 }
 
 var (
+	// adminErrors holds all the errors to be translated and sent to admins running the various utilities
 	adminErrors packageErrors // Store all admin errors here
 )
 
-// AdminData stores the information needed to generate the Admin notifications
+// adminData stores the information needed to generate the admin message
 type adminData struct {
 	SetupErrors []string
 	PushErrors  sync.Map
 }
 
+// AdminDataFinal stores the same information as adminData, but with the PushErrors converted to string form, as a table.  The PushErrorsTable field
+// is meant to be read as is and used directly in an admin message
 type AdminDataFinal struct {
 	SetupErrors     []string
 	PushErrorsTable string
 }
 
-// SendAdminNotifications sends admin messages via email and Slack that have been collected in adminMsgSlice. It expects a valid template file configured at nConfig.ConfigInfo["admin_template"].
-// func SendAdminNotifications(ctx context.Context, operation string, SendMessagers []SendMessager ) error {
+// SendAdminNotifications sends admin messages via email and Slack that have been collected in adminMsgSlice. It expects a valid template file
+// configured at nConfig.ConfigInfo["admin_template"].
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
 	var wg sync.WaitGroup
 	var existsSendError bool
@@ -64,6 +71,7 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		return nil
 	}
 
+	// If there are errors
 	adminErrorsMapFinal := prepareAdminErrorsForMessage()
 
 	timestamp := time.Now().Format(time.RFC822)
@@ -73,7 +81,6 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		return err
 	}
 	adminTemplate := template.Must(template.New("admin").Parse(string(templateData)))
-
 	if err = adminTemplate.Execute(&b, struct {
 		Timestamp   string
 		Operation   string
@@ -87,6 +94,7 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		return err
 	}
 
+	// Run SendMessage on all all configured sendMessagers
 	for _, sm := range sendMessagers {
 		wg.Add(1)
 		go func(sm SendMessager) {
@@ -162,6 +170,7 @@ func addErrorToAdminErrors(n Notification) {
 	}
 }
 
+// prepareAdminErrorsForMessage transforms the accumulated adminErrors variable from type adminData to AdminDataFinal
 func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 
 	// Intermediate data structure between AdminData and AdminDataFinal
@@ -232,6 +241,7 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 
 }
 
+// isEmpty checks to see if a variable of type adminData has any data
 func (a *adminData) isEmpty() bool {
 	return ((len(a.SetupErrors) == 0) && (syncMapLength(a.PushErrors) == 0))
 }
