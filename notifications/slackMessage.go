@@ -12,9 +12,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// SlackMessage is a Slack message placeholder
-// type SlackMessage struct{}
-
+// slackMessage is a Slack message configuration that consists of the url endpoint to which the message data should be POSTed via HTTP.
+// Using a slackMessage assumes that a slack webhook or other HTTP POST API has been enabled on an existing slack channel
 type slackMessage struct {
 	url string
 }
@@ -30,14 +29,15 @@ func (s *slackMessage) SetTo(recipient []string) error {
 	return nil
 }
 
-// WithSlackMessage is an exported func that allows callers to instantiate a slack message in the notifications Manager
+// NewSlackMessage returns a configured *slackMessage that can be used to send a message using SendMessage()
 func NewSlackMessage(url string) *slackMessage {
 	return &slackMessage{
 		url: url,
 	}
 }
 
-// SendMessage sends message as a Slack message based on the Config
+// sendMessage sends message as a Slack message by sending an HTTP POST request to the value of the url field of the
+// slackMessage.
 func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 	if e := ctx.Err(); e != nil {
 		log.Errorf("Error sending slack message: %s", e)

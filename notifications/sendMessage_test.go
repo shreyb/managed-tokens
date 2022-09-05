@@ -15,6 +15,7 @@ func (f *fakeSender) sendMessage(ctx context.Context, msg string) error {
 	return f.err
 }
 
+// TestSendMessage checks that SendMessage properly wraps a SendMessager's sendMessage method
 func TestSendMessage(t *testing.T) {
 	tests := []struct {
 		s   SendMessager

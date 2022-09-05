@@ -9,21 +9,23 @@ import (
 	"github.com/shreyb/managed-tokens/utils"
 )
 
+// TestPrepareTableStringFromMap checks that PrepareTableStringFromMap properly translates a map into a table
 func TestPrepareTableStringFromMap(t *testing.T) {
 	var b strings.Builder
+	// Test Data
 	testMap := map[string]string{
 		"key 1": "error 1",
 		"key 2": "error 2",
 		"key 3": "error 3",
 	}
+	mapTable := PrepareTableStringFromMap(testMap, "", []string{})
 
+	// Expected data
 	testSliceSliceString := [][]string{
 		{"key 1", "error 1"},
 		{"key 2", "error 2"},
 		{"key 3", "error 3"},
 	}
-
-	mapTable := PrepareTableStringFromMap(testMap, "", []string{})
 	sliceSliceStringTable := tablewriter.NewWriter(&b)
 	sliceSliceStringTable.AppendBulk(testSliceSliceString)
 	sliceSliceStringTable.SetBorder(false)

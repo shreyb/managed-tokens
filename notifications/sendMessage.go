@@ -17,7 +17,7 @@ type SendMessageError struct{ message string }
 func (s *SendMessageError) Error() string { return s.message }
 
 // SendMessage sends a message (msg).  The kind of message and how that message is sent is determined
-// by the SendMessager, and the ConfigInfo gives supplemental information to send the message.
+// by the SendMessager, which should be configured before passing into SendMessage
 func SendMessage(ctx context.Context, s SendMessager, msg string) error {
 	err := s.sendMessage(ctx, msg)
 	if err != nil {
