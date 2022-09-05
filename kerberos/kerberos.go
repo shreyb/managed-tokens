@@ -1,3 +1,5 @@
+// Package kerberos contains utilities to obtain kerberos tickets, query the kerberos cache, and switch caches in the case of multiple
+// kerberos caches
 package kerberos
 
 import (
