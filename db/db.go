@@ -1,3 +1,5 @@
+// Package db provides the FERRYUIDDatabase struct which provides an interface to a SQLite3 database that is used by the managed tokens
+// utilities to store username-UID mappings, as provided from FERRY.
 package db
 
 import (
