@@ -61,7 +61,7 @@ type FERRYUIDDatabase struct {
 	db       *sql.DB
 }
 
-// OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the databse already
+// OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
 // exists at the filename provided, it will open that database as long as the ApplicationId matches
 func OpenOrCreateDatabase(filename string) (*FERRYUIDDatabase, error) {
 	f := FERRYUIDDatabase{filename: filename}
