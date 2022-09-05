@@ -1,3 +1,4 @@
+// Package fileCopier contains interfaces and functions to assist in copying files via ssh.
 package fileCopier
 
 import (
@@ -18,9 +19,6 @@ import (
 type FileCopier interface {
 	copyToDestination(ctx context.Context) error
 }
-
-// Added this stuff to make it work
-// func NewSSHFileCopier(source, account, node, destination, sshOptions string, env service.EnvironmentMapper) FileCopier {
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
 func NewSSHFileCopier(source, account, node, destination, sshOptions string, env environment.EnvironmentMapper) FileCopier {
