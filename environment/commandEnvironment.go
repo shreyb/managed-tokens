@@ -1,3 +1,5 @@
+// Package environment contains types and functions to assist in passing around environments to be used in commands and wrapping commands in
+// those environments
 package environment
 
 // CommandEnvironment is an environment for the various token-related commands to use to obtain vault and bearer tokens
