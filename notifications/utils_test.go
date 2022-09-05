@@ -1,13 +1,15 @@
 package notifications
 
 import (
+	"math/rand"
 	"sync"
 	"testing"
 )
 
+// TestSyncMapLength checks that syncMapLength properly measures the length of a sync.Map
 func TestSyncMapLength(t *testing.T) {
 	var m sync.Map
-	length := 10
+	length := rand.Intn(100)
 
 	for i := 1; i <= length; i++ {
 		m.Store(i, struct{}{})
