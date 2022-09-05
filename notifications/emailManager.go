@@ -8,15 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// The two EmailManager funcs here, NewServiceEmailManager, and NewAdminEmailManager, are the primary interfaces by which calling code
-// should send notifications that need to eventually be send via email.  Either of these will sort error notifications properly.const
-//
-// We expect callers to call NewServiceEmailManager if they are running any of the utilities for a service, and want to abstract away the
-// notification sorting and sending.
-//
-// NewAdminEmailManager can be called if the notifications will only be sent to admins.  In this case, the calling code is expected to
-// separately run SendAdminNotifications to actually send the accumulated data.
-
 // EmailManager is simply a channel on which Notification objects can be sent and received
 type EmailManager chan Notification
 
