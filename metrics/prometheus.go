@@ -1,3 +1,5 @@
+// Package metrics contains a Prometheus metrics registry that importing code can use to register Prometheus metrics.  When all metrics collection
+// is complete, the PushToPrometheus function can be used to push metrics to a Prometheus Pushgateway server, which is configured through viper.
 package metrics
 
 import (
