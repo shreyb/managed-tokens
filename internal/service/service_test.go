@@ -4,6 +4,7 @@ import (
 	"testing"
 )
 
+// TestNewService checks that NewService properly parses out the experiment and role from a passed in serviceName
 func TestNewService(t *testing.T) {
 	type testCase struct {
 		description        string
@@ -21,11 +22,18 @@ func TestNewService(t *testing.T) {
 			expectedName:       "myawesomeexperiment",
 		},
 		{
-			description:        "Experiment with role (should parse out experiment and role",
+			description:        "Experiment with role (should parse out experiment and role)",
 			serviceName:        "myreallycoolexperiment_superrole",
 			expectedExperiment: "myreallycoolexperiment",
 			expectedRole:       "superrole",
 			expectedName:       "myreallycoolexperiment_superrole",
+		},
+		{
+			description:        "Malformed serviceName (should simply use serviceName as experiment, assign defualt role)",
+			serviceName:        "weirdexperiment$@#@#!",
+			expectedExperiment: "weirdexperiment$@#@#!",
+			expectedRole:       DefaultRole,
+			expectedName:       "weirdexperiment$@#@#!",
 		},
 	}
 	for _, tc := range testCases {
