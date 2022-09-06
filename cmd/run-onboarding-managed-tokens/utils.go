@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
 // Custom usage function for positional argument.
@@ -23,9 +23,9 @@ func onboardingUsage() {
 
 // Functional options for initialization of serviceConfigs
 
-// setCondorCredHost sets the _condor_CREDD_HOST environment variable in the service.Config's environment
-func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
+// setCondorCredHost sets the _condor_CREDD_HOST environment variable in the worker.Config's environment
+func setCondorCreddHost(serviceConfigPath string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
 		addString := "_condor_CREDD_HOST="
 		overrideVar := serviceConfigPath + ".condorCreddHostOverride"
 		if viper.IsSet(overrideVar) {
@@ -33,14 +33,14 @@ func setCondorCreddHost(serviceConfigPath string) func(sc *service.Config) error
 		} else {
 			addString = addString + viper.GetString("condorCreddHost")
 		}
-		sc.CommandEnvironment.CondorCreddHost = addString
+		c.CommandEnvironment.CondorCreddHost = addString
 		return nil
 	}
 }
 
-// setCondorCollectorHost sets the _condor_COLLECTOR_HOST environment variable in the service.Config's environment
-func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
+// setCondorCollectorHost sets the _condor_COLLECTOR_HOST environment variable in the worker.Config's environment
+func setCondorCollectorHost(serviceConfigPath string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
 		addString := "_condor_COLLECTOR_HOST="
 		overrideVar := serviceConfigPath + ".condorCollectorHostOverride"
 		if viper.IsSet(overrideVar) {
@@ -48,14 +48,14 @@ func setCondorCollectorHost(serviceConfigPath string) func(sc *service.Config) e
 		} else {
 			addString = addString + viper.GetString("condorCollectorHost")
 		}
-		sc.CommandEnvironment.CondorCollectorHost = addString
+		c.CommandEnvironment.CondorCollectorHost = addString
 		return nil
 	}
 }
 
-// setUserPrincipalAndHtgettokenopts sets a service.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
-func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
+// setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
+func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))
 		if err != nil {
 			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
@@ -63,7 +63,7 @@ func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment str
 		}
 		userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"
 		if viper.IsSet(userPrincipalOverrideConfigPath) {
-			sc.UserPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
+			c.UserPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
 		} else {
 			var b strings.Builder
 			templateArgs := struct{ Account string }{Account: viper.GetString(serviceConfigPath + ".account")}
@@ -71,30 +71,30 @@ func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment str
 				log.WithField("experiment", experiment).Error("Could not execute kerberos prinicpal template")
 				return err
 			}
-			sc.UserPrincipal = b.String()
+			c.UserPrincipal = b.String()
 		}
 
-		credKey := strings.ReplaceAll(sc.UserPrincipal, "@FNAL.GOV", "")
+		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
 		// TODO Make htgettokenopts configurable
 		htgettokenOptsRaw := []string{
 			fmt.Sprintf("--credkey=%s", credKey),
 		}
-		sc.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
+		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
 		return nil
 	}
 }
 
 // setKeytabOverride checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
-// If the override does not exist, it uses the configuration to calculate the default path to the keytab for a service.Config
-func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
+// If the override does not exist, it uses the configuration to calculate the default path to the keytab for a worker.Config
+func setKeytabOverride(serviceConfigPath string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
 		keytabConfigPath := serviceConfigPath + ".keytabPath"
 		if viper.IsSet(keytabConfigPath) {
-			sc.KeytabPath = viper.GetString(keytabConfigPath)
+			c.KeytabPath = viper.GetString(keytabConfigPath)
 		} else {
 			// Default keytab location
 			keytabDir := viper.GetString("keytabPath")
-			sc.KeytabPath = path.Join(
+			c.KeytabPath = path.Join(
 				keytabDir,
 				fmt.Sprintf(
 					"%s.keytab",
@@ -106,19 +106,19 @@ func setKeytabOverride(serviceConfigPath string) func(sc *service.Config) error 
 	}
 }
 
-// account sets the account field in the service.Config object
-func account(serviceConfigPath string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.Account = viper.GetString(serviceConfigPath + ".account")
+// account sets the account field in the worker.Config object
+func account(serviceConfigPath string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
+		c.Account = viper.GetString(serviceConfigPath + ".account")
 		return nil
 	}
 }
 
-// setkrb5ccname sets the KRB5CCNAME directory environment variable in the service.Config's
+// setkrb5ccname sets the KRB5CCNAME directory environment variable in the worker.Config's
 // environment
-func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
+func setkrb5ccname(krb5ccname string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
+		c.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
 		return nil
 	}
 }

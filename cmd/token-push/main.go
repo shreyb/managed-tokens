@@ -73,7 +73,7 @@ var (
 
 var (
 	services       []service.Service
-	serviceConfigs = make(map[string]*service.Config)
+	serviceConfigs = make(map[string]*worker.Config)
 )
 
 // Initial setup.  Read flags, find config file
@@ -266,7 +266,7 @@ func init() {
 func main() {
 	// Order of operations:
 	//
-	// 0. Setup (global context, generate service.Configs, set up notification listeners)
+	// 0. Setup (global context, generate worker.Configs, set up notification listeners)
 	// 1. Get kerberos tickets
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
@@ -290,7 +290,7 @@ func main() {
 	defer cancel()
 
 	// Set up our service config collector
-	collectServiceConfigs := make(chan *service.Config, len(services))
+	collectServiceConfigs := make(chan *worker.Config, len(services))
 	setupWg.Add(1)
 	go func() {
 		defer setupWg.Done()
@@ -350,7 +350,7 @@ func main() {
 			serviceConfigSetupWg.Add(1)
 			go func(s service.Service, serviceConfigPath string) {
 				defer serviceConfigSetupWg.Done()
-				sc, err := service.NewConfig(
+				c, err := worker.NewConfig(
 					s,
 					setkrb5ccname(krb5ccname),
 					setCondorCreddHost(serviceConfigPath),
@@ -367,7 +367,7 @@ func main() {
 						"role":       s.Role(),
 					}).Fatal("Could not create config for service")
 				}
-				collectServiceConfigs <- sc
+				collectServiceConfigs <- c
 				initializeSuccessfulServices <- s.Name()
 				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
 			}(s, serviceConfigPath)

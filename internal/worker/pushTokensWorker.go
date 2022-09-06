@@ -11,7 +11,6 @@ import (
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -146,20 +145,20 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 }
 
-func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, destinationFile string) error {
+func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
 	f := fileCopier.NewSSHFileCopier(
 		sourceFile,
-		sc.Account,
+		c.Account,
 		node,
 		destinationFile,
 		"",
-		&sc.CommandEnvironment,
+		&c.CommandEnvironment,
 	)
 
 	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
 		log.WithFields(log.Fields{
-			"experiment":          sc.Service.Experiment(),
-			"role":                sc.Service.Role(),
+			"experiment":          c.Service.Experiment(),
+			"role":                c.Service.Role(),
 			"sourceFilename":      sourceFile,
 			"destinationFilename": destinationFile,
 			"node":                node,
@@ -167,8 +166,8 @@ func pushToNode(ctx context.Context, sc *service.Config, sourceFile, node, desti
 		return err
 	}
 	log.WithFields(log.Fields{
-		"experiment":          sc.Service.Experiment(),
-		"role":                sc.Service.Role(),
+		"experiment":          c.Service.Experiment(),
+		"role":                c.Service.Role(),
 		"sourceFilename":      sourceFile,
 		"destinationFilename": destinationFile,
 		"node":                node,

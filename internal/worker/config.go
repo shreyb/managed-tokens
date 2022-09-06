@@ -1,13 +1,15 @@
-package service
+package worker
 
 import (
-	"github.com/shreyb/managed-tokens/internal/environment"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 type Config struct {
-	Service
+	service.Service
 	UserPrincipal string
 	Nodes         []string
 	Account       string
@@ -16,7 +18,7 @@ type Config struct {
 	environment.CommandEnvironment
 }
 
-// NewConfig takes the config information from the global file and creates an exptConfig object
+// NewConfig takes the config information from the global file and creates an *Config object
 // To create functional options, simply define functions that operate on an *Config.  E.g.
 // func foo(e *Config) { e.Name = "bar" }.  You can then pass in foo to CreateConfig (e.g.
 // NewConfig("my_expt", foo), to set the Config.Name to "bar".
@@ -31,7 +33,7 @@ type Config struct {
 //
 // If you then pass in foo(3), like NewConfig("my_expt", foo(3)), then Config.spam will be set to 6
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
-func NewConfig(service Service, options ...func(*Config) error) (*Config, error) {
+func NewConfig(service service.Service, options ...func(*Config) error) (*Config, error) {
 	c := Config{Service: service}
 
 	for _, option := range options {
@@ -44,6 +46,6 @@ func NewConfig(service Service, options ...func(*Config) error) (*Config, error)
 	log.WithFields(log.Fields{
 		"experiment": c.Service.Experiment(),
 		"role":       c.Service.Role(),
-	}).Debug("Set up service config")
+	}).Debug("Set up service worker config")
 	return &c, nil
 }

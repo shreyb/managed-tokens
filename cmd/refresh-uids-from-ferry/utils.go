@@ -111,9 +111,9 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 	}
 }
 
-// withKerberosJWTAuth uses a configured service.Config to return a func that gets a bearer token,
+// withKerberosJWTAuth uses a configured worker.Config to return a func that gets a bearer token,
 // and uses it to send an HTTP request to the passed in url
-func withKerberosJWTAuth(serviceConfig *service.Config) func() func(context.Context, string, string) (*http.Response, error) {
+func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Context, string, string) (*http.Response, error) {
 	// This returns a func that returns a func. This was done to have withKerberosJWTAuth(serviceConfig) have the same
 	// return type as withTLSAuth.
 	return func() func(context.Context, string, string) (*http.Response, error) {
@@ -178,34 +178,34 @@ func withKerberosJWTAuth(serviceConfig *service.Config) func() func(context.Cont
 
 // Functional options
 
-// setkrb5ccname sets the KRB5CCNAME directory environment variable in the service.Config's
+// setkrb5ccname sets the KRB5CCNAME directory environment variable in the worker.Config's
 // environment
-func setkrb5ccname(krb5ccname string) func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
+func setkrb5ccname(krb5ccname string) func(c *worker.Config) error {
+	return func(c *worker.Config) error {
+		c.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
 		return nil
 	}
 }
 
-// setKeytabPath sets the location of a service.Config's kerberos keytab
-func setKeytabPath() func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.KeytabPath = viper.GetString("ferry.serviceKeytabPath")
+// setKeytabPath sets the location of a worker.Config's kerberos keytab
+func setKeytabPath() func(c *worker.Config) error {
+	return func(c *worker.Config) error {
+		c.KeytabPath = viper.GetString("ferry.serviceKeytabPath")
 		return nil
 	}
 }
 
-// setUserPrincipalAndHtgettokenopts sets a service.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
-func setUserPrincipalAndHtgettokenopts() func(sc *service.Config) error {
-	return func(sc *service.Config) error {
-		sc.UserPrincipal = viper.GetString("ferry.serviceKerberosPrincipal")
+// setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
+func setUserPrincipalAndHtgettokenopts() func(c *worker.Config) error {
+	return func(c *worker.Config) error {
+		c.UserPrincipal = viper.GetString("ferry.serviceKerberosPrincipal")
 
-		credKey := strings.ReplaceAll(sc.UserPrincipal, "@FNAL.GOV", "")
+		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
 		// TODO Make htgettokenopts configurable
 		htgettokenOptsRaw := []string{
 			"--credkey=" + credKey,
 		}
-		sc.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
+		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
 		return nil
 	}
 }
@@ -237,9 +237,9 @@ func getBearerTokenDefaultLocation() (string, error) {
 	return path.Join(tempDir, filename), nil
 }
 
-// newFERRYServiceConfigWithKerberosAuth uses the configuration file to return a *service.Config
+// newFERRYServiceConfigWithKerberosAuth uses the configuration file to return a *worker.Config
 // with kerberos credentials initialized
-func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config, error) {
+func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config, error) {
 	var serviceName string
 
 	if viper.GetString("ferry.serviceRole") != "" {
@@ -255,7 +255,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}
 
-	serviceConfig, err := service.NewConfig(
+	serviceConfig, err := worker.NewConfig(
 		s,
 		setkrb5ccname(krb5ccname),
 		setKeytabPath(),
@@ -263,7 +263,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 	)
 	if err != nil {
 		log.Error("Could not create new service configuration")
-		return &service.Config{}, err
+		return &worker.Config{}, err
 	}
 
 	// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
@@ -271,11 +271,11 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 		log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
 		if err := kerberos.GetTicket(ctx, serviceConfig.KeytabPath, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
 			log.Error("Could not get kerberos ticket to generate JWT")
-			return &service.Config{}, err
+			return &worker.Config{}, err
 		}
 		if err := kerberos.CheckPrincipal(ctx, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
 			log.Error("Verification of kerberos ticket failed")
-			return &service.Config{}, err
+			return &worker.Config{}, err
 		}
 	}
 	return serviceConfig, nil

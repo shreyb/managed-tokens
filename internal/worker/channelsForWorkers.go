@@ -2,11 +2,10 @@ package worker
 
 import (
 	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 type ChannelsForWorkers interface {
-	GetServiceConfigChan() chan *service.Config
+	GetServiceConfigChan() chan *Config
 	GetSuccessChan() chan SuccessReporter
 	GetNotificationsChan() chan notifications.Notification
 }
@@ -25,19 +24,19 @@ func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 	}
 
 	return &channelGroup{
-		serviceConfigChan: make(chan *service.Config, useBufferSize),
+		serviceConfigChan: make(chan *Config, useBufferSize),
 		successChan:       make(chan SuccessReporter, useBufferSize),
 		notificationsChan: make(chan notifications.Notification, useBufferSize),
 	}
 }
 
 type channelGroup struct {
-	serviceConfigChan chan *service.Config
+	serviceConfigChan chan *Config
 	successChan       chan SuccessReporter
 	notificationsChan chan notifications.Notification
 }
 
-func (c *channelGroup) GetServiceConfigChan() chan *service.Config {
+func (c *channelGroup) GetServiceConfigChan() chan *Config {
 	return c.serviceConfigChan
 }
 

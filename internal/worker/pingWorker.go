@@ -7,7 +7,6 @@ import (
 
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/ping"
-	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -40,7 +39,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 	for sc := range chans.GetServiceConfigChan() {
 		wg.Add(1)
-		go func(sc *service.Config) {
+		go func(sc *Config) {
 			defer wg.Done()
 			success := &pingSuccess{
 				serviceName: sc.Service.Name(),

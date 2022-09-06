@@ -6,7 +6,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/vaultToken"
 )
@@ -63,7 +62,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 }
 
-func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *service.Config) error {
+func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 	interactive := true
 
 	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)

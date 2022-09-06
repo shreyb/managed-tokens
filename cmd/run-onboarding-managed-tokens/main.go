@@ -168,7 +168,7 @@ func init() {
 // 1. Generate kerberos principal for service
 // 2. Store (and obtain) vault tokens for service, running in interactive mode so user can authenticate if needed
 func main() {
-	var serviceConfig *service.Config
+	var serviceConfig *worker.Config
 
 	var globalTimeout time.Duration
 	var ok bool
@@ -212,7 +212,7 @@ func main() {
 		s := service.NewService(viper.GetString("service"))
 
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-		serviceConfig, err = service.NewConfig(
+		serviceConfig, err = worker.NewConfig(
 			s,
 			setkrb5ccname(krb5ccname),
 			setCondorCreddHost(serviceConfigPath),

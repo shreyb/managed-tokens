@@ -1,8 +1,10 @@
-package service
+package worker
 
 import (
 	"errors"
 	"testing"
+
+	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 type badFunctionalOptError struct {
@@ -56,7 +58,7 @@ func TestNewConfig(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			s := NewService("myawesomeservice")
+			s := service.NewService("myawesomeservice")
 			_, err := NewConfig(s, tc.functionalOpts...)
 
 			// Equality check of errors
