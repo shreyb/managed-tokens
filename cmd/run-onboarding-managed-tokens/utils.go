@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/service"
+	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 // Custom usage function for positional argument.

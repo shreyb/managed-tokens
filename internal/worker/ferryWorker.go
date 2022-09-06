@@ -11,8 +11,8 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/shreyb/managed-tokens/db"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
 

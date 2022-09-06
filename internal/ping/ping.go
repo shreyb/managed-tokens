@@ -10,7 +10,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 const pingArgs = "-W 5 -c 1 {{.Node}}"

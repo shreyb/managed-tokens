@@ -12,10 +12,10 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/vaultToken"
-	"github.com/shreyb/managed-tokens/worker"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/shreyb/managed-tokens/internal/vaultToken"
+	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
 var (
@@ -87,8 +87,8 @@ func init() {
 		viper.SetConfigName(configFile)
 	}
 
-	viper.AddConfigPath("/etc/managed-tokens/")
-	viper.AddConfigPath("$HOME/.managed-tokens/")
+	viper.AddConfigPath("/etc/managed-tokens/internal/")
+	viper.AddConfigPath("$HOME/.managed-tokens/internal/")
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -99,8 +99,8 @@ func init() {
 func init() {
 	// Set up logs
 	log.SetLevel(log.DebugLevel)
-	debugLogConfigLookup := "logs.run-onboarding-managed-tokens.debugfile"
-	logConfigLookup := "logs.run-onboarding-managed-tokens.logfile"
+	debugLogConfigLookup := "logs.run-onboarding-managed-tokens/internal.debugfile"
+	logConfigLookup := "logs.run-onboarding-managed-tokens/internal.logfile"
 	// Debug log
 	log.AddHook(lfshook.NewHook(lfshook.PathMap{
 		log.DebugLevel: viper.GetString(debugLogConfigLookup),
@@ -186,7 +186,7 @@ func main() {
 	defer cancel()
 
 	// Temporary directory for kerberos caches
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens/internal")
 	if err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

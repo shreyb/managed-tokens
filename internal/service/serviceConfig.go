@@ -1,7 +1,7 @@
 package service
 
 import (
-	"github.com/shreyb/managed-tokens/environment"
+	"github.com/shreyb/managed-tokens/internal/environment"
 	log "github.com/sirupsen/logrus"
 )
 

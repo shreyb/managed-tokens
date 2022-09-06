@@ -11,8 +11,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/environment"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 // FileCopier is an exported interface for objects that manage the copying of a file

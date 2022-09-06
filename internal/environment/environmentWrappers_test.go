@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 type testEnviron struct {

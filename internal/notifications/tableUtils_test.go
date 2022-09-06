@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/olekukonko/tablewriter"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 // TestPrepareTableStringFromMap checks that PrepareTableStringFromMap properly translates a map into a table

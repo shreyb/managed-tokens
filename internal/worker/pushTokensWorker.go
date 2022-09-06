@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/shreyb/managed-tokens/fileCopier"
-	"github.com/shreyb/managed-tokens/kerberos"
-	"github.com/shreyb/managed-tokens/metrics"
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/fileCopier"
+	"github.com/shreyb/managed-tokens/internal/kerberos"
+	"github.com/shreyb/managed-tokens/internal/metrics"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
 

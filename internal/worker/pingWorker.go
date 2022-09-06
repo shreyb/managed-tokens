@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/ping"
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/ping"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
 

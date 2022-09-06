@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/environment"
+	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
 // TestNewSSHFileCopier asserts that the type of the returned object from NewSSHFileCopier

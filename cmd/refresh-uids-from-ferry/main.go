@@ -16,10 +16,10 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/db"
-	"github.com/shreyb/managed-tokens/metrics"
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/metrics"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 var (
@@ -113,8 +113,8 @@ func init() {
 		viper.SetConfigName(configFile)
 	}
 
-	viper.AddConfigPath("/etc/managed-tokens/")
-	viper.AddConfigPath("$HOME/.managed-tokens/")
+	viper.AddConfigPath("/etc/managed-tokens/internal/")
+	viper.AddConfigPath("$HOME/.managed-tokens/internal/")
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -289,7 +289,7 @@ func main() {
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
 	} else {
-		dbLocation = "/var/lib/managed-tokens/uid.db"
+		dbLocation = "/var/lib/managed-tokens/internal/uid.db"
 	}
 	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 

@@ -3,9 +3,9 @@ package worker
 import (
 	"context"
 
-	"github.com/shreyb/managed-tokens/kerberos"
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/kerberos"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
 

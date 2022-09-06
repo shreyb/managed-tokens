@@ -9,8 +9,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/service"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 var serviceNotificationChanMap sync.Map                                  // Map of service to its notifications channel

@@ -17,12 +17,12 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
 
-	"github.com/shreyb/managed-tokens/metrics"
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/vaultToken"
-	"github.com/shreyb/managed-tokens/worker"
+	"github.com/shreyb/managed-tokens/internal/metrics"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/shreyb/managed-tokens/internal/vaultToken"
+	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
 var (
@@ -119,8 +119,8 @@ func init() {
 		viper.SetConfigName(configFile)
 	}
 
-	viper.AddConfigPath("/etc/managed-tokens/")
-	viper.AddConfigPath("$HOME/.managed-tokens/")
+	viper.AddConfigPath("/etc/managed-tokens/internal/")
+	viper.AddConfigPath("$HOME/.managed-tokens/internal/")
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -272,7 +272,7 @@ func main() {
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
 
-	// TODO RPM should create /etc/managed-tokens, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
+	// TODO RPM should create /etc/managed-tokens/internal, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
 	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	var globalTimeout time.Duration
 	var setupWg sync.WaitGroup
@@ -311,7 +311,7 @@ func main() {
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens/internal")
 	if err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

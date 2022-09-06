@@ -16,13 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/db"
-	"github.com/shreyb/managed-tokens/kerberos"
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/vaultToken"
-	"github.com/shreyb/managed-tokens/worker"
+	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/kerberos"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/shreyb/managed-tokens/internal/vaultToken"
+	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
 // getAllAccountsFromConfig reads the configuration file and gets a slice of accounts
@@ -250,7 +250,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*service.Config
 	s := service.NewService(serviceName)
 
 	// Get krb5ccname directory
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens/internal")
 	if err != nil {
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

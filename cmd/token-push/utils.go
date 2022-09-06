@@ -7,10 +7,10 @@ import (
 	"path"
 	"strings"
 
-	"github.com/shreyb/managed-tokens/db"
-	"github.com/shreyb/managed-tokens/service"
-	"github.com/shreyb/managed-tokens/utils"
-	"github.com/shreyb/managed-tokens/worker"
+	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/shreyb/managed-tokens/internal/worker"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
@@ -169,7 +169,7 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 				if viper.IsSet("dbLocation") {
 					dbLocation = viper.GetString("dbLocation")
 				} else {
-					dbLocation = "/var/lib/managed-tokens/uid.db"
+					dbLocation = "/var/lib/managed-tokens/internal/uid.db"
 
 				}
 

@@ -12,7 +12,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 // Much thanks to K. Retzke - a lot of the boilerplate DB code is adapted from his fifemail application

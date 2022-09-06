@@ -1,8 +1,8 @@
 package worker
 
 import (
-	"github.com/shreyb/managed-tokens/notifications"
-	"github.com/shreyb/managed-tokens/service"
+	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 type ChannelsForWorkers interface {

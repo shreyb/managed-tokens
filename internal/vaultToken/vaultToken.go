@@ -10,9 +10,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/environment"
-	"github.com/shreyb/managed-tokens/kerberos"
-	"github.com/shreyb/managed-tokens/utils"
+	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/shreyb/managed-tokens/internal/kerberos"
+	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
 var vaultExecutables = map[string]string{
