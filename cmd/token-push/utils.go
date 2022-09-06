@@ -7,11 +7,12 @@ import (
 	"path"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
+
 	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/worker"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
