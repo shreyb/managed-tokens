@@ -7,11 +7,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// contextKey.go allows for an extensible set of context keys to be used by all packages to add strongly-typed values to contexts.  Each context key
+// contextKey allows for an extensible set of context keys to be used by all packages to add strongly-typed values to contexts.  Each context key
 // will have a declaration in the const clause below, and should provide a Get_ func and a func to return a new context with the key set to an
 // appropriate value
 // Thanks to https://go.dev/blog/context#package-userip and https://stackoverflow.com/a/40891417 for inspiration
-
 type contextKey int
 
 const (
