@@ -95,7 +95,8 @@ func IsSliceSubSlice(sliceOne any, sliceTwo any) (bool, error) {
 			}
 		}
 		if !found {
-			return false, fmt.Errorf("could not find value %v in both slices", reflectOne.Index(indexOne))
+			log.Errorf("could not find value %v in both slices", reflectOne.Index(indexOne))
+			return false, nil
 		}
 	}
 	return true, nil
