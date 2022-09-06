@@ -1,7 +1,5 @@
 For all TODOs that are more general
 
-* In-code documentation
-* Check import order in all files
 * Documentation on github
     * Configurable timeouts (note, we want production to NOT have these set.  Maybe we can comment them out in the stock file?
         * globalTimeout
