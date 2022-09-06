@@ -1,3 +1,4 @@
+// Package ping provides utilities to ping a remote host
 package ping
 
 import (
@@ -22,7 +23,7 @@ var (
 	pingTemplate = template.Must(template.New("ping").Parse(pingArgs))
 )
 
-// PingNoder is an interface that wraps the pingNode method. It is meant to be used where pinging a node is necessary.  PingNoders also implement the Stringer interface.
+// PingNoder is an interface that wraps the PingNode method. It is meant to be used where pinging a node is necessary.  PingNoders also implement the Stringer interface.
 type PingNoder interface {
 	PingNode(context.Context) error
 	String() string
