@@ -66,19 +66,20 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 	return args, nil
 }
 
-func IsSliceSubSlice(sliceOne any, sliceTwo any) error {
+// IsSliceSubSlice verifies that
+func IsSliceSubSlice(sliceOne any, sliceTwo any) (bool, error) {
 	var reflectOne, reflectTwo reflect.Value
 	switch reflect.TypeOf(sliceOne).Kind() {
 	case reflect.Slice:
 		reflectOne = reflect.ValueOf(sliceOne)
 	default:
-		return errors.New("unsupported type for CompareSlices")
+		return false, errors.New("unsupported type for CompareSlices")
 	}
 	switch reflect.TypeOf(sliceTwo).Kind() {
 	case reflect.Slice:
 		reflectTwo = reflect.ValueOf(sliceTwo)
 	default:
-		return errors.New("unsupported type for CompareSlices")
+		return false, errors.New("unsupported type for CompareSlices")
 	}
 
 	for indexOne := 0; indexOne < reflectOne.Len(); indexOne++ {
@@ -90,10 +91,10 @@ func IsSliceSubSlice(sliceOne any, sliceTwo any) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("could not find value %v in both slices", reflectOne.Index(indexOne))
+			return false, fmt.Errorf("could not find value %v in both slices", reflectOne.Index(indexOne))
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // TODO Unit test this

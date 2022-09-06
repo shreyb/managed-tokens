@@ -310,7 +310,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 		)
 	}
 
-	if err := utils.IsSliceSubSlice(ferrySlice, dbSlice); err != nil {
+	if ok, err := utils.IsSliceSubSlice(ferrySlice, dbSlice); !ok {
 		log.Errorf("Verification of INSERT failed: %s", err)
 		return false
 	}

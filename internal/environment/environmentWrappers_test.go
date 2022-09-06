@@ -127,7 +127,7 @@ func TestEnvironmentWrappedCommand(t *testing.T) {
 		environKeyValSlice = append(environKeyValSlice, envSetting)
 	}
 
-	if err := utils.IsSliceSubSlice(environKeyValSlice, cmd.Env); err != nil {
+	if ok, err := utils.IsSliceSubSlice(environKeyValSlice, cmd.Env); !ok {
 		t.Errorf("Key-value pair in test environment not found in command environment: %s", err.Error())
 	}
 }
