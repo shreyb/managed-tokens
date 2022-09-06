@@ -6,6 +6,7 @@ import (
 	"text/template"
 )
 
+// TestCheckForExecutables checks that CheckForExecutables properly returns and populates the map for standard linux executables
 func TestCheckForExecutables(t *testing.T) {
 	exeMap := map[string]string{
 		"true":  "",
@@ -19,12 +20,15 @@ func TestCheckForExecutables(t *testing.T) {
 	}
 }
 
+// TestCheckRunningUserNotRoot ensures that CheckRunningUserNotRoot can run without issue
 func TestCheckRunningUserNotRoot(t *testing.T) {
 	if err := CheckRunningUserNotRoot(); err != nil {
 		t.Error(err)
 	}
 }
 
+// TestTemplateToCommand runs TemplateToCommand on a series of templates and arguments to that template, and
+// ensures that either the correct args are returned, or the proper error is returned
 func TestTemplateToCommand(t *testing.T) {
 	type testCase struct {
 		description  string

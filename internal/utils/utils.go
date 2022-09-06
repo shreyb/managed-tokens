@@ -1,3 +1,5 @@
+// Package utils provides general purpose utilities for the various other packages.
+// DEVELOPER NOTE:  This package should ideally NOT depend on any other internal package
 package utils
 
 import (
@@ -30,6 +32,7 @@ func CheckForExecutables(exeMap map[string]string) error {
 	return nil
 }
 
+// CheckRunningUserNotRoot checks that the current user running any of the executables is not the system root user
 func CheckRunningUserNotRoot() error {
 	currentUser, err := user.Current()
 	if err != nil {
@@ -66,7 +69,8 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 	return args, nil
 }
 
-// IsSliceSubSlice verifies that
+// IsSliceSubSlice verifies every element within sliceOne is contained within sliceTwo.  Ordering does not matter.
+// IsSliceSubslice will return an error if it could not inspect the elements of either slice
 func IsSliceSubSlice(sliceOne any, sliceTwo any) (bool, error) {
 	var reflectOne, reflectTwo reflect.Value
 	switch reflect.TypeOf(sliceOne).Kind() {
@@ -97,7 +101,10 @@ func IsSliceSubSlice(sliceOne any, sliceTwo any) (bool, error) {
 	return true, nil
 }
 
-// TODO Unit test this
+// TemplateToCommand takes a *template.Template and a struct, cmdArgs, and executes the template with those args.
+// Keep in mind that this means that TemplateToCommand expects that the struct cmdArgs's fields should be exported
+// and match up to the fields the template expects.
+// TemplateToCommand returns the finalized template string split into a []string.
 func TemplateToCommand(templ *template.Template, cmdArgs any) ([]string, error) {
 	args := make([]string, 0)
 

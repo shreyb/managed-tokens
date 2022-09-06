@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// TestGetOverrideTimeoutFromContext checks that GetOverrideTimeoutFromContext properly obtains an override timeout from a context
 func TestGetOverrideTimeoutFromContext(t *testing.T) {
 	ctx := context.Background()
 	testTimeout := time.Duration(1 * time.Second)
@@ -25,6 +26,7 @@ func TestGetOverrideTimeoutFromContext(t *testing.T) {
 	)
 }
 
+// TestContextWithOverrideTimeout checks that ContextWithOverrideTimeout properly returns a context with an overrideTimeout stored
 func TestContextWithOverrideTimeout(t *testing.T) {
 	ctx := context.Background()
 	t.Run(
@@ -45,6 +47,8 @@ func TestContextWithOverrideTimeout(t *testing.T) {
 	)
 }
 
+// TestGetProperTimeoutFromContext checks that GetProperTimeoutFromContext properly retrieves a time.Duration from a context with an
+// overrideTimeout set, and returns the proper default or error if overrideTimeout is not set in the context
 func TestGetProperTimeoutFromContext(t *testing.T) {
 	var nilTimeDuration time.Duration
 	ctx := context.Background()
