@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// TestIsServiceToken checks a number of candidate service tokens and verifies that IsServiceToken correctly identifies whether or not
+// a candidate is a service token
 func TestIsServiceToken(t *testing.T) {
 	type testCase struct {
 		description    string
@@ -47,6 +49,7 @@ func TestIsServiceToken(t *testing.T) {
 	}
 }
 
+// TestValidateVaultToken checks that ValidateVaultToken correctly validates vault tokens, or returns the proper error if the token is not valid
 func TestValidateVaultToken(t *testing.T) {
 	type testCase struct {
 		description   string

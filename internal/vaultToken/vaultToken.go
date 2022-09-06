@@ -1,3 +1,4 @@
+// Package vaultToken provides functions for obtaining and validating Hashicorp vault tokens using the configured HTCondor installation
 package vaultToken
 
 import (
@@ -28,6 +29,10 @@ func init() {
 	}
 }
 
+// StoreAndGetTokens will store a refresh token on the configured vault server and obtain vault and bearer tokens for a service using HTCondor executables.
+// It will also validate the obtained vault token using the vault token pattern expected by Hashicorp (called a Service token by Hashicorp).
+// If run in interactive mode, then the stdout/stderr will be displayed in the user's terminal.  This can be used, for example, if it is expected
+// that the user might have to authenticate to the vault server.
 func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, environment environment.CommandEnvironment, interactive bool) error {
 	// kswitch
 	if err := kerberos.SwitchCache(ctx, userPrincipal, environment); err != nil {
@@ -65,7 +70,7 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 	return nil
 }
 
-// TODO STILL UNDER DEVELOPMENT
+// TODO STILL UNDER DEVELOPMENT.  Export when ready
 func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer string, environ environment.CommandEnvironment) error {
 	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -104,6 +109,8 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 	return nil
 }
 
+// getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
+// using interactive=true, it will display stdout/stderr on the stdout of the caller
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environ environment.CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
 	//TODO if verbose, add the -v flag here
@@ -180,11 +187,14 @@ const (
 	LegacyServiceTokenPrefix = "s."
 )
 
+// IsServiceToken validates that a token string follows the Hashicorp service token convention
 func IsServiceToken(token string) bool {
 	return strings.HasPrefix(token, ServiceTokenPrefix) ||
 		strings.HasPrefix(token, LegacyServiceTokenPrefix)
 }
 
+// InvalidVaultTokenError is an error that indicates that the token contained in filename is not a valid Hashicorp Service Token
+// (what is called a vault token in the managed-tokens/OSG/WLCG world)
 type InvalidVaultTokenError struct {
 	filename string
 	msg      string
@@ -198,26 +208,9 @@ func (i *InvalidVaultTokenError) Error() string {
 	)
 }
 
-func getCondorVaultTokenLocation(serviceName string) (string, error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		log.Error(err)
-		return "", err
-	}
-	currentUID := currentUser.Uid
-	return fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, serviceName), nil
-}
-
-func getDefaultVaultTokenLocation() (string, error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		log.Error(err)
-		return "", err
-	}
-	currentUID := currentUser.Uid
-	return fmt.Sprintf("/tmp/vt_u%s", currentUID), nil
-}
-
+// GetAllVaultTokenLocations returns the locations of the vault tokens that both HTCondor and other OSG grid tools will use.
+// The first element of the returned slice is the standard location for most grid tools, and the second is the standard for
+// HTCondor
 func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 	vaultTokenLocations := make([]string, 0, 2)
 
@@ -245,6 +238,7 @@ func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 	return vaultTokenLocations, nil
 }
 
+// RemoveServiceVaultTokens removes the vault token files at the standard OSG Grid Tools and HTCondor locations
 func RemoveServiceVaultTokens(serviceName string) error {
 	vaultTokenLocations, err := GetAllVaultTokenLocations(serviceName)
 	if err != nil {
@@ -272,4 +266,26 @@ func RemoveServiceVaultTokens(serviceName string) error {
 		}
 	}
 	return nil
+}
+
+// getCondorVaultTokenLocation returns the location of vault token that HTCondor uses based on the current user's UID
+func getCondorVaultTokenLocation(serviceName string) (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Error(err)
+		return "", err
+	}
+	currentUID := currentUser.Uid
+	return fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, serviceName), nil
+}
+
+// getDefaultVaultTokenLocation returns the location of vault token that most OSG grid tools use based on the current user's UID
+func getDefaultVaultTokenLocation() (string, error) {
+	currentUser, err := user.Current()
+	if err != nil {
+		log.Error(err)
+		return "", err
+	}
+	currentUID := currentUser.Uid
+	return fmt.Sprintf("/tmp/vt_u%s", currentUID), nil
 }
