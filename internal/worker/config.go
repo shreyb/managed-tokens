@@ -1,3 +1,8 @@
+// Package worker provides worker functions and types that allow callers to abstract away the lower-level details of the various operations needed
+// for the Managed Tokens utilities.  Ideally, most callers should just need to set up worker.Config objects using worker.NewConfig, obtain the worker
+// channels using worker.NewChannelsForWorkers, and call the applicable worker with the above ChannelsForWorkers object.  All that remains then for the
+// caller is to pass the worker.Config objects into the ChannelsForWorkers.GetServiceConfigChan(), and listen on the ChannelsForWorkers.GetSuccessChan()
+// and ChannelsForWorkers.GetNotificationsChan()
 package worker
 
 import (

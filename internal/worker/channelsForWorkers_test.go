@@ -5,12 +5,9 @@ import (
 	"testing"
 )
 
-// type testChanGroup struct {
-// 	serviceConfigChan chan *service.Config
-// 	successChan chan SuccessReporter
-// }
-
-func TestNewChannelsForWorkersDefaultBuffer(t *testing.T) {
+// TestNewChannelsForWorkers tests that given different buffer sizes, NewChannelsForWorkers returns a ChannelsForWorkers with all channels
+// having the correct buffer size
+func TestNewChannelsForWorkers(t *testing.T) {
 	type testCase struct {
 		description         string
 		userInputBufferSize int

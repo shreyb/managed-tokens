@@ -23,6 +23,7 @@ func functionalOptBad(*Config) error {
 	return badFunctionalOptError{msg: "Bad functional opt"}
 }
 
+// TestNewConfig checks that NewConfig properly applies various functional options when initializing the returned *worker.Config
 func TestNewConfig(t *testing.T) {
 	type testCase struct {
 		description    string

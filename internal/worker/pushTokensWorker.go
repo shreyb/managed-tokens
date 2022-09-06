@@ -29,6 +29,7 @@ var tokenPushTime = prometheus.NewGaugeVec(
 
 const pushDefaultTimeoutStr string = "30s"
 
+// pushTokenSuccess is a type that conveys whether PushTokensWorker successfully pushes vault tokens to destination nodes for a service
 type pushTokenSuccess struct {
 	serviceName string
 	success     bool
@@ -46,6 +47,9 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 	return v.success
 }
 
+// PushTokenWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
+// pushes vault tokens to all the configured destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
+// and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	defer close(chans.GetNotificationsChan())
@@ -145,6 +149,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 }
 
+// pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
 	f := fileCopier.NewSSHFileCopier(
 		sourceFile,

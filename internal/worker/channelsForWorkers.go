@@ -4,17 +4,15 @@ import (
 	"github.com/shreyb/managed-tokens/internal/notifications"
 )
 
+// ChannelsForWorkers provides an interface to types that bundle a chan *Config, chan SuccessReporter, and chan notifications.Notification
+// This is meant to be the primary value passed around between functions and packages to orchestrate communication
 type ChannelsForWorkers interface {
 	GetServiceConfigChan() chan *Config
 	GetSuccessChan() chan SuccessReporter
 	GetNotificationsChan() chan notifications.Notification
 }
 
-type SuccessReporter interface {
-	GetServiceName() string
-	GetSuccess() bool
-}
-
+// NewChannelsForWorkers returns a ChannelsForWorkers that is initialized and ready to pass to workers and listen on
 func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 	var useBufferSize int
 	if bufferSize == 0 {
@@ -30,6 +28,13 @@ func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 	}
 }
 
+// SuccessReporter is an interface to objects that report success or failures from various workers
+type SuccessReporter interface {
+	GetServiceName() string
+	GetSuccess() bool
+}
+
+// channelGroup bundles the channels needed for workers to receive work, report whether that work succeeded or failed, and send notifications for routing
 type channelGroup struct {
 	serviceConfigChan chan *Config
 	successChan       chan SuccessReporter

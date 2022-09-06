@@ -20,7 +20,7 @@ const ferryRequestDefaultTimeoutStr string = "30s"
 
 var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.Hostname}}:{{.Port}}/{{.API}}?username={{.Username}}"))
 
-// UIDEntryFromFerry blah blah.  Implements utils.FerryUIDDatum
+// UIDEntryFromFerry is an entry that represents data returned from the FERRY getUserInfo API.  It implements utils.FerryUIDDatum
 type UIDEntryFromFerry struct {
 	username string
 	uid      int
@@ -38,6 +38,7 @@ func (u *UIDEntryFromFerry) Uid() int {
 	return u.uid
 }
 
+// ferryUIDResponse holds the unmarshalled JSON data from a query to FERRY's getUserInfo API
 type ferryUIDResponse struct {
 	FerryStatus string   `json:"ferry_status"`
 	FerryError  []string `json:"ferry_error"`
@@ -51,6 +52,22 @@ type ferryUIDResponse struct {
 	} `json:"ferry_output"`
 }
 
+// GetFERRYUIDData queries FERRY for user information.  This func abstracts away the actual details of formulating
+// the HTTP request, including authentication, headers, etc.  All of these details must be provided in the requestRunnerWithAuthMethodFunc func
+// that is passed in.  An example from a caller could look like this:
+//
+// // myauthfunc sends a request to a server without any authentication
+// func myauthfunc(ctx context.Context, url, verb string) (*http.Response, error){
+//
+//			client := &http.Client{}
+//			req, err := http.NewRequest(verb, url, nil)
+//			if err != nil {}
+//			resp, err := client.Do(req)
+//			return resp, err
+//	}
+//
+// ctx := context.Background()
+// myentry, err := GetFERRYUIDData(ctx, "user1", "https://example.com", 0, myauthfunc)
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
 	ferryDataChan chan<- db.FerryUIDDatum) (*UIDEntryFromFerry, error) {

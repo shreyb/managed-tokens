@@ -13,6 +13,7 @@ import (
 
 const pingDefaultTimeoutStr string = "10s"
 
+// pingSuccess is a type that conveys whether PingAggregatorWorker successfully pings all the configured destination nodes for each service
 type pingSuccess struct {
 	serviceName string
 	success     bool
@@ -26,6 +27,9 @@ func (p *pingSuccess) GetSuccess() bool {
 	return p.success
 }
 
+// PingAggregatorWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
+// concurrently pings all of the Config's destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
+// and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	defer close(chans.GetNotificationsChan())

@@ -11,6 +11,7 @@ import (
 
 const kerberosDefaultTimeoutStr string = "20s"
 
+// kinitSuccess is a type that conveys whether GetKerberosTicketsWorker successfully obtains a kerberos ticket for each service
 type kinitSuccess struct {
 	serviceName string
 	success     bool
@@ -24,6 +25,9 @@ func (v *kinitSuccess) GetSuccess() bool {
 	return v.success
 }
 
+// GetKerberosTicketsWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
+// obtains kerberos tickets from the configured kerberos principals.  It returns when chans.GetServiceConfigChan() is closed,
+// and it will in turn close the other chans in the passed in ChannelsForWorkers
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	defer close(chans.GetNotificationsChan())

@@ -12,6 +12,7 @@ import (
 
 const vaultStorerDefaultTimeoutStr string = "60s"
 
+// vaultStorerSuccess is a type that conveys whether StoreAndGetTokenWorker successfully stores and obtains tokens for each service
 type vaultStorerSuccess struct {
 	serviceName string
 	success     bool
@@ -25,6 +26,9 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 	return v.success
 }
 
+// StoreAndGetTokenWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
+// stores a refresh token in the configured vault and obtains vault and bearer tokens.  It returns when chans.GetServiceConfigChan() is closed,
+// and it will in turn close the other chans in the passed in ChannelsForWorkers
 func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
 	defer close(chans.GetNotificationsChan())
@@ -62,6 +66,8 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 }
 
+// StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will
+// display all the stdout from the underlying executables to screen.
 func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 	interactive := true
 
