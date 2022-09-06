@@ -17,6 +17,7 @@ import (
 )
 
 const ferryRequestDefaultTimeoutStr string = "30s"
+const ferryUserUIDAPI string = "getUserInfo"
 
 var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.Hostname}}:{{.Port}}/{{.API}}?username={{.Username}}"))
 
@@ -81,7 +82,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	ferryAPIConfig := struct{ Hostname, Port, API, Username string }{
 		Hostname: ferryHost,
 		Port:     strconv.Itoa(ferryPort),
-		API:      "getUserInfo",
+		API:      ferryUserUIDAPI,
 		Username: username,
 	}
 
