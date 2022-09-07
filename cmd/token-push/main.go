@@ -119,8 +119,8 @@ func init() {
 		viper.SetConfigName(configFile)
 	}
 
-	viper.AddConfigPath("/etc/managed-tokens/internal/")
-	viper.AddConfigPath("$HOME/.managed-tokens/internal/")
+	viper.AddConfigPath("/etc/managed-tokens/")
+	viper.AddConfigPath("$HOME/.managed-tokens/")
 	viper.AddConfigPath(".")
 	err := viper.ReadInConfig()
 	if err != nil {
