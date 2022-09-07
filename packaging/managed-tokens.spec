@@ -1,5 +1,5 @@
 Name:           managed-tokens
-Version:        0.1.0
+Version:        0.2.1
 Release:        1
 Summary:        Utility to obtain Hashicorp vault (service) tokens from service kerberos principals and distribute them to experiment nodes
 
@@ -57,6 +57,7 @@ rm -rf %{buildroot}
 
 %files
 %defattr(0755, rexbatch, fife, 0774)
+%{_sysconfdir}/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/managedTokens.yml
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/cron.d/%{name}
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/logrotate.d/%{name}
@@ -66,6 +67,11 @@ rm -rf %{buildroot}
 %{_bindir}/token-push
 
 %post
+# Set owner of /etc/managed-tokens
+test -d %{_sysconfdir}/%{name} && {
+chown rexbatch:fife %{_sysconfdir}/%{name}
+}
+
 # Logfiles at /var/log/managed-tokens
 test -d /var/log/%{name} || {
 install -d /var/log/%{name} -m 0774 -o rexbatch -g fife
@@ -77,5 +83,8 @@ install -d %{_sharedstatedir}/%{name} -m 0774 -o rexbatch -g fife
 }
 
 %changelog
+* Wed Sep 07 2022 Shreyas Bhat <sbhat@fnal.gov> - 0.2.1
+Change owner of /etc/managed-tokens dir
+
 * Mon Aug 29 2022 Shreyas Bhat <sbhat@fnal.gov> - 0.1.0
 First version of the managed tokens RPM

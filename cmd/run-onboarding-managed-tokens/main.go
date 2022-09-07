@@ -99,8 +99,8 @@ func init() {
 func init() {
 	// Set up logs
 	log.SetLevel(log.DebugLevel)
-	debugLogConfigLookup := "logs.run-onboarding-managed-tokens/internal.debugfile"
-	logConfigLookup := "logs.run-onboarding-managed-tokens/internal.logfile"
+	debugLogConfigLookup := "logs.run-onboarding-managed-tokens.debugfile"
+	logConfigLookup := "logs.run-onboarding-managed-tokens.logfile"
 	// Debug log
 	log.AddHook(lfshook.NewHook(lfshook.PathMap{
 		log.DebugLevel: viper.GetString(debugLogConfigLookup),
@@ -186,7 +186,7 @@ func main() {
 	defer cancel()
 
 	// Temporary directory for kerberos caches
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens/internal")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

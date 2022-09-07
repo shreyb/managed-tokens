@@ -250,7 +250,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config,
 	s := service.NewService(serviceName)
 
 	// Get krb5ccname directory
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens/internal")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

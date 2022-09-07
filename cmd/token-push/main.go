@@ -271,9 +271,6 @@ func main() {
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
-
-	// TODO RPM should create /etc/managed-tokens/internal, /var/lib/managed-tokens, /etc/cron.d/managed-tokens, /etc/logrotate.d/managed-tokens
-	// TODO Go through all errors, and decide where we want to Error, Fatal, or perhaps return early
 	var globalTimeout time.Duration
 	var setupWg sync.WaitGroup
 
@@ -311,7 +308,7 @@ func main() {
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens/internal")
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}

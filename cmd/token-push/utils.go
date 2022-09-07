@@ -169,7 +169,7 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 				if viper.IsSet("dbLocation") {
 					dbLocation = viper.GetString("dbLocation")
 				} else {
-					dbLocation = "/var/lib/managed-tokens/internal/uid.db"
+					dbLocation = "/var/lib/managed-tokens/uid.db"
 
 				}
 

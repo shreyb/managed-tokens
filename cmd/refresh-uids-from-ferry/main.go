@@ -289,7 +289,7 @@ func main() {
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
 	} else {
-		dbLocation = "/var/lib/managed-tokens/internal/uid.db"
+		dbLocation = "/var/lib/managed-tokens/uid.db"
 	}
 	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 

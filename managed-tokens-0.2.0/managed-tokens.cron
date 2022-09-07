@@ -1,0 +1,5 @@
+### Cron.d file for managed-tokens
+#
+#58 * * * * rexbatch /usr/local/bin/token-push > /dev/null 2>&1
+#00 06 * * * rexbatch /usr/local/bin/refresh-uids-from-ferry > /dev/null 2>&1
+#
