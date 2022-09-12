@@ -198,14 +198,16 @@ func setKeytabPath() func(c *worker.Config) error {
 // setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
 func setUserPrincipalAndHtgettokenopts() func(c *worker.Config) error {
 	return func(c *worker.Config) error {
+		var htgettokenOptsRaw string
 		c.UserPrincipal = viper.GetString("ferry.serviceKerberosPrincipal")
-
 		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
-		// TODO Make htgettokenopts configurable
-		htgettokenOptsRaw := []string{
-			"--credkey=" + credKey,
+
+		if viper.IsSet("htgettokenopts") {
+			htgettokenOptsRaw = viper.GetString("htgettokenopts")
+		} else {
+			htgettokenOptsRaw = "--credkey=" + credKey
 		}
-		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
+		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + htgettokenOptsRaw + "\""
 		return nil
 	}
 }

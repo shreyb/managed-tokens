@@ -3,6 +3,7 @@ keytabPath: "/opt/managed-tokens/keytabs"
 condorCollectorHost: collectorhost.domain
 condorCreddHost: creddhost.domain
 kerberosPrincipalPattern: principal_pattern
+htgettokenopts: string_of_htgettoken_options_for_command_line
 dbLocation: "/var/lib/managed-tokens/uid.db"
 
 # Performance/timeouts
