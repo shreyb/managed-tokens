@@ -15,8 +15,6 @@ import (
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
-var userPrincipalTemplate = template.Must(template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")))
-
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
 // and send notification.Notifications on, and sends *worker.Configs to the worker
 func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
@@ -106,6 +104,7 @@ func setUserPrincipal(serviceConfigPath, experiment string) func(sc *worker.Conf
 		if viper.IsSet(userPrincipalOverrideConfigPath) {
 			sc.UserPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
 		} else {
+			userPrincipalTemplate := template.Must(template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")))
 			var b strings.Builder
 			templateArgs := struct{ Account string }{Account: viper.GetString(serviceConfigPath + ".account")}
 			if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
