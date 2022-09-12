@@ -14,8 +14,21 @@ import (
 type contextKey int
 
 const (
-	overrideTimeout contextKey = iota
+	verbose contextKey = iota
+	overrideTimeout
 )
+
+// GetVerboseFromContext returns the value of the verbose value from a context if it has been stored.  It also type-checks the value to ensure
+// it was stored properly
+func GetVerboseFromContext(ctx context.Context) (bool, bool) {
+	verbose, ok := ctx.Value(verbose).(bool)
+	return verbose, ok
+}
+
+// ContextWithVerbose wraps a context with a verbose=true value
+func ContextWithVerbose(ctx context.Context) context.Context {
+	return context.WithValue(ctx, verbose, true)
+}
 
 // GetOverrideTimeoutFromContext returns the override timeout value from a context if it's been stored and type-checks it
 func GetOverrideTimeoutFromContext(ctx context.Context) (time.Duration, bool) {

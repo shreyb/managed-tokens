@@ -58,6 +58,7 @@ func init() {
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
+	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -196,6 +197,12 @@ func main() {
 	}()
 
 	// Processing
+
+	// Add verbose to the global context
+	if viper.GetBool("verbose") {
+		ctx = utils.ContextWithVerbose(ctx)
+	}
+
 	// 1. Get Kerberos ticket
 	// Channel, context, and worker for getting kerberos ticket
 	var kerberosContext context.Context

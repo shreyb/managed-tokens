@@ -62,7 +62,10 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	}
 
 	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
-	log.Debug("Now creating new kerberos ticket with keytab")
+	log.WithFields(log.Fields{
+		"keytabPath":    keytabPath,
+		"userPrincipal": userPrincipal,
+	}).Debug("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{
@@ -74,7 +77,7 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 		log.WithFields(log.Fields{
 			"keytabPath":    keytabPath,
 			"userPrincipal": userPrincipal,
-		}).Error("Error running kinit to create new keytab")
+		}).Error("Error running kinit to create new kerberos ticket")
 		log.WithFields(log.Fields{
 			"keytabPath":    keytabPath,
 			"userPrincipal": userPrincipal,

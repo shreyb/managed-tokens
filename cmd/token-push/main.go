@@ -101,6 +101,7 @@ func init() {
 	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
 	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
+	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 	pflag.String("admin", "", "Override the config file admin email")
 
 	pflag.Parse()
@@ -389,6 +390,11 @@ func main() {
 			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
 		}
 	}()
+
+	// Add verbose to the global context
+	if viper.GetBool("verbose") {
+		ctx = utils.ContextWithVerbose(ctx)
+	}
 
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts

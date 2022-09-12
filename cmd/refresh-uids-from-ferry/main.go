@@ -96,6 +96,7 @@ func init() {
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.String("authmethod", "tls", "Choose method for authentication to FERRY.  Currently-supported choices are \"tls\" and \"jwt\"")
+	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -284,6 +285,11 @@ func main() {
 			}
 		}
 	}()
+
+	// Add verbose to the global context
+	if viper.GetBool("verbose") {
+		ctx = utils.ContextWithVerbose(ctx)
+	}
 
 	// Open connection to the SQLite database where UID info will be stored
 	if viper.IsSet("dbLocation") {

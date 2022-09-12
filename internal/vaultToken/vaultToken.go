@@ -113,8 +113,21 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 // using interactive=true, it will display stdout/stderr on the stdout of the caller
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environ environment.CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
-	//TODO if verbose, add the -v flag here
-	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["condor_vault_storer"], serviceName)
+	cmdArgs := make([]string, 0, 2)
+	// TODO Make this clearer
+	verbose, ok := utils.GetVerboseFromContext(ctx)
+	if !ok {
+		log.Info("Could not retrieve verbose setting from context, either because it was not set or because of an error.  Setting verbose to false")
+		verbose = false
+	}
+	log.Debugf("Verbose is set to %t", verbose)
+
+	if verbose {
+		cmdArgs = append(cmdArgs, "-v")
+	}
+	cmdArgs = append(cmdArgs, serviceName)
+
+	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
 	log.WithField("service", serviceName).Info("Storing and obtaining vault token")
 
@@ -148,7 +161,9 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 			log.WithField("service", serviceName).Errorf("%s", stdoutStderr)
 			return err
 		} else {
-			log.WithField("service", serviceName).Debugf("%s", stdoutStderr)
+			if len(stdoutStderr) > 0 {
+				log.WithField("service", serviceName).Debugf("%s", stdoutStderr)
+			}
 		}
 	}
 
