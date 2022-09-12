@@ -122,7 +122,6 @@ func setUserPrincipal(serviceConfigPath, experiment string) func(sc *worker.Conf
 		} else {
 			htgettokenOptsRaw = "--credkey=" + credKey
 		}
-
 		sc.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + htgettokenOptsRaw + "\""
 		return nil
 	}

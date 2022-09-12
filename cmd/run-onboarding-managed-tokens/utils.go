@@ -56,6 +56,7 @@ func setCondorCollectorHost(serviceConfigPath string) func(c *worker.Config) err
 // setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
 func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment string) func(c *worker.Config) error {
 	return func(c *worker.Config) error {
+		var htgettokenOptsRaw string
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))
 		if err != nil {
 			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
@@ -75,11 +76,13 @@ func setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, experiment str
 		}
 
 		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
-		// TODO Make htgettokenopts configurable
-		htgettokenOptsRaw := []string{
-			fmt.Sprintf("--credkey=%s", credKey),
+
+		if viper.IsSet("htgettokenopts") {
+			htgettokenOptsRaw = viper.GetString("htgettokenopts")
+		} else {
+			htgettokenOptsRaw = "--credkey=" + credKey
 		}
-		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + strings.Join(htgettokenOptsRaw, " ") + "\""
+		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + htgettokenOptsRaw + "\""
 		return nil
 	}
 }
