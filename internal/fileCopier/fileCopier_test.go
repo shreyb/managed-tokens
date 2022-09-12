@@ -57,7 +57,6 @@ func TestCopyToDestination(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				// TODO FIX THIS
 				err := CopyToDestination(ctx, &test.fakeCopierProtocolSetup)
 				switch err {
 				case nil:
@@ -81,7 +80,6 @@ func TestCopyToDestination(t *testing.T) {
 }
 
 // TODO This test doesn't work because of rsync issues with kerberos
-// // TODO Change the hostname code so that we don't assume fnal.gov, or at least fill it in in the executable and config file
 // // Then we can get rid of the hostnameRegex stuff, and just use localhost
 // func TestRsyncCopyToDestination(t *testing.T) {
 // 	sourceFile, err := os.CreateTemp(os.TempDir(), "testManagedTokens")
