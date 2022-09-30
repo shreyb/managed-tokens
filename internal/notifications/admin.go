@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -45,7 +46,8 @@ type AdminDataFinal struct {
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
 	var wg sync.WaitGroup
 	var existsSendError bool
-	var b strings.Builder
+	var fullMessageBuilder strings.Builder
+	var abridgedMessageBuilder strings.Builder
 
 	adminErrors.writerCount.Wait()
 	log.Debug("adminErrors is finalized")
@@ -71,8 +73,9 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		return nil
 	}
 
-	// If there are errors
-	adminErrorsMapFinal := prepareAdminErrorsForMessage()
+	// If there are errors, prepare the long-form and abridged messages
+	adminErrorsMapFinal := prepareAdminErrorsForFullMessage()
+	setupErrorsCombined, pushErrorsCombined := prepareAbridgedAdminSlices()
 
 	timestamp := time.Now().Format(time.RFC822)
 	templateData, err := os.ReadFile(adminTemplatePath)
@@ -81,44 +84,87 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		return err
 	}
 	adminTemplate := template.Must(template.New("admin").Parse(string(templateData)))
-	if err = adminTemplate.Execute(&b, struct {
-		Timestamp   string
-		Operation   string
-		AdminErrors map[string]AdminDataFinal
+	if err = adminTemplate.Execute(&fullMessageBuilder, struct {
+		Timestamp           string
+		Operation           string
+		AdminErrors         map[string]AdminDataFinal
+		SetupErrorsCombined []string
+		PushErrorsCombined  []string
+		Abridged            bool
 	}{
-		Timestamp:   timestamp,
-		Operation:   operation,
-		AdminErrors: adminErrorsMapFinal,
+		Timestamp:           timestamp,
+		Operation:           operation,
+		AdminErrors:         adminErrorsMapFinal,
+		SetupErrorsCombined: setupErrorsCombined,
+		PushErrorsCombined:  pushErrorsCombined,
+		Abridged:            false,
 	}); err != nil {
-		log.WithField("caller", "SendAdminNotifications").Errorf("Failed to execute admin email template: %s", err)
+		log.WithField("caller", "SendAdminNotifications").Errorf("Failed to execute full admin template: %s", err)
+		return err
+	}
+	if err = adminTemplate.Execute(&abridgedMessageBuilder, struct {
+		Timestamp           string
+		Operation           string
+		AdminErrors         map[string]AdminDataFinal
+		SetupErrorsCombined []string
+		PushErrorsCombined  []string
+		Abridged            bool
+	}{
+		Timestamp:           timestamp,
+		Operation:           operation,
+		AdminErrors:         adminErrorsMapFinal,
+		SetupErrorsCombined: setupErrorsCombined,
+		PushErrorsCombined:  pushErrorsCombined,
+		Abridged:            true,
+	}); err != nil {
+		log.WithField("caller", "SendAdminNotifications").Errorf("Failed to execute abridged admin template: %s", err)
 		return err
 	}
 
-	// Run SendMessage on all all configured sendMessagers
+	// Run SendMessage on all configured sendMessagers
 	for _, sm := range sendMessagers {
 		wg.Add(1)
 		go func(sm SendMessager) {
 			defer wg.Done()
-			if err := SendMessage(ctx, sm, b.String()); err != nil {
-				existsSendError = true
-				switch sm.(type) {
-				case *email:
+			switch sm.(type) {
+			case *email:
+				// Send long-form message
+				if err := SendMessage(ctx, sm, fullMessageBuilder.String()); err != nil {
+					existsSendError = true
 					log.WithField("caller", "SendAdminNotifications").Error("Failed to send admin email")
-				case *slackMessage:
-					log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
-				default:
-					log.WithField("caller", "SendAdminNotifications").Error("Unsupported SendMessager")
 				}
+			case *slackMessage:
+				// Send abridged message
+				if err := SendMessage(ctx, sm, abridgedMessageBuilder.String()); err != nil {
+					existsSendError = true
+					log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
+				}
+			default:
+				log.WithField("caller", "SendAdminNotifications").Error("Unsupported SendMessager")
 			}
 		}(sm)
 	}
-
 	wg.Wait()
 
 	if existsSendError {
 		return errors.New("sending admin notifications failed.  Please see logs")
 	}
 	return nil
+}
+
+// prepareAbridgedAdminSlices takes the stored adminErrors and returns two []string objects containing the various setup and push errors, not broken
+// up by service.  This is for abridged messages like slack messages.
+func prepareAbridgedAdminSlices() (setupErrorsCombined []string, pushErrorsCombined []string) {
+	adminErrorsUnsync := adminErrorsToAdminDataUnsync()
+	for service, data := range adminErrorsUnsync {
+		for _, setupError := range data.SetupErrors {
+			setupErrorsCombined = append(setupErrorsCombined, fmt.Sprintf("%s: %s", service, setupError))
+		}
+		for node, pushError := range data.PushErrors {
+			pushErrorsCombined = append(pushErrorsCombined, fmt.Sprintf("%s@%s: %s", service, node, pushError))
+		}
+	}
+	return setupErrorsCombined, pushErrorsCombined
 }
 
 func adminErrorAdder(adminChan <-chan Notification) {
@@ -130,9 +176,6 @@ func adminErrorAdder(adminChan <-chan Notification) {
 
 // addErrorToAdminErrors takes the passed in Notification, type-checks it, and adds it to the appropriate field of adminErrors
 func addErrorToAdminErrors(n Notification) {
-	// is the service key there?
-	// If so, grab the AdminData struct, set it aside
-	// Add to that AdminData stuff
 	adminErrors.mu.Lock()
 	defer adminErrors.mu.Unlock()
 
@@ -171,18 +214,36 @@ func addErrorToAdminErrors(n Notification) {
 }
 
 // prepareAdminErrorsForMessage transforms the accumulated adminErrors variable from type adminData to AdminDataFinal
-func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
-
-	// Intermediate data structure between AdminData and AdminDataFinal
-	type adminData2 struct {
-		SetupErrors []string
-		PushErrors  map[string]string
-	}
-
-	adminErrorsMap := make(map[string]adminData)
-	adminErrorsMap2 := make(map[string]adminData2)
+func prepareAdminErrorsForFullMessage() map[string]AdminDataFinal {
+	adminErrorsIntermediateMap := adminErrorsToAdminDataUnsync()
 	adminErrorsMapFinal := make(map[string]AdminDataFinal)
 
+	// Convert pushErrors map to string, save as map adminErrorsMapFinal so we get our final form.
+	for service, aData := range adminErrorsIntermediateMap {
+		a := AdminDataFinal{
+			SetupErrors: aData.SetupErrors,
+			PushErrorsTable: PrepareTableStringFromMap(
+				aData.PushErrors,
+				"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
+				[]string{"Node", "Error"},
+			),
+		}
+		adminErrorsMapFinal[service] = a
+
+	}
+	return adminErrorsMapFinal
+
+}
+
+// adminDataUnsync is an intermediate data structure between adminData and AdminDataFinal that translates the adminData.PushErrors sync.Map to a regular map[string]string
+type adminDataUnsync struct {
+	SetupErrors []string
+	PushErrors  map[string]string
+}
+
+func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
+	adminErrorsMap := make(map[string]adminData)
+	adminErrorsMapUnsync := make(map[string]adminDataUnsync)
 	// 1.  Write adminErrors from sync.Map to Map called adminErrorsMap
 	adminErrors.errorsMap.Range(func(service, aData any) bool {
 		s, ok := service.(string)
@@ -200,9 +261,9 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 		return true
 	})
 
-	// 2. Take adminErrorsMap, convert to intermediate map with PushErrors as a regular map[string]string.  Map saved as adminErrorsMap2
+	// 2. Take adminErrorsMap, convert so that values are adminErrorUnsync objects.
 	for service, aData := range adminErrorsMap {
-		a := adminData2{
+		a := adminDataUnsync{
 			SetupErrors: aData.SetupErrors,
 			PushErrors:  make(map[string]string),
 		}
@@ -221,24 +282,9 @@ func prepareAdminErrorsForMessage() map[string]AdminDataFinal {
 			}
 			return true
 		})
-		adminErrorsMap2[service] = a
+		adminErrorsMapUnsync[service] = a
 	}
-
-	// Final pass-through:  Convert pushErrors map to string, save as map adminErrorsMapFinal so we get our final form.
-	for service, aData := range adminErrorsMap2 {
-		a := AdminDataFinal{
-			SetupErrors: aData.SetupErrors,
-			PushErrorsTable: PrepareTableStringFromMap(
-				aData.PushErrors,
-				"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
-				[]string{"Node", "Error"},
-			),
-		}
-		adminErrorsMapFinal[service] = a
-
-	}
-	return adminErrorsMapFinal
-
+	return adminErrorsMapUnsync
 }
 
 // isEmpty checks to see if a variable of type adminData has any data

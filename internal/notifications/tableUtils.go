@@ -15,25 +15,26 @@ func PrepareTableStringFromMap(m map[string]string, helpMessage string, header [
 	if len(m) == 0 {
 		return ""
 	}
-
 	table := mapStringStringToTable(m, header)
-
 	finalTable := fmt.Sprintf("%s\n\n%s", helpMessage, table)
 	return finalTable
-
 }
 
-// mapStringMapStringErrorToTable takes a map[string]map[string]string and generates a table using the provided header slice
-func mapStringStringToTable(myMap map[string]string, header []string) string {
+// createBasicTable creates a basic table from data in the form of a [][]string object with a header
+func createBasicTable(data [][]string, header []string) string {
 	var b strings.Builder
-	data := wrapMapToTableData(myMap)
 	table := tablewriter.NewWriter(&b)
 	table.SetHeader(header)
 	table.AppendBulk(data)
 	table.SetBorder(false)
 	table.Render()
-
 	return b.String()
+}
+
+// mapStringMapStringErrorToTable takes a map[string]map[string]string and generates a table using the provided header slice
+func mapStringStringToTable(myMap map[string]string, header []string) string {
+	data := wrapMapToTableData(myMap)
+	return createBasicTable(data, header)
 }
 
 // wrapMapToTableData wraps MapToTable by taking a map, getting its value, and then passing that to MapToTable with the proper initialization parameters.  This or a function like it should be used by external APIs as opposed to MapToTable.

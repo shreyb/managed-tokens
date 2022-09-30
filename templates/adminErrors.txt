@@ -1,5 +1,18 @@
 The following errors were reported by the Managed Tokens service at {{.Timestamp}} while performing operation {{.Operation}}:
 
+{{ if .Abridged }}
+{{if .SetupErrorsCombined }}Setup errors:
+{{range .SetupErrorsCombined}}
+    • {{.}}
+{{end}}
+{{end}}
+
+{{if .PushErrorsCombined }}Processing errors:
+{{range .PushErrorsCombined}}
+    • {{.}}
+{{end}}
+{{end}}
+{{else}}
 {{range $service, $adminData := .AdminErrors}}
 {{ $service }}
 {{ if $adminData.SetupErrors }}Setup errors:
@@ -10,7 +23,7 @@ The following errors were reported by the Managed Tokens service at {{.Timestamp
 
 {{ if ne $adminData.PushErrorsTable "" }}Processing errors:
 {{ $adminData.PushErrorsTable}}
-
+{{end}}
 {{end}}
 {{end}}
 

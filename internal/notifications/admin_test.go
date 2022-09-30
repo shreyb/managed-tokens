@@ -150,8 +150,8 @@ func TestAddPushErrorToAdminErrors(t *testing.T) {
 	}
 }
 
-// TestPrepareAdminErrorsForMessage checks that a set of setup errors and push errors gets properly translated into a table for sending notifications
-func TestPrepareAdminErrorsForMessage(t *testing.T) {
+// TestPrepareAdminErrorsForFull Message checks that a set of setup errors and push errors gets properly translated into a table for sending notifications
+func TestPrepareAdminErrorsForFullMessage(t *testing.T) {
 	adminErrors = packageErrors{}
 	finalCheckData := make(map[string]AdminDataFinal)
 	notifications := []Notification{
@@ -221,7 +221,7 @@ func TestPrepareAdminErrorsForMessage(t *testing.T) {
 		addErrorToAdminErrors(n)
 	}
 
-	finalTestData := prepareAdminErrorsForMessage()
+	finalTestData := prepareAdminErrorsForFullMessage()
 
 	for service, serviceData := range finalCheckData {
 		// Check SetupErrors
@@ -253,6 +253,64 @@ func TestPrepareAdminErrorsForMessage(t *testing.T) {
 
 			}
 		}
+	}
+}
+
+// TestPrepareAbridgedAdminSlice checks that a packageErrors object gets properly translated into the proper slices
+func TestPrepareAbridgedAdminSlice(t *testing.T) {
+	adminErrors = packageErrors{}
+	notifications := []Notification{
+		&setupError{
+			message: "Setup error 1",
+			service: "test_service1",
+		},
+		&setupError{
+			message: "Setup error 2",
+			service: "test_service1",
+		},
+		&setupError{
+			message: "Setup error 1",
+			service: "test_service2",
+		},
+		&pushError{
+			message: "Push error 1",
+			node:    "node1",
+			service: "test_service1",
+		},
+		&pushError{
+			message: "Push error 1",
+			node:    "node2",
+			service: "test_service1",
+		},
+		&pushError{
+			message: "Push error 1",
+			node:    "node3",
+			service: "test_service2",
+		},
+	}
+
+	// Populate test data into adminErrors
+	for _, n := range notifications {
+		addErrorToAdminErrors(n)
+	}
+
+	expectedSetupErrors := []string{
+		"test_service1: Setup error 1",
+		"test_service1: Setup error 2",
+		"test_service2: Setup error 1",
+	}
+	expectedPushErrors := []string{
+		"test_service1@node1: Push error 1",
+		"test_service1@node2: Push error 1",
+		"test_service2@node3: Push error 1",
+	}
+
+	testSetupErrors, testPushErrors := prepareAbridgedAdminSlices()
+	if !reflect.DeepEqual(testSetupErrors, expectedSetupErrors) {
+		t.Errorf("Setup Errors slice did not match.  Expected %s, got %s", expectedSetupErrors, testSetupErrors)
+	}
+	if !reflect.DeepEqual(testPushErrors, expectedPushErrors) {
+		t.Errorf("Push Errors slice did not match.  Expected %s, got %s", expectedPushErrors, testPushErrors)
 	}
 }
 
