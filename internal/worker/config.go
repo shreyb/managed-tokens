@@ -20,6 +20,7 @@ type Config struct {
 	Account       string
 	KeytabPath    string
 	DesiredUID    uint32
+	Schedds       []string
 	environment.CommandEnvironment
 }
 

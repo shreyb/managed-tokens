@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -19,6 +20,7 @@ import (
 var vaultExecutables = map[string]string{
 	"condor_vault_storer": "",
 	"condor_store_cred":   "",
+	"condor_status":       "",
 	"htgettoken":          "",
 }
 
@@ -29,13 +31,23 @@ func init() {
 	}
 }
 
-// StoreAndGetTokens will store a refresh token on the configured vault server and obtain vault and bearer tokens for a service using HTCondor executables.
-// It will also validate the obtained vault token using the vault token pattern expected by Hashicorp (called a Service token by Hashicorp).
+// Func to get all schedds - DONE
+// In StoreAndGetTokens and other methods, copy environments so that we have one per schedd, then run - DONE
+// condor_vault_storer on each - DONE
+// Modify other funcs like that too here
+// TODO: Maybe a context value to store condor_status constraint so we don't have to hard-code jobsub_lite stuff in there?
+// Have anything that sets _condor_CREDD_HOST in the environment struct not actually set that unless
+// in the config as an override
+// Get Schedds at top level (main), then pass those down in worker.Configs.  Those can be passed down into StoreAndGetTokens
+
+// StoreAndGetTokens will store a refresh token on the condor-configured vault server and obtain vault and bearer tokens for a service using HTCondor executables.
+// It will also store the vault and bearer token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
+// Finally, it will validate the obtained vault token using the vault token pattern expected by Hashicorp (called a Service token by Hashicorp).
 // If run in interactive mode, then the stdout/stderr will be displayed in the user's terminal.  This can be used, for example, if it is expected
 // that the user might have to authenticate to the vault server.
-func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, environment environment.CommandEnvironment, interactive bool) error {
+func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, schedds []string, environ environment.CommandEnvironment, interactive bool) error {
 	// kswitch
-	if err := kerberos.SwitchCache(ctx, userPrincipal, environment); err != nil {
+	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithField("serviceName", serviceName).Error("Context timeout")
 			return ctx.Err()
@@ -44,14 +56,53 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 		return err
 	}
 
-	// Get token and store it in vault
-	if err := getTokensandStoreinVault(ctx, serviceName, environment, interactive); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("serviceName", serviceName).Error("Context timeout")
-			return ctx.Err()
+	// If we're running on a cluster with multiple schedds, create CommandEnvironments for each so we store tokens in all the possible credds
+	environmentsForCommands := make([]environment.CommandEnvironment, 0)
+	for _, schedd := range schedds {
+		newEnv := environ
+		newEnv.CondorCreddHost = schedd
+		environmentsForCommands = append(environmentsForCommands, newEnv)
+	}
+
+	// Listener for all of the getTokensAndStoreInVault goroutines
+	var isError bool
+	errChan := make(chan error)
+	go func() {
+		for err := range errChan {
+			if err != nil && !isError {
+				isError = true
+			}
 		}
-		log.WithField("serviceName", serviceName).Errorf("Could not obtain vault token: %s", err)
-		return err
+	}()
+
+	// Get token and store it in vault
+	var wg sync.WaitGroup
+	for _, environmentForCommand := range environmentsForCommands {
+		wg.Add(1)
+		go func(environmentForCommand environment.CommandEnvironment) {
+			defer wg.Done()
+			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
+				if ctx.Err() == context.DeadlineExceeded {
+					log.WithField("serviceName", serviceName).Error("Context timeout")
+					errChan <- ctx.Err()
+				}
+				log.WithField("serviceName", serviceName).Errorf("Could not obtain vault token: %s", err)
+				errChan <- err
+			}
+			log.WithFields(log.Fields{
+				"serviceName": serviceName,
+				"credd":       environmentForCommand.CondorCreddHost,
+			}).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
+			errChan <- nil
+		}(environmentForCommand)
+	}
+	wg.Wait()
+	close(errChan)
+
+	if isError {
+		msg := "Error obtaining and/or storing vault tokens"
+		log.WithField("serviceName", serviceName).Errorf(msg)
+		return errors.New(msg)
 	}
 
 	// Validate vault token
@@ -71,7 +122,7 @@ func StoreAndGetTokens(ctx context.Context, serviceName, userPrincipal string, e
 }
 
 // TODO STILL UNDER DEVELOPMENT.  Export when ready
-func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer string, environ environment.CommandEnvironment) error {
+func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
 	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithField("service", serviceName).Error("Context timeout")
@@ -114,10 +165,9 @@ func GetToken(ctx context.Context, serviceName, userPrincipal, vaultServer strin
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environ environment.CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
 	cmdArgs := make([]string, 0, 2)
-	// TODO Make this clearer
 	verbose, ok := utils.GetVerboseFromContext(ctx)
 	if !ok {
-		log.Info("Could not retrieve verbose setting from context, either because it was not set or because of an error.  Setting verbose to false")
+		log.Debug("Could not retrieve verbose setting from context, either because it was not set or because of an error.  Setting verbose to false")
 		verbose = false
 	}
 	log.Debugf("Verbose is set to %t", verbose)
@@ -166,9 +216,6 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 			}
 		}
 	}
-
-	log.WithField("service", serviceName).Info("Successfully obtained and stored vault token")
-
 	return nil
 }
 

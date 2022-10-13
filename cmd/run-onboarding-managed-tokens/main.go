@@ -224,6 +224,7 @@ func main() {
 			setkrb5ccname(krb5ccname),
 			setCondorCreddHost(serviceConfigPath),
 			setCondorCollectorHost(serviceConfigPath),
+			setSchedds(serviceConfigPath),
 			setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, s.Experiment()),
 			setKeytabOverride(serviceConfigPath),
 			account(serviceConfigPath),

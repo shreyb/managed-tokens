@@ -52,7 +52,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 			defer vaultStorerCancel()
 
-			if err := vaultToken.StoreAndGetTokens(vaultStorerContext, sc.Service.Name(), sc.UserPrincipal, sc.CommandEnvironment, interactive); err != nil {
+			if err := vaultToken.StoreAndGetTokens(vaultStorerContext, sc.UserPrincipal, sc.Service.Name(), sc.Schedds, sc.CommandEnvironment, interactive); err != nil {
 				msg := "Could not store and get vault tokens"
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
@@ -79,5 +79,5 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 	vaultContext, vaultCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 	defer vaultCancel()
 
-	return vaultToken.StoreAndGetTokens(vaultContext, sc.Service.Name(), sc.UserPrincipal, sc.CommandEnvironment, interactive)
+	return vaultToken.StoreAndGetTokens(vaultContext, sc.UserPrincipal, sc.Service.Name(), sc.Schedds, sc.CommandEnvironment, interactive)
 }

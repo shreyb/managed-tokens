@@ -1,11 +1,12 @@
 module github.com/shreyb/managed-tokens
 
-go 1.18
+go 1.19
 
 require (
 	github.com/lestrrat-go/jwx v1.2.25
 	github.com/mattn/go-sqlite3 v1.14.15
 	github.com/prometheus/client_golang v1.13.0
+	github.com/retzkek/htcondor-go v1.2.0
 	github.com/rifflock/lfshook v0.0.0-20180920164130-b9218ef580f5
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/pflag v1.0.5
@@ -19,6 +20,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/goccy/go-json v0.9.11 // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/hashicorp/hcl v1.0.1-vault-3 // indirect
 	github.com/lestrrat-go/backoff/v2 v2.0.8 // indirect
@@ -30,6 +32,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.13 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
+	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

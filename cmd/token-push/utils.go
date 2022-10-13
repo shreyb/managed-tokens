@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 
+	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
@@ -73,10 +74,8 @@ func setCondorCreddHost(serviceConfigPath string) func(sc *worker.Config) error 
 		overrideVar := serviceConfigPath + ".condorCreddHostOverride"
 		if viper.IsSet(overrideVar) {
 			addString = addString + viper.GetString(overrideVar)
-		} else {
-			addString = addString + viper.GetString("condorCreddHost")
+			sc.CommandEnvironment.CondorCreddHost = addString
 		}
-		sc.CommandEnvironment.CondorCreddHost = addString
 		return nil
 	}
 }
@@ -217,5 +216,52 @@ func account(serviceConfigPath string) func(sc *worker.Config) error {
 	return func(sc *worker.Config) error {
 		sc.Account = viper.GetString(serviceConfigPath + ".account")
 		return nil
+	}
+}
+
+// setSchedds sets the Schedds field in the passed-in worker.Config object by querying the condor collector.  It can be overridden
+// by setting the serviceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
+func setSchedds(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
+		sc.Schedds = make([]string, 0)
+
+		// If condorCreddHostOverride is set, set the schedd slice to that
+		addString := "_condor_CREDD_HOST="
+		creddOverrideVar := serviceConfigPath + ".condorCreddHostOverride"
+		if viper.IsSet(creddOverrideVar) {
+			addString = addString + viper.GetString(creddOverrideVar)
+			sc.CommandEnvironment.CondorCreddHost = addString
+			sc.Schedds = append(sc.Schedds, viper.GetString(creddOverrideVar))
+			return nil
+		}
+
+		// Run condor_status to get schedds.
+		var collectorHost, constraint string
+		if c := viper.GetString(serviceConfigPath + ".condorCollectorHostOverride"); c != "" {
+			collectorHost = c
+		} else if c := viper.GetString("condorCollectorHost"); c != "" {
+			collectorHost = c
+		}
+		if c := viper.GetString(serviceConfigPath + ".condorScheddConstraintOverride"); c != "" {
+			constraint = c
+		} else if c := viper.GetString("condorScheddConstraint"); c != "" {
+			constraint = c
+		}
+
+		statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithConstraint(constraint).WithArg("-schedd")
+		classads, err := statusCmd.Run()
+		if err != nil {
+			log.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+
+		}
+
+		for _, classad := range classads {
+			name := classad["Name"].String()
+			sc.Schedds = append(sc.Schedds, name)
+		}
+
+		log.WithField("schedds", sc.Schedds).Debug("Set schedds successfully")
+		return nil
+
 	}
 }
