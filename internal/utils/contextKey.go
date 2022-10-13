@@ -41,7 +41,7 @@ func ContextWithOverrideTimeout(ctx context.Context, timeout time.Duration) cont
 	return context.WithValue(ctx, overrideTimeout, timeout)
 }
 
-// GetProperTimeoutFromContext takes a constant and a default duration, and tries to see if the context is holding an overrideTimeout key.
+// GetProperTimeoutFromContext takes a context and a default duration, and tries to see if the context is holding an overrideTimeout key.
 // If it finds an overrideTimeout key, it returns the corresponding time.Duration. Otherwise, it will parse the defaultDuration string and
 // return a time.Duration from that, if possible.
 func GetProperTimeoutFromContext(ctx context.Context, defaultDuration string) (time.Duration, error) {
