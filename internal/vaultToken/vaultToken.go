@@ -60,7 +60,7 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 	environmentsForCommands := make([]environment.CommandEnvironment, 0)
 	for _, schedd := range schedds {
 		newEnv := environ
-		newEnv.CondorCreddHost = schedd
+		newEnv.CondorCreddHost = fmt.Sprintf("%s=%s", newEnv.ToEnvs()["CondorCreddHost"], schedd)
 		environmentsForCommands = append(environmentsForCommands, newEnv)
 	}
 
