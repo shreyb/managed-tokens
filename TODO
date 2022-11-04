@@ -1,13 +1,71 @@
 For all TODOs that are more general
 
-* Documentation on github
-    * Configurable timeouts (note, we want production to NOT have these set.  Maybe we can comment them out in the stock file?
-        * globalTimeout
-		* kerberosTimeout
-		* vaultstorerTimeout
-		* pingTimeout
-		* pushTimeout
-        * ferryrequestTimeout
-		* dbTimeout
+* Documentation:
+	*  on github
+		* General how-to
+			* Install
+			* Each tool
+			* getting-started
+		* Config file options
+			* Configurable timeouts (note, we want production to NOT have these set.  Maybe we can comment them out in the stock file?
+				* globalTimeout
+				* kerberosTimeout
+				* vaultstorerTimeout
+				* pingTimeout
+				* pushTimeout
+				* ferryrequestTimeout
+				* dbTimeout
+			* General options
+				* keytabPath
+				* condorCollectorHost
+				* condorScheddConstraint
+				* kerberosPrincipalPattern
+				* htgettokenopts
+				* dbLocation
+			* FERRY config
+				*   host
+				*   port
+				*   caPath
+				*   hostCert
+				*   hostKey
+				*   serviceExperiment
+				*   serviceRole
+				*   serviceKerberosPrincipal
+				*   serviceKeytabPath
+				*   vaultServer
+			* Email settings
+				* from
+				* smtpHost
+				* smtpPort
+			* Logfile settings
+				* For each executable
+					* logfile
+					* debugfile
+			* Prometheus settings
+				* host
+				* jobname
+			* Notifications settings
+			    * SLACK_ALERTS_URL
+  				* admin_email
+			* Experiment settings
+				* emails
+				* roles
+					* account
+					* destinationNodes
+					*
+				* Overrides
+					* keytabPath
+					* userPrincipalOverride
+					* desiredUIDOverride
+					* condorCreddHostOverride
+					* condorCollectorHostOverride
+		* Build procedure
+	* FIFE
+		* General tokens overview
+		* What tokens go where
+		* What users should expect from managed tokens
+	* Internal DCS wiki (for operators)
+		* Deployment
+		* Configuration on FIFE hardware
 * Get a license for this repo
 * Remove this file from repo.  From this point on, all TODOs should be issues in the github repo

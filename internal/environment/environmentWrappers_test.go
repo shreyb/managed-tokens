@@ -16,9 +16,9 @@ type testEnviron struct {
 
 func (t *testEnviron) ToMap() map[string]string {
 	m := make(map[string]string)
-	m["Krb5ccname"] = "KRB5CCNAME=" + t.Krb5ccname
-	m["key1"] = "KEY1=" + t.key1
-	m["key2"] = "KEY2=" + t.key2
+	m["Krb5ccname"] = t.Krb5ccname
+	m["key1"] = t.key1
+	m["key2"] = t.key2
 	return m
 }
 
@@ -30,6 +30,10 @@ func (t *testEnviron) ToEnvs() map[string]string {
 	return m
 }
 
+func (t *testEnviron) ToValues() map[string]string {
+	return nil
+}
+
 type badTestEnviron struct {
 	key1 string
 	key2 string
@@ -37,8 +41,8 @@ type badTestEnviron struct {
 
 func (b *badTestEnviron) ToMap() map[string]string {
 	m := make(map[string]string)
-	m["key1"] = "KEY1=" + b.key1
-	m["key2"] = "KEY2=" + b.key2
+	m["key1"] = b.key1
+	m["key2"] = b.key2
 	return m
 }
 
@@ -47,6 +51,10 @@ func (b *badTestEnviron) ToEnvs() map[string]string {
 	m["key1"] = "KEY1"
 	m["key2"] = "KEY2"
 	return m
+}
+
+func (b *badTestEnviron) ToValues() map[string]string {
+	return nil
 }
 
 // TestKerberosEnvironmentWrappedCommand uses various types that implement EnvironmentMapper, and makes sure that KerberosEnvironmentWrappedCommand
@@ -61,17 +69,17 @@ func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 		{
 			"Use complete command environment to return kerberos-wrapped command",
 			&testEnviron{
-				Krb5ccname: "krb5ccnametest",
-				key1:       "key1_value",
-				key2:       "key2_value",
+				Krb5ccname: "KRB5CCNAME=krb5ccnametest",
+				key1:       "KEY1=key1_value",
+				key2:       "KEY2=key2_value",
 			},
 			"KRB5CCNAME=krb5ccnametest",
 		},
 		{
 			"Use incomplete command environment to return kerberos-wrapped command",
 			&badTestEnviron{
-				key1: "key1_value",
-				key2: "key2_value",
+				key1: "KEY1=key1_value",
+				key2: "KEY2=key2_value",
 			},
 			"",
 		},
@@ -110,9 +118,9 @@ func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 // right command environment
 func TestEnvironmentWrappedCommand(t *testing.T) {
 	environ := &testEnviron{
-		Krb5ccname: "krb5ccnametest",
-		key1:       "key1_value",
-		key2:       "key2_value",
+		Krb5ccname: "KRB5CCNAME=krb5ccnametest",
+		key1:       "KEY1=key1_value",
+		key2:       "KEY2=key2_value",
 	}
 
 	cmdExecutable, err := exec.LookPath("true")

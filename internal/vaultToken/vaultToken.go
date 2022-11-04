@@ -91,7 +91,7 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 			}
 			log.WithFields(log.Fields{
 				"serviceName": serviceName,
-				"credd":       environmentForCommand.CondorCreddHost,
+				"credd":       environmentForCommand.ToValues()["CondorCreddHost"],
 			}).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
 			errChan <- nil
 		}(environmentForCommand)

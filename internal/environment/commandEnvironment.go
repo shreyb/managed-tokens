@@ -2,6 +2,13 @@
 // those environments
 package environment
 
+import "strings"
+
+// TODO:  Maybe clean up CommandEnvironment so that it has a friendlier interface.  We can just
+// have the actual env var name be internal to the type, rather than the user needing to
+// know that.  I.e. You would say c := CommandEnvironment{Krb5ccname: "blahblah"}, and not need
+// to specify Krb5ccname: "KRB5CCNAME=blahblah"
+
 // CommandEnvironment is an environment for the various token-related commands to use to obtain vault and bearer tokens
 // The values of the fields are meant to be the full environment variable assignment statement, e.g.
 // c := CommandEnvironment{
@@ -42,8 +49,32 @@ func (c *CommandEnvironment) ToEnvs() map[string]string {
 	}
 }
 
+// ToValues gives a map of the fields of the CommandEnvironment to just the value of the environment
+// variable setting.  For example, if we have:
+//
+// c = CommandEnvironment{Krb5ccname: "KRB5CCNAME=/path/to/krb5cache"}
+//
+// then:
+//
+//	c.ToValues = map[string]string{
+//	 "Krb5ccname": "/path/to/krb5cache",
+//	 "CondorCreddHost": "",
+//	 "CondorCollectorHost": "",
+//	 "HtgettokenOpts": "",
+//	}
+func (c *CommandEnvironment) ToValues() map[string]string {
+	mapC := c.ToMap()
+	m := make(map[string]string, len(mapC))
+	for key, envSetting := range mapC {
+		value := strings.TrimPrefix(envSetting, c.ToEnvs()[key]+"=")
+		m[key] = value
+	}
+	return m
+}
+
 // EnvironmentMapper is an interface which can be used to get environment variable information for a command
 type EnvironmentMapper interface {
 	ToMap() map[string]string
 	ToEnvs() map[string]string
+	ToValues() map[string]string
 }
