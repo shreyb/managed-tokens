@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/user"
 	"strings"
@@ -52,7 +53,10 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
-	defer close(chans.GetNotificationsChan())
+	defer func() {
+		close(chans.GetNotificationsChan())
+		log.Debug("Closed PushTokensWorker Notifications Chan")
+	}()
 
 	pushTimeout, err := utils.GetProperTimeoutFromContext(ctx, pushDefaultTimeoutStr)
 	if err != nil {
@@ -111,7 +115,11 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
 						var notificationErrorString string
 						if pushContext.Err() != nil {
-							notificationErrorString = pushContext.Err().Error()
+							if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
+								notificationErrorString = pushContext.Err().Error() + " (timeout error)"
+							} else {
+								notificationErrorString = pushContext.Err().Error()
+							}
 							log.WithFields(log.Fields{
 								"experiment": sc.Service.Experiment(),
 								"role":       sc.Service.Role(),

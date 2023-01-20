@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -32,7 +33,10 @@ func (p *pingSuccess) GetSuccess() bool {
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
-	defer close(chans.GetNotificationsChan())
+	defer func() {
+		close(chans.GetNotificationsChan())
+		log.Debug("Closed PingAggregatorWorker Notifications Chan")
+	}()
 	var wg sync.WaitGroup
 	defer wg.Wait()
 
@@ -66,10 +70,16 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
 				if status.Err != nil {
+					var msg string
+					if errors.Is(status.Err, context.DeadlineExceeded) {
+						msg = "Timeout error"
+					} else {
+						msg = "Error pinging node"
+					}
 					log.WithFields(log.Fields{
 						"service": sc.Service.Name(),
 						"node":    status.PingNoder.String(),
-					}).Error("Error pinging node")
+					}).Error(msg)
 					failedNodes = append(failedNodes, status.PingNoder)
 				} else {
 					log.WithFields(log.Fields{

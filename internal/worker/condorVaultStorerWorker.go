@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 
 	log "github.com/sirupsen/logrus"
 
@@ -31,7 +32,10 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
-	defer close(chans.GetNotificationsChan())
+	defer func() {
+		close(chans.GetNotificationsChan())
+		log.Debug("Closed StoreAndGetTokenWorker Notifications Chan")
+	}()
 	var interactive bool
 
 	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
@@ -53,7 +57,12 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer vaultStorerCancel()
 
 			if err := vaultToken.StoreAndGetTokens(vaultStorerContext, sc.UserPrincipal, sc.Service.Name(), sc.Schedds, sc.CommandEnvironment, interactive); err != nil {
-				msg := "Could not store and get vault tokens"
+				var msg string
+				if errors.Is(err, context.DeadlineExceeded) {
+					msg = "Timeout error"
+				} else {
+					msg = "Could not store and get vault tokens"
+				}
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),

@@ -97,8 +97,8 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	resp, err := requestRunnerWithAuthMethodFunc(ferryRequestCtx, b.String(), "GET")
 	if err != nil {
 		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
-		if err2 := ctx.Err(); err2 == context.DeadlineExceeded {
-			log.WithField("account", username).Error("context deadline exceeded")
+		if err2 := ctx.Err(); errors.Is(err2, context.DeadlineExceeded) {
+			log.WithField("account", username).Error("Timeout error")
 			return &entry, err2
 		}
 		log.WithField("account", username).Error(err)

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/notifications"
@@ -30,7 +31,10 @@ func (v *kinitSuccess) GetSuccess() bool {
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	defer close(chans.GetSuccessChan())
-	defer close(chans.GetNotificationsChan())
+	defer func() {
+		close(chans.GetNotificationsChan())
+		log.Debug("Closed Kerberos Tickets Worker Notifications Chan")
+	}()
 
 	kerberosTimeout, err := utils.GetProperTimeoutFromContext(ctx, kerberosDefaultTimeoutStr)
 	if err != nil {
@@ -51,7 +55,12 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer kerbCancel()
 
 			if err := kerberos.GetTicket(kerbContext, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-				msg := "Could not obtain kerberos ticket"
+				var msg string
+				if errors.Is(err, context.DeadlineExceeded) {
+					msg = "Timeout error"
+				} else {
+					msg = "Could not obtain kerberos ticket"
+				}
 				log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
