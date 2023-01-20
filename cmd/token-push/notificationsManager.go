@@ -50,7 +50,13 @@ func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan noti
 	workerNotificationWg.Add(1)
 	go func() {
 		defer workerNotificationWg.Done()
-		for n := range nChan {
+		select {
+		case <-ctx.Done():
+			return
+		case n, chanOpen := <-nChan:
+			if !chanOpen {
+				return
+			}
 			notificationsFromWorkersChan <- n
 		}
 	}()
