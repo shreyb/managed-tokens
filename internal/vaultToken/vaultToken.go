@@ -88,6 +88,7 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 				}
 				log.WithField("serviceName", serviceName).Errorf("Could not obtain vault token: %s", err)
 				errChan <- err
+				return
 			}
 			log.WithFields(log.Fields{
 				"serviceName": serviceName,
