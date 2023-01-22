@@ -359,6 +359,7 @@ func main() {
 					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
+					setDefaultRoleFileDestinationTemplate(serviceConfigPath),
 				)
 				if err != nil {
 					log.WithFields(log.Fields{

@@ -21,6 +21,19 @@ type Config struct {
 	KeytabPath    string
 	DesiredUID    uint32
 	Schedds       []string
+	// Extras is a map where any value can be stored that may not fit into the above categories.
+	// However, to avoid runtime errors/bad data, it is strongly suggested to create setter/getter
+	// funcs that set these values, and run type checks.  For example, if we wanted to set
+	// a string property with key "foo" here, we should have two funcs:
+	//	func SetFooInExtras(c *Config, fooValue string) { c.Extras["foo"] = fooValue }
+	// and
+	//	func GetFooFromExtras(c *Config) (string, bool) {
+	//		val, ok := c.Extras["foo"].(string)
+	//		return val, ok
+	//	}
+	// The code that tries to retrieve Extras["foo"] can then just call GetFooFromExtras and check
+	// the bool value to make sure it's true
+	Extras map[string]any
 	environment.CommandEnvironment
 }
 
@@ -32,15 +45,16 @@ type Config struct {
 // To pass in something that's dynamic, define a function that returns a func(*Config).   e.g.:
 //
 //	func foo(bar int, e *Config) func(*Config) {
-//	    baz = bar + 3
-//	    return func(*Config) {
-//	         e.spam = baz
-//	       }
+//		baz = bar + 3
+//		return func(*Config) {
+//			e.spam = baz
+//		}
 //
 // If you then pass in foo(3), like NewConfig("my_expt", foo(3)), then Config.spam will be set to 6
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
 func NewConfig(service service.Service, options ...func(*Config) error) (*Config, error) {
 	c := Config{Service: service}
+	c.Extras = make(map[string]any)
 
 	for _, option := range options {
 		err := option(&c)

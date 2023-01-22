@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"text/template"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shreyb/managed-tokens/internal/fileCopier"
@@ -144,16 +145,27 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 				// Push the default role file.  We handle this separately from the tokens because it's a non-essential file to push,
 				// so we don't want to have notifications going out ONLY saying that this push fails, if that's the case
-				// Write our file
+
+				// Make sure we can get the destination filename
+				destinationFilename, err := parseDefaultRoleFileTemplateFromConfig(sc)
+				if err != nil {
+					log.WithFields(log.Fields{
+						"experiment": sc.Service.Experiment(),
+						"role":       sc.Service.Role(),
+					}).Error("Could not obtain default role file destination.  Will not push the default role file")
+					return
+				}
+
+				// Write the default role file to send
 				defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
 				if err != nil {
 					log.WithFields(log.Fields{
 						"experiment": sc.Service.Experiment(),
 						"role":       sc.Service.Role(),
-					}).Error("Error creating temporary file for default role string")
+					}).Error("Error creating temporary file for default role string.  Will not push the default role file")
 					return
 				}
-				// Remove the file when we're done
+				// Remove the tempfile when we're done
 				defer func() {
 					if err := os.Remove(defaultRoleFile.Name()); err != nil {
 						log.WithFields(log.Fields{
@@ -168,11 +180,11 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						"experiment": sc.Service.Experiment(),
 						"role":       sc.Service.Role(),
 						"filename":   defaultRoleFile.Name(),
-					}).Error("Error writing to temporary file for default role string. Please clean up manually")
+					}).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
+					return
 				}
 
-				// Send it to our node
-				destinationFilename := fmt.Sprintf("/tmp/jobsub_default_role_%s_%d", sc.Experiment(), sc.DesiredUID)
+				// Send the tempfile to the destination node
 				pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 				defer pushCancel()
 				if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, destinationFilename); err != nil {
@@ -189,7 +201,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					}).Debug("Success pushing default role file to destination node")
 				}
 			}
-
 		}()
 
 		successesSlice := make([]string, 0, len(successNodes))
@@ -235,4 +246,56 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 	}).Info("Success copying file to destination")
 	return nil
 
+}
+
+// Note that these three funcs were implemented as functions with the *Config object as an argument, and not
+// with a pointer receiver, because they are not meant to be inherent behaviors of a *Config object.
+
+// SetDefaultRoleFileTemplateValueInExtras is used to set the default role file template in the worker.Config.
+// It is preferred over directly setting worker.Config["DefaultRoleFileTemplate"], because it enforces that the
+// set value (tempmlateString) must be a string
+func SetDefaultRoleFileTemplateValueInExtras(c *Config, templateString string) {
+	c.Extras["DefaultRoleFileTemplate"] = templateString
+}
+
+// GetDefaultRoleFileTemplateValueFromExtras retrieves the default role file template value from the worker.Config,
+// and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
+// passes, for example:
+//
+//	c := worker.NewConfig( // various options )
+//	// set the default role file template in here
+//	tmplString, ok := GetDefaultRoleFileTemplateValueFromExtras(c)
+//	if !ok { // handle missing or incorrect value }
+func GetDefaultRoleFileTemplateValueFromExtras(c *Config) (string, bool) {
+	defaultRoleFileTemplateString, ok := c.Extras["DefaultRoleFileTemplate"].(string)
+	return defaultRoleFileTemplateString, ok
+}
+
+// parseDefaultRoleFileTemplateFromConfig parses the default role file template and returns the string with
+// the executed template string
+func parseDefaultRoleFileTemplateFromConfig(c *Config) (string, error) {
+	// Get default role file template string from *Config
+	templateString, ok := GetDefaultRoleFileTemplateValueFromExtras(c)
+	if !ok {
+		msg := "could not retrieve default role file destination template from worker configuration"
+		log.WithFields(log.Fields{
+			"experiment": c.Service.Experiment(),
+			"role":       c.Service.Role(),
+		}).Error(msg)
+		return "", errors.New(msg)
+	}
+
+	// Execute tempalte
+	defaultRoleFileTemplate := template.Must(template.New("defaultRoleFileTemplate").Parse(templateString))
+	tmplArgs := *c
+	var b strings.Builder
+	if err := defaultRoleFileTemplate.Execute(&b, tmplArgs); err != nil {
+		msg := "could not execute default role file destination template"
+		log.WithFields(log.Fields{
+			"experiment": c.Service.Experiment(),
+			"role":       c.Service.Role(),
+		}).Error(msg, ": ", err)
+		return "", err
+	}
+	return b.String(), nil
 }

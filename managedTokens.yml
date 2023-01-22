@@ -5,6 +5,7 @@ condorScheddConstraint: "my_constraint"
 kerberosPrincipalPattern: principal_pattern
 htgettokenopts: string_of_htgettoken_options_for_command_line
 dbLocation: "/var/lib/managed-tokens/uid.db"
+defaultRoleFileDestinationTemplate: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any field in the worker.Config object is supported here
 
 # Performance/timeouts
 timeouts:
@@ -71,12 +72,12 @@ experiments:
     roles:
       production:
         account: dunepro
-        keytabPath: "/special/path/to/keytab"
         destinationNodes: [node1.fnal.gov]
         userPrincipalOverride: "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
         desiredUIDOverride: 12345
         condorCreddHostOverride: specialcreddhost.domain
         condorCollectorHostOverride: specialcollectorhost.domain
+        defaultRoleFileDestinationTemplateOverride: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any field in the worker.Config object is supported here
   mu2e:
   # Minimum required configuration
     emails: [email2@example.com]

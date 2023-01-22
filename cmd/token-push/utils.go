@@ -265,3 +265,22 @@ func setSchedds(serviceConfigPath string) func(sc *worker.Config) error {
 
 	}
 }
+
+// setDefaultRoleFileDestinationTemplate sets the DefaultRoleFileDestinationTemplate field in the passed in worker.Config object
+// to the template that the pushTokenWorker should use when deriving the default role file path on the destination node.
+func setDefaultRoleFileDestinationTemplate(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
+		defaultRoleFileDestOverridePath := serviceConfigPath + ".defaultRoleFileDestinationTemplateOverride"
+		if viper.IsSet(defaultRoleFileDestOverridePath) {
+			worker.SetDefaultRoleFileTemplateValueInExtras(sc, viper.GetString(defaultRoleFileDestOverridePath))
+		} else {
+			notSetBackup := "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
+			if defaultRoleFileDestinationTplString := viper.GetString("defaultRoleFileDestinationTemplate"); defaultRoleFileDestinationTplString != "" {
+				worker.SetDefaultRoleFileTemplateValueInExtras(sc, defaultRoleFileDestinationTplString)
+			} else {
+				worker.SetDefaultRoleFileTemplateValueInExtras(sc, notSetBackup)
+			}
+		}
+		return nil
+	}
+}
