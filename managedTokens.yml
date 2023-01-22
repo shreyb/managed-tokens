@@ -73,6 +73,7 @@ experiments:
       production:
         account: dunepro
         destinationNodes: [node1.fnal.gov]
+        keytabPathOverride: "/special/path/to/keytab"
         userPrincipalOverride: "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
         desiredUIDOverride: 12345
         condorCreddHostOverride: specialcreddhost.domain

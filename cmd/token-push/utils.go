@@ -129,7 +129,7 @@ func setUserPrincipal(serviceConfigPath, experiment string) func(sc *worker.Conf
 // If the override does not exist, it uses the configuration to calculate the default path to the keytab for a worker.Config
 func setKeytabOverride(serviceConfigPath string) func(sc *worker.Config) error {
 	return func(sc *worker.Config) error {
-		keytabConfigPath := serviceConfigPath + ".keytabPath"
+		keytabConfigPath := serviceConfigPath + ".keytabPathOverride"
 		if viper.IsSet(keytabConfigPath) {
 			sc.KeytabPath = viper.GetString(keytabConfigPath)
 		} else {
