@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"html/template"
 	"path"
 	"strings"
+	"text/template"
 
 	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
