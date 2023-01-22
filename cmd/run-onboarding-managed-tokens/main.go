@@ -225,7 +225,7 @@ func main() {
 			setCondorCreddHost(serviceConfigPath),
 			setCondorCollectorHost(serviceConfigPath),
 			setSchedds(serviceConfigPath),
-			setUserPrincipalAndHtgettokenoptsOverride(serviceConfigPath, s.Experiment()),
+			setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
 			setKeytabOverride(serviceConfigPath),
 			account(serviceConfigPath),
 		)

@@ -96,7 +96,7 @@ func setCondorCollectorHost(serviceConfigPath string) func(sc *worker.Config) er
 }
 
 // setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
-func setUserPrincipal(serviceConfigPath, experiment string) func(sc *worker.Config) error {
+func setUserPrincipalAndHtgettokenopts(serviceConfigPath, experiment string) func(sc *worker.Config) error {
 	return func(sc *worker.Config) error {
 		var htgettokenOptsRaw string
 		userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"
