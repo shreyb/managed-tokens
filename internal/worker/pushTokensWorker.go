@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/user"
 	"strings"
 
@@ -139,6 +140,53 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				if pushSuccess.success {
 					tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 					successNodes[destinationNode] = struct{}{}
+				}
+
+				// Push the default role file.  We handle this separately from the tokens because it's a non-essential file to push,
+				// so we don't want to have notifications going out ONLY saying that this push fails, if that's the case
+				// Write our file
+				defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
+				if err != nil {
+					log.WithFields(log.Fields{
+						"experiment": sc.Service.Experiment(),
+						"role":       sc.Service.Role(),
+					}).Error("Error creating temporary file for default role string")
+					return
+				}
+				// Remove the file when we're done
+				defer func() {
+					if err := os.Remove(defaultRoleFile.Name()); err != nil {
+						log.WithFields(log.Fields{
+							"experiment": sc.Service.Experiment(),
+							"role":       sc.Service.Role(),
+							"filename":   defaultRoleFile.Name(),
+						}).Error("Error deleting temporary file for default role string. Please clean up manually")
+					}
+				}()
+				if _, err := defaultRoleFile.WriteString(sc.Role() + "\n"); err != nil {
+					log.WithFields(log.Fields{
+						"experiment": sc.Service.Experiment(),
+						"role":       sc.Service.Role(),
+						"filename":   defaultRoleFile.Name(),
+					}).Error("Error writing to temporary file for default role string. Please clean up manually")
+				}
+
+				// Send it to our node
+				destinationFilename := fmt.Sprintf("/tmp/jobsub_default_role_%s_%d", sc.Experiment(), sc.DesiredUID)
+				pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+				defer pushCancel()
+				if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, destinationFilename); err != nil {
+					log.WithFields(log.Fields{
+						"experiment": sc.Service.Experiment(),
+						"role":       sc.Service.Role(),
+						"node":       destinationNode,
+					}).Error("Error pushing default role file to destination node")
+				} else {
+					log.WithFields(log.Fields{
+						"experiment": sc.Service.Experiment(),
+						"role":       sc.Service.Role(),
+						"node":       destinationNode,
+					}).Debug("Success pushing default role file to destination node")
 				}
 			}
 
