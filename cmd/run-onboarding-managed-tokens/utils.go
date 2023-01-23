@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
+
+var once sync.Once
 
 // Custom usage function for positional argument.
 func onboardingUsage() {
@@ -78,12 +81,35 @@ func setUserPrincipalAndHtgettokenopts(serviceConfigPath, experiment string) fun
 
 		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
 
-		if viper.IsSet("htgettokenopts") {
-			htgettokenOptsRaw = viper.GetString("htgettokenopts")
+		// Look for HTGETTOKKENOPTS in environment.  If it's given here, take as is, but add credkey if it's absent
+		if viper.IsSet("ORIG_HTGETTOKENOPTS") {
+			log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", viper.GetString("ORIG_HTGETTOKENOPTS"))
+			// If we have the right credkey in the HTGETTOKENOPTS, leave it be
+			if strings.Contains(viper.GetString("ORIG_HTGETTOKENOPTS"), credKey) {
+				htgettokenOptsRaw = viper.GetString("ORIG_HTGETTOKENOPTS")
+			} else {
+				once.Do(
+					func() {
+						log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
+					},
+				)
+				htgettokenOptsRaw = viper.GetString("ORIG_HTGETTOKENOPTS") + " --credkey=" + credKey
+			}
 		} else {
-			htgettokenOptsRaw = "--credkey=" + credKey
+			// Calculate minimum vault token lifetime from config
+			var lifetimeString string
+			defaultLifetimeString := "10s"
+			if viper.IsSet("minTokenLifetime") {
+				lifetimeString = viper.GetString("minTokenLifetime")
+			} else {
+				lifetimeString = defaultLifetimeString
+			}
+
+			htgettokenOptsRaw = "--vaulttokenminttl=" + lifetimeString + " --credkey=" + credKey
 		}
-		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + htgettokenOptsRaw + "\""
+
+		log.Debugf("Final HTGETTOKENOPTS: %s", htgettokenOptsRaw)
+		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=" + htgettokenOptsRaw
 		return nil
 	}
 }

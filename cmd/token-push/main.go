@@ -123,10 +123,15 @@ func init() {
 	viper.AddConfigPath("/etc/managed-tokens/")
 	viper.AddConfigPath("$HOME/.managed-tokens/")
 	viper.AddConfigPath(".")
+
 	err := viper.ReadInConfig()
 	if err != nil {
 		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
 	}
+
+	// Grab HTGETTOKENOPTS if it's there
+	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
+
 }
 
 // Set up logs

@@ -3,7 +3,6 @@ keytabPath: "/opt/managed-tokens/keytabs"
 condorCollectorHost: collectorhost.domain
 condorScheddConstraint: "my_constraint"
 kerberosPrincipalPattern: principal_pattern
-htgettokenopts: string_of_htgettoken_options_for_command_line
 dbLocation: "/var/lib/managed-tokens/uid.db"
 defaultRoleFileDestinationTemplate: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any field in the worker.Config object is supported here
 
@@ -15,6 +14,8 @@ timeouts:
   pingTimeout: 10s
   pushTimeout: 30s
   ferryRequestTimeout: 30s
+
+minTokenLifetime: 3d # If our vault token has less than this time left, get a new one
 
 
 # FERRY config
