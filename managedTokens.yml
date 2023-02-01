@@ -16,7 +16,7 @@ timeouts:
   ferryRequestTimeout: 30s
 
 minTokenLifetime: 3d # If our vault token has less than this time left, get a new one
-
+minHostCertLifetime: 30d # If our FERRY host certificate expires within this time from now, send admin alerts
 
 # FERRY config
 ferry:
