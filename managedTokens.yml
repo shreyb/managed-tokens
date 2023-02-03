@@ -15,8 +15,8 @@ timeouts:
   pushTimeout: 30s
   ferryRequestTimeout: 30s
 
-minTokenLifetime: 3d # If our vault token has less than this time left, get a new one
-minHostCertLifetime: 30d # If our FERRY host certificate expires within this time from now, send admin alerts
+minTokenLifetime: 72h # If our vault token has less than this time left, get a new one
+minHostCertLifetime: 720h # If our FERRY host certificate expires within this time from now, send admin alerts
 
 # FERRY config
 ferry:
@@ -49,6 +49,8 @@ logs:
   token-push:
     logfile: "/var/log/managed-tokens/token-push.log"
     debugfile: "/var/log/managed-tokens/token-push.debug.log"
+  check-service-cert:
+    logfile: "/var/log/managed-tokens/check-service-cert.log"
 
 # Prometheus settings
 prometheus:
@@ -93,3 +95,4 @@ experiments:
 templates:
   serviceErrors: "/usr/share/managed-tokens/templates/serviceErrors.txt"
   adminErrors:  "/usr/share/managed-tokens/templates/adminErrors.txt"
+  expiringCertificate:  "/usr/share/managed-tokens/templates/expiringCertificate.txt"

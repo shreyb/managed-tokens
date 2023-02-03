@@ -1,0 +1,3 @@
+Dear Managed Tokens Admin,
+
+The Managed Tokens service host certificate used to query FERRY will be expiring in {{.NumDays}} days.  Please renew the host certificate and register it with FERRY as soon as possible.
