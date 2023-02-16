@@ -57,13 +57,14 @@ func (n Node) PingNode(ctx context.Context) error {
 	}
 
 	cmd := exec.CommandContext(ctx, pingExecutables["ping"], args...)
+	log.WithField("command", cmd.String()).Debug("Running command to ping node")
 	if cmdOut, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		if e := ctx.Err(); e != nil {
-			log.WithField("command", strings.Join(cmd.Args, " ")).Error(fmt.Sprintf("Context error: %s", e.Error()))
+			log.WithField("command", cmd.String()).Error(fmt.Sprintf("Context error: %s", e.Error()))
 			return e
 		}
 
-		log.WithField("command", strings.Join(cmd.Args, " ")).Error(fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()))
+		log.WithField("command", cmd.String()).Error(fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()))
 		return fmt.Errorf("%s %s", cmdOut, cmdErr)
 
 	}

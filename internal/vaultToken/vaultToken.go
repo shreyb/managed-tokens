@@ -181,6 +181,11 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
 	log.WithField("service", serviceName).Info("Storing and obtaining vault token")
+	log.WithFields(log.Fields{
+		"service":     serviceName,
+		"command":     getTokensAndStoreInVaultCmd.String(),
+		"environment": environ.String(),
+	}).Debug("Running command to store vault token")
 
 	if interactive {
 		// We need to capture stdout and stderr on the terminal so the user can authenticate

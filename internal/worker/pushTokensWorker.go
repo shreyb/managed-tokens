@@ -224,7 +224,7 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		node,
 		destinationFile,
 		"",
-		&c.CommandEnvironment,
+		c.CommandEnvironment,
 	)
 
 	if err := fileCopier.CopyToDestination(ctx, f); err != nil {

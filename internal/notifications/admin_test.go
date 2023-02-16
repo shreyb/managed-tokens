@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -306,6 +307,9 @@ func TestPrepareAbridgedAdminSlice(t *testing.T) {
 	}
 
 	testSetupErrors, testPushErrors := prepareAbridgedAdminSlices()
+	sort.Slice(testSetupErrors, func(i, j int) bool { return testSetupErrors[i] < testSetupErrors[j] })
+	sort.Slice(testPushErrors, func(i, j int) bool { return testPushErrors[i] < testPushErrors[j] })
+	sort.Slice(expectedSetupErrors, func(i, j int) bool { return expectedSetupErrors[i] < expectedSetupErrors[j] })
 	if !reflect.DeepEqual(testSetupErrors, expectedSetupErrors) {
 		t.Errorf("Setup Errors slice did not match.  Expected %s, got %s", expectedSetupErrors, testSetupErrors)
 	}

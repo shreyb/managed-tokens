@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"strings"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
@@ -21,17 +20,17 @@ type FileCopier interface {
 }
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
-func NewSSHFileCopier(source, account, node, destination, sshOptions string, env environment.EnvironmentMapper) FileCopier {
+func NewSSHFileCopier(source, account, node, destination, sshOptions string, env environment.CommandEnvironment) FileCopier {
 	if sshOptions == "" {
 		sshOptions = sshOpts
 	}
 	return &rsyncSetup{
-		source:            source,
-		account:           account,
-		node:              node,
-		destination:       destination,
-		sshOpts:           sshOptions,
-		EnvironmentMapper: env,
+		source:             source,
+		account:            account,
+		node:               node,
+		destination:        destination,
+		sshOpts:            sshOptions,
+		CommandEnvironment: env,
 	}
 }
 
@@ -54,12 +53,12 @@ type rsyncSetup struct {
 	node        string
 	destination string
 	sshOpts     string
-	environment.EnvironmentMapper
+	environment.CommandEnvironment
 }
 
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
 func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
-	err := rsyncFile(ctx, r.source, r.node, r.account, r.destination, r.sshOpts, r.EnvironmentMapper)
+	err := rsyncFile(ctx, r.source, r.node, r.account, r.destination, r.sshOpts, r.CommandEnvironment)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"sourcePath": r.source,
@@ -72,7 +71,7 @@ func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
 }
 
 // rsyncFile runs rsync on a file at source, and syncs it with the destination account@node:dest
-func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptions string, environ environment.EnvironmentMapper) error {
+func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptions string, environ environment.CommandEnvironment) error {
 	rsyncExecutables := map[string]string{
 		"rsync": "",
 		"ssh":   "",
@@ -115,7 +114,16 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 		return retErr
 	}
 
-	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, environ, rsyncExecutables["rsync"], args...)
+	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, rsyncExecutables["rsync"], args...)
+	log.WithFields(log.Fields{
+		"sourcePath":  source,
+		"account":     account,
+		"node":        node,
+		"destPath":    dest,
+		"command":     cmd.String(),
+		"environment": environ.String(),
+	}).Debug("Running commmand to rsync file")
+
 	if err := cmd.Run(); err != nil {
 		err := fmt.Sprintf("rsync command failed: %s", err.Error())
 		log.WithFields(log.Fields{
@@ -124,7 +132,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest string, sshOptio
 			"account":    account,
 			"node":       node,
 			"destPath":   dest,
-			"command":    strings.Join(cmd.Args, " "),
+			"command":    cmd.String(),
 		}).Error(err)
 
 		return errors.New(err)

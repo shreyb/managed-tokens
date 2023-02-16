@@ -11,7 +11,7 @@ import (
 // TestNewSSHFileCopier asserts that the type of the returned object from NewSSHFileCopier
 // is an *rsyncSetup
 func TestNewSSHFileCopier(t *testing.T) {
-	environ := &environment.CommandEnvironment{}
+	environ := environment.CommandEnvironment{}
 	testCopier := NewSSHFileCopier("", "", "", "", "", environ)
 
 	if _, ok := testCopier.(*rsyncSetup); !ok {

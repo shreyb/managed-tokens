@@ -65,6 +65,7 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	log.WithFields(log.Fields{
 		"keytabPath":    keytabPath,
 		"userPrincipal": userPrincipal,
+		"command":       createKerberosTicket.String(),
 	}).Debug("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -145,6 +146,7 @@ func SwitchCache(ctx context.Context, userPrincipal string, environ environment.
 	}
 
 	switchkCache := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kswitch"], args...)
+	log.WithField("command", switchkCache.String()).Debug("Switching kerberos cache")
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			log.WithFields(log.Fields{
