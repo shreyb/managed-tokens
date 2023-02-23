@@ -103,6 +103,7 @@ func init() {
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 	pflag.String("admin", "", "Override the config file admin email")
+	pflag.Bool("list-services", false, "List all configured services in config file")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -132,6 +133,18 @@ func init() {
 	// Grab HTGETTOKENOPTS if it's there
 	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
 
+	// List all services
+	if viper.GetBool("list-services") {
+		allServices := make([]string, 0)
+		for experiment := range viper.GetStringMap("experiments") {
+			roleMap := viper.GetStringMap("experiments." + experiment + ".roles")
+			for role := range roleMap {
+				allServices = append(allServices, fmt.Sprintf("%s_%s", experiment, role))
+			}
+		}
+		fmt.Println(strings.Join(allServices, "\n"))
+		os.Exit(0)
+	}
 }
 
 // Set up logs
