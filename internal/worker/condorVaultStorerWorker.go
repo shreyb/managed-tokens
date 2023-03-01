@@ -70,6 +70,10 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 			} else {
 				success.success = true
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+				}).Info("Successfully got and stored vault tokens")
 			}
 		}()
 	}
