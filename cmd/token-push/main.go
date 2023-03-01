@@ -258,25 +258,22 @@ func init() {
 	case viper.GetString("experiment") != "":
 		// Running on a single experiment and all its roles
 		experimentConfigPath := "experiments." + viper.GetString("experiment")
+		experiment := checkExperimentOverride(viper.GetString("experiment"))
 		for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
-			// Setup the configs
-			serviceName := viper.GetString("experiment") + "_" + role
-			service := service.NewService(serviceName)
-			services = append(services, service)
+			services = addServiceToServicesSlice(services, viper.GetString("experiment"), experiment, role)
 		}
 	case viper.GetString("service") != "":
 		// Running on a single service
-		service := service.NewService(viper.GetString("service"))
-		services = append(services, service)
+		serviceExperiment, role := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
+		experiment := checkExperimentOverride(serviceExperiment)
+		services = addServiceToServicesSlice(services, serviceExperiment, experiment, role)
 	default:
 		// Running on every configured experiment and role
-		for experiment := range viper.GetStringMap("experiments") {
-			experimentConfigPath := "experiments." + experiment
+		for configExperiment := range viper.GetStringMap("experiments") {
+			experimentConfigPath := "experiments." + configExperiment
+			experiment := checkExperimentOverride(configExperiment)
 			for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
-				// Setup the configs
-				serviceName := experiment + "_" + role
-				service := service.NewService(serviceName)
-				services = append(services, service)
+				services = addServiceToServicesSlice(services, configExperiment, experiment, role)
 			}
 		}
 	}
@@ -306,12 +303,19 @@ func main() {
 	defer cancel()
 
 	// Set up our service config collector
+	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
 	collectServiceConfigs := make(chan *worker.Config, len(services))
 	setupWg.Add(1)
 	go func() {
 		defer setupWg.Done()
 		for serviceConfig := range collectServiceConfigs {
-			serviceConfigs[serviceConfig.Service.Name()] = serviceConfig
+			var serviceName string
+			if val, ok := serviceConfig.Service.(*ExperimentOverriddenService); ok {
+				serviceName = val.ConfigName()
+			} else {
+				serviceName = serviceConfig.Service.Name()
+			}
+			serviceConfigs[serviceName] = serviceConfig
 		}
 	}()
 

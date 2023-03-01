@@ -32,9 +32,15 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, wg
 		viper.GetInt("email.smtpport"),
 		viper.GetString("templates.serviceerrors"),
 	)
+	var serviceName string
+	if val, ok := s.(*ExperimentOverriddenService); ok {
+		serviceName = val.ConfigName()
+	} else {
+		serviceName = s.Name()
+	}
 	wg.Add(1)
-	m := notifications.NewServiceEmailManager(ctx, wg, s.Name(), e)
-	serviceNotificationChanMap.Store(s.Name(), m)
+	m := notifications.NewServiceEmailManager(ctx, wg, serviceName, e)
+	serviceNotificationChanMap.Store(serviceName, m)
 }
 
 // startListenerOnWorkerNotificationChans starts up directNotificationsToManagrs exactly once.  It then takes the
