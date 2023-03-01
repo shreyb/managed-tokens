@@ -293,16 +293,22 @@ func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 		return vaultTokenLocations, err
 	}
 
-	vaultTokenLocations = append(vaultTokenLocations, defaultLocation, condorLocation)
+	vaultTokenLocationsMap := map[string]struct{}{defaultLocation: {}, condorLocation: {}}
+	nonExistentLocations := make([]string, 0, len(vaultTokenLocationsMap))
 
-	// Check each location to make sure the file actually exists.  If not, remove from slice
-	for index, location := range vaultTokenLocations {
+	// Check each location to make sure the file actually exists.  If not, remove from map
+	for location := range vaultTokenLocationsMap {
 		if _, err := os.Stat(location); errors.Is(err, os.ErrNotExist) {
-			// Trick from https://github.com/golang/go/wiki/SliceTricks#delete-without-preserving-order
-			vaultTokenLocations[index] = vaultTokenLocations[len(vaultTokenLocations)-1]
-			vaultTokenLocations = vaultTokenLocations[:len(vaultTokenLocations)-1]
+			nonExistentLocations = append(nonExistentLocations, location)
 		}
 	}
+	for _, location := range nonExistentLocations {
+		delete(vaultTokenLocationsMap, location)
+	}
+	for location := range vaultTokenLocationsMap {
+		vaultTokenLocations = append(vaultTokenLocations, location)
+	}
+
 	return vaultTokenLocations, nil
 }
 
