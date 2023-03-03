@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/rifflock/lfshook"
@@ -59,6 +60,7 @@ func init() {
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.Bool("list-services", false, "List all configured services in config file")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -66,18 +68,6 @@ func init() {
 	if viper.GetBool("version") {
 		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
 		os.Exit(0)
-	}
-
-	if pflag.NArg() != 0 {
-		viper.Set("service", pflag.Arg(0))
-	}
-
-	// If no experiment is set, exit, since we only want to onboard a single experiment at a time
-	if viper.GetString("service") == "" {
-		log.WithField("executable", currentExecutable).Error("A service must be given on the command line for run-onboarding")
-		onboardingUsage()
-		os.Exit(1)
-
 	}
 
 	// Get config file
@@ -94,6 +84,31 @@ func init() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
+	}
+
+	// List all services
+	if viper.GetBool("list-services") {
+		allServices := make([]string, 0)
+		for experiment := range viper.GetStringMap("experiments") {
+			roleMap := viper.GetStringMap("experiments." + experiment + ".roles")
+			for role := range roleMap {
+				allServices = append(allServices, fmt.Sprintf("%s_%s", experiment, role))
+			}
+		}
+		fmt.Println(strings.Join(allServices, "\n"))
+		os.Exit(0)
+	}
+
+	if pflag.NArg() != 0 {
+		viper.Set("service", pflag.Arg(0))
+	}
+
+	// If no service is set, exit, since we only want to onboard a single service at a time
+	if viper.GetString("service") == "" {
+		log.WithField("executable", currentExecutable).Error("A service must be given on the command line for run-onboarding")
+		onboardingUsage()
+		os.Exit(1)
+
 	}
 
 	// Grab HTGETTOKENOPTS if it's there
@@ -217,9 +232,22 @@ func main() {
 	kerberosChannels := worker.NewChannelsForWorkers(1)
 	go worker.GetKerberosTicketsWorker(kerberosContext, kerberosChannels)
 
+	givenServiceExperiment, givenRole := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
+	experiment := checkExperimentOverride(givenServiceExperiment)
+
+	// If we're reading from an experiment config entry that has an overridden experiment
+	// s should be of type ExperimentOverriddenService.  Else, it should use the normal
+	// service.NewService constructor
+	var s service.Service
+	if experiment != givenServiceExperiment {
+		serviceName := experiment + "_" + givenRole
+		s = newExperimentOverridenService(serviceName, givenServiceExperiment)
+	} else {
+		s = service.NewService(viper.GetString("service"))
+	}
+
 	func() {
 		defer close(kerberosChannels.GetServiceConfigChan())
-		s := service.NewService(viper.GetString("service"))
 
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 		serviceConfig, err = worker.NewConfig(
