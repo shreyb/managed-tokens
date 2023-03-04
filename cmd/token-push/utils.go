@@ -60,10 +60,10 @@ func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs 
 	for workerSuccess := range chans.GetSuccessChan() {
 		if !workerSuccess.GetSuccess() {
 			log.WithField(
-				"service", workerSuccess.GetServiceName(),
+				"service", getServiceName(workerSuccess.GetService()),
 			).Debug("Removing serviceConfig from list of configs to use")
-			failedConfigs = append(failedConfigs, serviceConfigs[workerSuccess.GetServiceName()])
-			delete(serviceConfigs, workerSuccess.GetServiceName())
+			failedConfigs = append(failedConfigs, serviceConfigs[getServiceName(workerSuccess.GetService())])
+			delete(serviceConfigs, getServiceName(workerSuccess.GetService()))
 		}
 	}
 	return failedConfigs
@@ -112,6 +112,15 @@ func (e *ExperimentOverriddenService) Name() string { return e.Service.Name() }
 // multiple experiment configurations that have the same overridden experiment values and roles
 // but are meant to be handled independently, for example, for different condor pools
 func (e *ExperimentOverriddenService) ConfigName() string { return e.configService }
+
+// getServiceName type checks the service.Service passed in, and returns the appropriate service name for registration
+// and logging purposes
+func getServiceName(s service.Service) string {
+	if serv, ok := s.(*ExperimentOverriddenService); ok {
+		return serv.ConfigName()
+	}
+	return s.Name()
+}
 
 // addServiceToServicesSlice checks to see if, for an experiment and its entry in the configuration, a normal service.Service can be added
 // to the services slice, or if an ExperimentOverriddenService should be added.  It then adds the resultant type that implements

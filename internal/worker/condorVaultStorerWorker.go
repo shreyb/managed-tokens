@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/vaultToken"
 )
@@ -15,12 +16,12 @@ const vaultStorerDefaultTimeoutStr string = "60s"
 
 // vaultStorerSuccess is a type that conveys whether StoreAndGetTokenWorker successfully stores and obtains tokens for each service
 type vaultStorerSuccess struct {
-	serviceName string
-	success     bool
+	service.Service
+	success bool
 }
 
-func (v *vaultStorerSuccess) GetServiceName() string {
-	return v.serviceName
+func (v *vaultStorerSuccess) GetService() service.Service {
+	return v.Service
 }
 
 func (v *vaultStorerSuccess) GetSuccess() bool {
@@ -45,7 +46,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 	for sc := range chans.GetServiceConfigChan() {
 		success := &vaultStorerSuccess{
-			serviceName: sc.Service.Name(),
+			Service: sc.Service,
 		}
 
 		func() {

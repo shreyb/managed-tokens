@@ -14,6 +14,7 @@ import (
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -34,16 +35,16 @@ const pushDefaultTimeoutStr string = "30s"
 
 // pushTokenSuccess is a type that conveys whether PushTokensWorker successfully pushes vault tokens to destination nodes for a service
 type pushTokenSuccess struct {
-	serviceName string
-	success     bool
+	service.Service
+	success bool
 }
 
 func init() {
 	metrics.MetricsRegistry.MustRegister(tokenPushTime)
 }
 
-func (v *pushTokenSuccess) GetServiceName() string {
-	return v.serviceName
+func (v *pushTokenSuccess) GetService() service.Service {
+	return v.Service
 }
 
 func (v *pushTokenSuccess) GetSuccess() bool {
@@ -70,8 +71,8 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 		failNodes := make(map[string]struct{})
 
 		pushSuccess := &pushTokenSuccess{
-			serviceName: sc.Service.Name(),
-			success:     true,
+			Service: sc.Service,
+			success: true,
 		}
 
 		func() {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/ping"
+	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -16,12 +17,12 @@ const pingDefaultTimeoutStr string = "10s"
 
 // pingSuccess is a type that conveys whether PingAggregatorWorker successfully pings all the configured destination nodes for each service
 type pingSuccess struct {
-	serviceName string
-	success     bool
+	service.Service
+	success bool
 }
 
-func (p *pingSuccess) GetServiceName() string {
-	return p.serviceName
+func (p *pingSuccess) GetService() service.Service {
+	return p.Service
 }
 
 func (p *pingSuccess) GetSuccess() bool {
@@ -50,7 +51,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 		go func(sc *Config) {
 			defer wg.Done()
 			success := &pingSuccess{
-				serviceName: sc.Service.Name(),
+				Service: sc.Service,
 			}
 
 			defer func(p *pingSuccess) {

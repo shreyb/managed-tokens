@@ -275,7 +275,7 @@ func main() {
 	for kerberosTicketSuccess := range kerberosChannels.GetSuccessChan() {
 		if !kerberosTicketSuccess.GetSuccess() {
 			log.WithField(
-				"service", kerberosTicketSuccess.GetServiceName(),
+				"service", getServiceName(kerberosTicketSuccess.GetService()),
 			).Fatal("Failed to obtain kerberos ticket. Stopping onboarding")
 		}
 	}
@@ -297,5 +297,5 @@ func main() {
 		log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service")
 	}
 
-	log.WithField("service", serviceConfig.Service.Name()).Info("Successfully generated refresh token in vault.  Onboarding complete.")
+	log.WithField("service", getServiceName(serviceConfig.Service)).Info("Successfully generated refresh token in vault.  Onboarding complete.")
 }

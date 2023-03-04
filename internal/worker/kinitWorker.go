@@ -6,6 +6,7 @@ import (
 
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
@@ -14,12 +15,12 @@ const kerberosDefaultTimeoutStr string = "20s"
 
 // kinitSuccess is a type that conveys whether GetKerberosTicketsWorker successfully obtains a kerberos ticket for each service
 type kinitSuccess struct {
-	serviceName string
-	success     bool
+	service.Service
+	success bool
 }
 
-func (v *kinitSuccess) GetServiceName() string {
-	return v.serviceName
+func (v *kinitSuccess) GetService() service.Service {
+	return v.Service
 }
 
 func (v *kinitSuccess) GetSuccess() bool {
@@ -43,7 +44,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 	for sc := range chans.GetServiceConfigChan() {
 		success := &kinitSuccess{
-			serviceName: sc.Service.Name(),
+			Service: sc.Service,
 		}
 
 		func() {

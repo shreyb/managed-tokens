@@ -2,6 +2,7 @@ package worker
 
 import (
 	"github.com/shreyb/managed-tokens/internal/notifications"
+	"github.com/shreyb/managed-tokens/internal/service"
 )
 
 // ChannelsForWorkers provides an interface to types that bundle a chan *Config, chan SuccessReporter, and chan notifications.Notification
@@ -30,7 +31,7 @@ func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 
 // SuccessReporter is an interface to objects that report success or failures from various workers
 type SuccessReporter interface {
-	GetServiceName() string
+	GetService() service.Service
 	GetSuccess() bool
 }
 

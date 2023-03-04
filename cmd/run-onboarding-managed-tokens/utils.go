@@ -70,6 +70,15 @@ func (e *ExperimentOverriddenService) Name() string { return e.Service.Name() }
 // but are meant to be handled independently, for example, for different condor pools
 func (e *ExperimentOverriddenService) ConfigName() string { return e.configService }
 
+// getServiceName type checks the service.Service passed in, and returns the appropriate service name for registration
+// and logging purposes
+func getServiceName(s service.Service) string {
+	if serv, ok := s.(*ExperimentOverriddenService); ok {
+		return serv.ConfigName()
+	}
+	return s.Name()
+}
+
 // Functional options for initialization of serviceConfigs
 
 // setCondorCredHost sets the _condor_CREDD_HOST environment variable in the worker.Config's environment

@@ -309,13 +309,7 @@ func main() {
 	go func() {
 		defer setupWg.Done()
 		for serviceConfig := range collectServiceConfigs {
-			var serviceName string
-			if val, ok := serviceConfig.Service.(*ExperimentOverriddenService); ok {
-				serviceName = val.ConfigName()
-			} else {
-				serviceName = serviceConfig.Service.Name()
-			}
-			serviceConfigs[serviceName] = serviceConfig
+			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
 		}
 	}()
 
@@ -390,7 +384,7 @@ func main() {
 					}).Fatal("Could not create config for service")
 				}
 				collectServiceConfigs <- c
-				initializeSuccessfulServices <- s.Name()
+				initializeSuccessfulServices <- getServiceName(s)
 				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
 			}(s, serviceConfigPath)
 		}
@@ -477,7 +471,7 @@ func main() {
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
 			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
-			log.WithField("service", pingSuccess.GetServiceName()).Error(msg)
+			log.WithField("service", getServiceName(pingSuccess.GetService())).Error(msg)
 		}
 	}
 
@@ -488,7 +482,7 @@ func main() {
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
 		if pushSuccess.GetSuccess() {
-			successfulServices[pushSuccess.GetServiceName()] = true
+			successfulServices[getServiceName(pushSuccess.GetService())] = true
 		}
 	}
 
