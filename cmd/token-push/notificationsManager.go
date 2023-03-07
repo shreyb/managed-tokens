@@ -49,19 +49,18 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, wg
 // instantiates a notifications.Notifications chan can register its own listener (this func), and all those notifications are
 // aggregated elsewhere
 func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan notifications.Notification) {
-	f := func() { directNotificationsToManagers(ctx) }
+	f := func() { directNotificationsToManagers(ctx) } // TODO (move to next line?)
 	go func() {
 		notificationSorter.Do(f)
 	}()
 	workerNotificationWg.Add(1)
 	go func() {
 		defer workerNotificationWg.Done()
-		select {
-		case <-ctx.Done():
-			return
-		case n, chanOpen := <-nChan:
-			if !chanOpen {
+		for n := range nChan {
+			select {
+			case <-ctx.Done():
 				return
+			default:
 			}
 			notificationsFromWorkersChan <- n
 		}
