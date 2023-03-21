@@ -20,7 +20,6 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	go adminErrorAdder(adminChan)
 
 	go func() {
-		// var serviceErrorsTable string
 		serviceErrorsTable := make(map[string]string, 0)
 		defer wg.Done()
 		defer close(adminChan)
