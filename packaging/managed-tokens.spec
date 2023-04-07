@@ -1,5 +1,5 @@
 Name:           managed-tokens
-Version:        0.5
+Version:        0.6
 Release:        1
 Summary:        Utility to obtain Hashicorp vault (service) tokens from service kerberos principals and distribute them to experiment nodes
 
