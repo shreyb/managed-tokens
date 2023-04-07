@@ -29,22 +29,14 @@ var (
 	version           string
 )
 
+// Timeouts
 const globalTimeoutDefaultStr string = "300s"
 
-var (
-	timeouts          = make(map[string]time.Duration)
-	supportedTimeouts = map[string]struct{}{
-		"globaltimeout":       {},
-		"ferryrequesttimeout": {},
-		"dbtimeout":           {},
-	}
-)
-
-// TODO Delete this?
-//var (
-//adminNotifications = make([]notifications.SendMessager, 0)
-// notificationsChan  notifications.EmailManager
-//)
+var timeouts = map[string]time.Duration{
+	"globaltimeout":       0,
+	"ferryrequesttimeout": 0,
+	"dbtimeout":           0,
+}
 
 // Metrics
 var (
@@ -161,7 +153,8 @@ func initLogs() {
 func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
-		if _, ok := supportedTimeouts[timeoutKey]; ok {
+		// Only save the timeout if it's supported, otherwise ignore it
+		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
 				log.WithFields(log.Fields{
