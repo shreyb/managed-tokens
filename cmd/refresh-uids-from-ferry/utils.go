@@ -11,8 +11,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/lestrrat-go/jwx/jwt"
+	jwtLib "github.com/lestrrat-go/jwx/jwt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
@@ -24,6 +25,41 @@ import (
 	"github.com/shreyb/managed-tokens/internal/vaultToken"
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
+
+// Supported FERRY Authentication methods
+type supportedFERRYAuthMethod string
+
+const (
+	tlsAuth supportedFERRYAuthMethod = "tls"
+	jwtAuth supportedFERRYAuthMethod = "jwt"
+)
+
+// TODO Document this
+func setupAdminNotifications(ctx context.Context) (adminNotifications []notifications.SendMessager, notificationsChan notifications.EmailManager) {
+	// Send admin notifications at end of run
+	var prefix string
+	if viper.GetBool("test") {
+		prefix = "notifications_test."
+	} else {
+		prefix = "notifications."
+	}
+
+	now := time.Now().Format(time.RFC822)
+	email := notifications.NewEmail(
+		viper.GetString("email.from"),
+		viper.GetStringSlice(prefix+"admin_email"),
+		"Managed Tokens Errors "+now,
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		"",
+	)
+	slackMessage := notifications.NewSlackMessage(
+		viper.GetString(prefix + "slack_alerts_url"),
+	)
+	adminNotifications = append(adminNotifications, email, slackMessage)
+	notificationsChan = notifications.NewAdminEmailManager(ctx, email) // Listen for messages from run // TODO:  This is bad naming.  We should rename NewAdminEmailManager so it sounds like it accepts all notification types, since that's what it eventually does
+	return adminNotifications, notificationsChan
+}
 
 // getAllAccountsFromConfig reads the configuration file and gets a slice of accounts
 func getAllAccountsFromConfig() []string {
@@ -149,7 +185,7 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 			}
 
 			// Validate token
-			if _, err := jwt.Parse(bearerBytes); err != nil {
+			if _, err := jwtLib.Parse(bearerBytes); err != nil {
 				log.Errorf("Token validation failed: not a valid bearer (JWT) token, %s", err)
 				return &http.Response{}, err
 			}
@@ -323,7 +359,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // authFunc.  It spins up a worker to get data from FERRY, and then puts that data into
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
-	ferryDataChan chan<- db.FerryUIDDatum) {
+	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan notifications.EmailManager) {
 	var ferryRequestContext context.Context
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
 		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)

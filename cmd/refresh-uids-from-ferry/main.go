@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -39,10 +40,11 @@ var (
 	}
 )
 
-var (
-	adminNotifications = make([]notifications.SendMessager, 0)
-	notificationsChan  notifications.EmailManager
-)
+// TODO Delete this?
+//var (
+//adminNotifications = make([]notifications.SendMessager, 0)
+// notificationsChan  notifications.EmailManager
+//)
 
 // Metrics
 var (
@@ -71,9 +73,7 @@ var (
 	prometheusUp    = true
 )
 
-// Initial setup.  Read flags, find config file
 func init() {
-	const configFile string = "managedTokens"
 	startSetup = time.Now()
 
 	// Get current executable name
@@ -87,6 +87,9 @@ func init() {
 		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
+}
+
+func initFlags() {
 	// Defaults
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
@@ -100,13 +103,11 @@ func init() {
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+}
 
-	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		os.Exit(0)
-	}
-
+func initConfig() error {
 	// Get config file
+	const configFile string = "managedTokens"
 	// Check for override
 	if config := viper.GetString("configfile"); config != "" {
 		viper.SetConfigFile(config)
@@ -117,14 +118,16 @@ func init() {
 	viper.AddConfigPath("/etc/managed-tokens/")
 	viper.AddConfigPath("$HOME/.managed-tokens/")
 	viper.AddConfigPath(".")
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
+	if err := viper.ReadInConfig(); err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
+		return err
 	}
+
+	return nil
 }
 
 // Set up logs
-func init() {
+func initLogs() {
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.refresh-uids-from-ferry.debugfile"
 	logConfigLookup := "logs.refresh-uids-from-ferry.logfile"
@@ -155,7 +158,7 @@ func init() {
 }
 
 // Setup of timeouts, if they're set
-func init() {
+func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
 		if _, ok := supportedTimeouts[timeoutKey]; ok {
@@ -186,12 +189,15 @@ func init() {
 
 	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		log.WithField("executable", currentExecutable).Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+		msg := "Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
+		log.WithField("executable", currentExecutable).Error(msg)
+		return errors.New(msg)
 	}
+	return nil
 }
 
 // Set up prometheus metrics
-func init() {
+func initMetrics() error {
 	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
 		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
@@ -199,22 +205,32 @@ func init() {
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
 		prometheusUp = false
+		return err
 	}
 
 	metrics.MetricsRegistry.MustRegister(promDuration)
 	metrics.MetricsRegistry.MustRegister(ferryRefreshTime)
+	return nil
 }
 
-// Order of operations:
-// 0.  Setup (global context, set up admin notification emails)
-// 1. Open database to record FERRY data
-// 2. a. Choose authentication method to FERRY
-// 2. b. Query FERRY for data
-// 3. Insert data into database
-// 4. Verify that INSERTed data matches response data from FERRY
-// 5. Push metrics and send necessary notifications
 func main() {
-	var dbLocation string
+	// Initial setup
+	initFlags()
+	if err := initConfig(); err != nil {
+		fmt.Println("Fatal error setting up configuration.  Exiting now")
+		os.Exit(1)
+	}
+	if viper.GetBool("version") {
+		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
+		return
+	}
+	initLogs()
+	if err := initTimeouts(); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
+	}
+	if err := initMetrics(); err != nil {
+		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
+	}
 
 	// Global Context
 	var globalTimeout time.Duration
@@ -233,28 +249,25 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
-	// Send admin notifications at end of run
-	var prefix string
-	if viper.GetBool("test") {
-		prefix = "notifications_test."
-	} else {
-		prefix = "notifications."
+	if err := run(ctx); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Error running operations to update database from FERRY.  Exiting")
 	}
+	log.Debug("Finished run")
+}
 
-	now := time.Now().Format(time.RFC822)
-	email := notifications.NewEmail(
-		viper.GetString("email.from"),
-		viper.GetStringSlice(prefix+"admin_email"),
-		"Managed Tokens Errors "+now,
-		viper.GetString("email.smtphost"),
-		viper.GetInt("email.smtpport"),
-		"",
-	)
-	slackMessage := notifications.NewSlackMessage(
-		viper.GetString(prefix + "slack_alerts_url"),
-	)
-	adminNotifications = append(adminNotifications, email, slackMessage)
-	notificationsChan = notifications.NewAdminEmailManager(ctx, email) // Listen for messages from run
+func run(ctx context.Context) error {
+	// Order of operations:
+	// 0. Set up admin notification emails
+	// 1. Open database to record FERRY data
+	// 2. a. Choose authentication method to FERRY
+	// 2. b. Query FERRY for data
+	// 3. Insert data into database
+	// 4. Verify that INSERTed data matches response data from FERRY
+	// 5. Push metrics and send necessary notifications
+	var dbLocation string
+
+	adminNotifications, notificationsChan := setupAdminNotifications(ctx)
+	// Send admin notifications at end of run
 	defer func() {
 		close(notificationsChan)
 		if err := notifications.SendAdminNotifications(
@@ -264,6 +277,7 @@ func main() {
 			viper.GetBool("test"),
 			adminNotifications...,
 		); err != nil {
+			// We don't want to halt execution at this point
 			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
 		}
 	}()
@@ -279,6 +293,7 @@ func main() {
 		if prometheusUp {
 			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
 			if err := metrics.PushToPrometheus(); err != nil {
+				// Non-essential - don't halt execution here
 				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
 			} else {
 				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
@@ -303,15 +318,15 @@ func main() {
 	if err != nil {
 		msg := "Could not open or create FERRYUIDDatabase"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-		log.WithField("executable", currentExecutable).Fatal(msg)
+		log.WithField("executable", currentExecutable).Error(msg)
+		return err
 	}
 	defer ferryUidDb.Close()
 
 	// Start up worker to aggregate all FERRY data
 	ferryData := make([]db.FerryUIDDatum, 0)
 	ferryDataChan := make(chan db.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
-
-	aggFERRYDataDone := make(chan struct{}) // Channel to close when FERRY data aggregation is done
+	aggFERRYDataDone := make(chan struct{})      // Channel to close when FERRY data aggregation is done
 	go func(ferryDataChan <-chan db.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
 		for ferryDatum := range ferryDataChan {
@@ -321,40 +336,41 @@ func main() {
 
 	usernames := getAllAccountsFromConfig()
 
-	// Start workers to get data from FERRY
-	ferryDataWg := new(sync.WaitGroup) // WaitGroup to make sure we don't close ferryDataChan before all data is sent
-	func() {
-		defer close(ferryDataChan)
-
-		// Pick our authentication method
-		var authFunc func() func(context.Context, string, string) (*http.Response, error)
-		switch viper.GetString("authmethod") {
-		case "tls":
-			authFunc = withTLSAuth
-			log.WithField("executable", currentExecutable).Debug("Using TLS to authenticate to FERRY")
-		case "jwt":
-			sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
-			if err != nil {
-				msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-				notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-				log.WithField("executable", currentExecutable).Error(msg)
-				os.Exit(1)
-			}
-			defer func() {
-				os.RemoveAll(sc.Krb5ccname)
-				log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
-			}()
-			authFunc = withKerberosJWTAuth(sc)
-			log.WithField("executable", currentExecutable).Debug("Using JWT to authenticate to FERRY")
+	// Pick our authentication method
+	var authFunc func() func(context.Context, string, string) (*http.Response, error)
+	switch supportedFERRYAuthMethod(viper.GetString("authmethod")) {
+	case tlsAuth:
+		authFunc = withTLSAuth
+		log.WithField("executable", currentExecutable).Debug("Using TLS to authenticate to FERRY")
+	case jwtAuth:
+		sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
+		if err != nil {
+			msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
+			notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
+			log.WithField("executable", currentExecutable).Error(msg)
+			os.Exit(1)
 		}
+		defer func() {
+			os.RemoveAll(sc.Krb5ccname)
+			log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+		}()
+		authFunc = withKerberosJWTAuth(sc)
+		log.WithField("executable", currentExecutable).Debug("Using JWT to authenticate to FERRY")
+	default:
+		return errors.New("Unsupported authentication method to communicate with FERRY")
+	}
 
+	// Start workers to get data from FERRY
+	func() {
+		var ferryDataWg sync.WaitGroup // WaitGroup to make sure we don't close ferryDataChan before all data is sent
+		defer close(ferryDataChan)
 		// For each username, query FERRY for UID info
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
 
 			go func(username string) {
 				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(ctx, username, authFunc, ferryDataChan)
+				getAndAggregateFERRYData(ctx, username, authFunc, ferryDataChan, notificationsChan)
 			}(username)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
@@ -362,13 +378,15 @@ func main() {
 
 	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
 
+	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
 		msg := "No data collected from FERRY"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg + ". Exiting")
-		return
+		return errors.New(msg)
 	}
 
+	// Stop here if we're in test mode
 	if viper.GetBool("test") {
 		log.Info("Finished gathering data from FERRY")
 
@@ -379,7 +397,7 @@ func main() {
 		log.Infof(strings.Join(ferryDataStringSlice, "; "))
 
 		log.Info("Test mode finished")
-		return
+		return nil
 	}
 
 	// INSERT all collected FERRY data into FERRYUIDDatabase
@@ -393,7 +411,7 @@ func main() {
 		msg := "Could not insert FERRY data into database"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg)
-		return
+		return err
 	}
 
 	// Confirm and verify that INSERT was successful
@@ -402,7 +420,7 @@ func main() {
 		msg := "Error running verification of INSERT"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg)
-		return
+		return err
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
@@ -412,9 +430,10 @@ func main() {
 			"Verification of INSERT failed.  Please check the logs",
 			currentExecutable,
 		)
-		return
+		return errors.New(msg)
 	}
 	log.Debug("Verified INSERT")
 	log.Info("Successfully refreshed uid DB.")
 	ferryRefreshTime.SetToCurrentTime()
+	return nil
 }
