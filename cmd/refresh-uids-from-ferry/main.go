@@ -118,12 +118,12 @@ func initFlags() {
 
 func initConfig() error {
 	// Get config file
-	const configFile string = "managedTokens"
+	configFileName := "managedTokens"
 	// Check for override
 	if config := viper.GetString("configfile"); config != "" {
 		viper.SetConfigFile(config)
 	} else {
-		viper.SetConfigName(configFile)
+		viper.SetConfigName(configFileName)
 	}
 
 	viper.AddConfigPath("/etc/managed-tokens/")
@@ -353,7 +353,7 @@ func run(ctx context.Context) error {
 		authFunc = withKerberosJWTAuth(sc)
 		log.WithField("executable", currentExecutable).Debug("Using JWT to authenticate to FERRY")
 	default:
-		return errors.New("Unsupported authentication method to communicate with FERRY")
+		return errors.New("unsupported authentication method to communicate with FERRY")
 	}
 
 	// Start workers to get data from FERRY
@@ -376,7 +376,7 @@ func run(ctx context.Context) error {
 
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
-		msg := "No data collected from FERRY"
+		msg := "no data collected from FERRY"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg + ". Exiting")
 		return errors.New(msg)
@@ -420,7 +420,7 @@ func run(ctx context.Context) error {
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
-		msg := "Verification of INSERT failed.  Please check the logs"
+		msg := "verification of INSERT failed.  Please check the logs"
 		log.Error(msg)
 		notificationsChan <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
