@@ -32,10 +32,11 @@ var (
 // Timeouts
 const globalTimeoutDefaultStr string = "300s"
 
+// Supported Timeouts and their defaults
 var timeouts = map[string]time.Duration{
-	"globaltimeout":       0,
-	"ferryrequesttimeout": 0,
-	"dbtimeout":           0,
+	"globaltimeout":       time.Duration(300 * time.Second),
+	"ferryrequesttimeout": time.Duration(30 * time.Second),
+	"dbtimeout":           time.Duration(10 * time.Second),
 }
 
 // Metrics
@@ -176,9 +177,10 @@ func initTimeouts() error {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
 				log.WithFields(log.Fields{
-					"timeoutKey": timeoutKey,
+					timeoutKey:   timeoutString,
 					"executable": currentExecutable,
-				}).Warn("Configured timeout not supported by this utility")
+				}).Warn("Could not parse configured timeout duration.  Using default")
+				continue
 			}
 			log.WithFields(log.Fields{
 				"executable": currentExecutable,
@@ -200,7 +202,7 @@ func initTimeouts() error {
 
 	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		msg := "Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
+		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
 		log.WithField("executable", currentExecutable).Error(msg)
 		return errors.New(msg)
 	}
