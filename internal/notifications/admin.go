@@ -41,6 +41,45 @@ type AdminDataFinal struct {
 	PushErrorsTable string
 }
 
+// NewAdminNotificationManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
+// to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
+// via email (or otherwise)
+func NewAdminNotificationManager(ctx context.Context) chan Notification {
+	c := make(chan Notification)         // Channel to send notifications to this Manager
+	adminChan := make(chan Notification) // Channel to send notifications to aggregator
+	adminErrors.writerCount.Add(1)
+	go adminErrorAdder(adminChan) // Start admin errors aggregator
+
+	go func() {
+		defer close(adminChan)
+		for {
+			select {
+			case <-ctx.Done():
+				if err := ctx.Err(); err == context.DeadlineExceeded {
+					log.WithFields(log.Fields{
+						"caller": "NewAdminNotificationManager",
+					}).Error("Timeout exceeded in notification Manager")
+				} else {
+					log.WithFields(log.Fields{
+						"caller": "NewAdminNotificationManager",
+					}).Error(err)
+				}
+				return
+
+			case n, chanOpen := <-c:
+				// Channel is closed --> send notifications
+				if !chanOpen {
+					return
+				} else {
+					// Send notification to admin message aggregator
+					adminChan <- n
+				}
+			}
+		}
+	}()
+	return c
+}
+
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminMsgSlice. It expects a valid template file
 // configured at nConfig.ConfigInfo["admin_template"].
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
