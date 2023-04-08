@@ -79,6 +79,24 @@ func init() {
 		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
+	initFlags() // Parse our flags
+
+	if err := initConfig(); err != nil {
+		fmt.Println("Fatal error setting up configuration.  Exiting now")
+		os.Exit(1)
+	}
+	if viper.GetBool("version") {
+		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
+		return
+	}
+	initLogs()
+	if err := initTimeouts(); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
+	}
+	if err := initMetrics(); err != nil {
+		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
+	}
+
 }
 
 func initFlags() {
@@ -207,24 +225,6 @@ func initMetrics() error {
 }
 
 func main() {
-	// Initial setup
-	initFlags()
-	if err := initConfig(); err != nil {
-		fmt.Println("Fatal error setting up configuration.  Exiting now")
-		os.Exit(1)
-	}
-	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		return
-	}
-	initLogs()
-	if err := initTimeouts(); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
-	}
-	if err := initMetrics(); err != nil {
-		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
-	}
-
 	// Global Context
 	var globalTimeout time.Duration
 	var ok bool
@@ -242,6 +242,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	// Run our actual operation
 	if err := run(ctx); err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Error running operations to update database from FERRY.  Exiting")
 	}
