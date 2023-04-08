@@ -2,18 +2,13 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net/http"
 	"os"
 	"os/user"
 	"path"
-	"path/filepath"
-	"strings"
 	"time"
 
-	jwtLib "github.com/lestrrat-go/jwx/jwt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
@@ -22,19 +17,9 @@ import (
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
-	"github.com/shreyb/managed-tokens/internal/vaultToken"
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
-// Supported FERRY Authentication methods
-type supportedFERRYAuthMethod string
-
-const (
-	tlsAuth supportedFERRYAuthMethod = "tls"
-	jwtAuth supportedFERRYAuthMethod = "jwt"
-)
-
-// Utility functions
 // setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors
 func setupAdminNotifications(ctx context.Context) (adminNotifications []notifications.SendMessager, notificationsChan notifications.EmailManager) {
 	// Send admin notifications at end of run
@@ -76,141 +61,6 @@ func getAllAccountsFromConfig() []string {
 		}
 	}
 	return s
-}
-
-// withTLSAuth uses the passed in certificate and key paths (hostCert, hostKey), and
-// path to a directory of CA certificates (caPath), to return a func that initializes
-// a TLS-secured *http.Client, send an HTTP request to a url, and returns the *http.Response object
-func withTLSAuth() func(context.Context, string, string) (*http.Response, error) {
-	return func(ctx context.Context, url, verb string) (*http.Response, error) {
-		caCertSlice := make([]string, 0)
-		caCertPool := x509.NewCertPool()
-
-		// Adapted from  https://gist.github.com/michaljemala/d6f4e01c4834bf47a9c4
-		// Load host cert
-		cert, err := tls.LoadX509KeyPair(
-			viper.GetString("ferry.hostCert"),
-			viper.GetString("ferry.hostKey"),
-		)
-		if err != nil {
-			log.Error(err)
-			return &http.Response{}, err
-		}
-
-		// Load CA certs
-		caFiles, err := os.ReadDir(viper.GetString("ferry.caPath"))
-		if err != nil {
-			log.WithField("caPath", viper.GetString("ferry.caPath")).Error(err)
-			return &http.Response{}, err
-		}
-		for _, f := range caFiles {
-			if filepath.Ext(f.Name()) == ".pem" {
-				filenameToAdd := path.Join(viper.GetString("ferry.caPath"), f.Name())
-				caCertSlice = append(caCertSlice, filenameToAdd)
-			}
-		}
-		for _, f := range caCertSlice {
-			caCert, err := os.ReadFile(f)
-			if err != nil {
-				log.WithField("filename", f).Warn(err)
-			}
-			caCertPool.AppendCertsFromPEM(caCert)
-		}
-
-		// Setup HTTPS client
-		tlsConfig := &tls.Config{
-			Certificates:  []tls.Certificate{cert},
-			RootCAs:       caCertPool,
-			Renegotiation: tls.RenegotiateFreelyAsClient,
-		}
-		transport := &http.Transport{TLSClientConfig: tlsConfig}
-		client := &http.Client{Transport: transport}
-
-		// Now send the request
-		if verb == "" {
-			// Default value for HTTP verb
-			verb = "GET"
-		}
-		req, err := http.NewRequest(strings.ToUpper(verb), url, nil)
-		if err != nil {
-			log.WithField("account", url).Error("Could not initialize HTTP request")
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"url":        url,
-				"verb":       "GET",
-				"authMethod": "cert",
-			}).Error("Error executing HTTP request")
-			log.WithField("url", url).Error(err)
-		}
-		return resp, err
-	}
-}
-
-// withKerberosJWTAuth uses a configured worker.Config to return a func that gets a bearer token,
-// and uses it to send an HTTP request to the passed in url
-func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Context, string, string) (*http.Response, error) {
-	// This returns a func that returns a func. This was done to have withKerberosJWTAuth(serviceConfig) have the same
-	// return type as withTLSAuth.
-	return func() func(context.Context, string, string) (*http.Response, error) {
-		return func(ctx context.Context, url, verb string) (*http.Response, error) {
-			// Get our bearer token and locate it
-			if err := vaultToken.GetToken(
-				ctx,
-				serviceConfig.Service.Name(),
-				serviceConfig.UserPrincipal,
-				viper.GetString("ferry.vaultServer"),
-				serviceConfig.CommandEnvironment,
-			); err != nil {
-				log.Error("Could not get token to authenticate to FERRY")
-				return &http.Response{}, err
-			}
-
-			bearerTokenDefaultLocation, err := getBearerTokenDefaultLocation()
-			if err != nil {
-				log.Error("Could not get default location for bearer tokens")
-				return &http.Response{}, err
-			}
-			defer func() {
-				if err := os.Remove(bearerTokenDefaultLocation); err != nil {
-					log.Error("Could not remove bearer token file")
-				}
-				log.Info("Removed bearer token file")
-			}()
-
-			bearerBytes, err := os.ReadFile(bearerTokenDefaultLocation)
-			if err != nil {
-				log.Errorf("Could not open bearer token file for reading, %s", err)
-				return &http.Response{}, err
-			}
-
-			// Validate token
-			if _, err := jwtLib.Parse(bearerBytes); err != nil {
-				log.Errorf("Token validation failed: not a valid bearer (JWT) token, %s", err)
-				return &http.Response{}, err
-			}
-
-			tokenStringRaw := string(bearerBytes[:])
-			tokenString := strings.TrimSuffix(tokenStringRaw, "\n")
-
-			bearerHeader := "Bearer " + tokenString
-
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				log.Errorf("Could not initialize HTTP request, %s", err)
-				return &http.Response{}, err
-			}
-			req.Header.Add("Authorization", bearerHeader)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				log.Errorf("Could not send request, %s", err)
-				return &http.Response{}, err
-			}
-
-			return resp, nil
-		}
-	}
 }
 
 // getBearerTokenDefaultLocation returns the default location of the bearer token
@@ -343,41 +193,5 @@ func getAndAggregateFERRYData(ctx context.Context, username string, authFunc fun
 		notificationsChan <- notifications.NewSetupError(msg+" for user "+username, currentExecutable)
 	} else {
 		ferryDataChan <- entry
-	}
-}
-
-// Functional options
-
-// setkrb5ccname sets the KRB5CCNAME directory environment variable in the worker.Config's
-// environment
-func setkrb5ccname(krb5ccname string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
-		c.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
-		return nil
-	}
-}
-
-// setKeytabPath sets the location of a worker.Config's kerberos keytab
-func setKeytabPath() func(c *worker.Config) error {
-	return func(c *worker.Config) error {
-		c.KeytabPath = viper.GetString("ferry.serviceKeytabPath")
-		return nil
-	}
-}
-
-// setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
-func setUserPrincipalAndHtgettokenopts() func(c *worker.Config) error {
-	return func(c *worker.Config) error {
-		var htgettokenOptsRaw string
-		c.UserPrincipal = viper.GetString("ferry.serviceKerberosPrincipal")
-		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
-
-		if viper.IsSet("htgettokenopts") {
-			htgettokenOptsRaw = viper.GetString("htgettokenopts")
-		} else {
-			htgettokenOptsRaw = "--credkey=" + credKey
-		}
-		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=\"" + htgettokenOptsRaw + "\""
-		return nil
 	}
 }
