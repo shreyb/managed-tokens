@@ -28,14 +28,12 @@ var (
 
 const globalTimeoutDefaultStr string = "300s"
 
-var (
-	timeouts          = make(map[string]time.Duration)
-	supportedTimeouts = map[string]struct{}{
-		"globaltimeout":      {},
-		"kerberostimeout":    {},
-		"vaultstorertimeout": {},
-	}
-)
+// Supported timeouts and their default values
+var timeouts = map[string]time.Duration{
+	"globaltimeout":      time.Duration(300 * time.Second),
+	"kerberostimeout":    time.Duration(20 * time.Second),
+	"vaultstorertimeout": time.Duration(60 * time.Second),
+}
 
 // Initial setup.  Read flags, find config file
 func init() {
@@ -174,7 +172,8 @@ func initLogs() {
 func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
-		if _, ok := supportedTimeouts[timeoutKey]; ok {
+		// Only save the timeout if it's supported, otherwise ignore it
+		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
 				log.WithFields(log.Fields{
