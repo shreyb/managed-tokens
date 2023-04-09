@@ -81,15 +81,16 @@ func init() {
 	}
 
 	initFlags() // Parse our flags
+	if viper.GetBool("version") {
+		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
+		return
+	}
 
 	if err := initConfig(); err != nil {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
 		os.Exit(1)
 	}
-	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		return
-	}
+
 	initLogs()
 	if err := initTimeouts(); err != nil {
 		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
