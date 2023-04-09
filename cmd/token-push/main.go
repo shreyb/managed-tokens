@@ -31,19 +31,19 @@ var (
 	version           string
 )
 
+// Timeouts
 const globalTimeoutDefaultStr string = "300s"
 
-var (
-	timeouts          = make(map[string]time.Duration)
-	supportedTimeouts = map[string]struct{}{
-		"globaltimeout":      {},
-		"kerberostimeout":    {},
-		"vaultstorertimeout": {},
-		"pingtimeout":        {},
-		"pushtimeout":        {},
-	}
-	adminNotifications = make([]notifications.SendMessager, 0)
-)
+// Supported timeouts and their default values
+var timeouts = map[string]time.Duration{
+	"globalTimeout":      time.Duration(300 * time.Second),
+	"kerberosTimeout":    time.Duration(20 * time.Second),
+	"vaultStorerTimeout": time.Duration(60 * time.Second),
+	"pingTimeout":        time.Duration(10 * time.Second),
+	"pushTimeout":        time.Duration(30 * time.Second),
+}
+
+var adminNotifications = make([]notifications.SendMessager, 0)
 
 var (
 	startSetup      time.Time
@@ -182,13 +182,14 @@ func init() {
 func init() {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
-		if _, ok := supportedTimeouts[timeoutKey]; ok {
+		// Only save the timeout if it's supported, otherwise ignore it
+		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
 				log.WithFields(log.Fields{
 					"executable": currentExecutable,
 					"timeoutKey": timeoutKey,
-				}).Warn("Configured timeout not supported by this utility")
+				}).Warn("Could not parse configured timeout.  Using default")
 			}
 			log.WithFields(log.Fields{
 				"executable": currentExecutable,
