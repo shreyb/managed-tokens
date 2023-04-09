@@ -49,7 +49,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			Service: sc.Service,
 		}
 
-		func() {
+		func(sc *Config) {
 			defer func(v *vaultStorerSuccess) {
 				chans.GetSuccessChan() <- v
 			}(success)
@@ -76,7 +76,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"role":       sc.Service.Role(),
 				}).Info("Successfully got and stored vault tokens")
 			}
-		}()
+		}(sc)
 	}
 }
 
