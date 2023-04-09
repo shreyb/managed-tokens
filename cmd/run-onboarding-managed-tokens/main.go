@@ -261,17 +261,7 @@ func run(ctx context.Context) error {
 		ctx = utils.ContextWithVerbose(ctx)
 	}
 
-	// 1. Get Kerberos ticket
-	// Channel, context, and worker for getting kerberos ticket
-	var kerberosContext context.Context
-	if kerberosTimeout, ok := timeouts["kerberostimeout"]; ok {
-		kerberosContext = utils.ContextWithOverrideTimeout(ctx, kerberosTimeout)
-	} else {
-		kerberosContext = ctx
-	}
-	kerberosChannels := worker.NewChannelsForWorkers(1)
-	go worker.GetKerberosTicketsWorker(kerberosContext, kerberosChannels)
-
+	// Determine what the real experiment name should be
 	givenServiceExperiment, givenRole := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
 	experiment := checkExperimentOverride(givenServiceExperiment)
 
@@ -286,38 +276,41 @@ func run(ctx context.Context) error {
 		s = service.NewService(viper.GetString("service"))
 	}
 
-	func() {
-		defer close(kerberosChannels.GetServiceConfigChan())
+	// Set up service config
+	serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
+	serviceConfig, err = worker.NewConfig(
+		s,
+		setkrb5ccname(krb5ccname),
+		setCondorCreddHost(serviceConfigPath),
+		setCondorCollectorHost(serviceConfigPath),
+		setSchedds(serviceConfigPath),
+		setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
+		setKeytabOverride(serviceConfigPath),
+		account(serviceConfigPath),
+	)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"experiment": s.Experiment(),
+			"role":       s.Role(),
+		}).Error("Could not create config for service")
+		return err
+	}
 
-		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-		serviceConfig, err = worker.NewConfig(
-			s,
-			setkrb5ccname(krb5ccname),
-			setCondorCreddHost(serviceConfigPath),
-			setCondorCollectorHost(serviceConfigPath),
-			setSchedds(serviceConfigPath),
-			setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
-			setKeytabOverride(serviceConfigPath),
-			account(serviceConfigPath),
-		)
-		if err != nil {
-			log.WithFields(log.Fields{
-				"experiment": s.Experiment(),
-				"role":       s.Role(),
-			}).Fatal("Could not create config for service")
-		}
-
-		kerberosChannels.GetServiceConfigChan() <- serviceConfig
-	}()
-
+	// 1. Get Kerberos ticket
+	// Channel, context, and worker for getting kerberos ticket
+	var kerberosContext context.Context
+	if kerberosTimeout, ok := timeouts["kerberostimeout"]; ok {
+		kerberosContext = utils.ContextWithOverrideTimeout(ctx, kerberosTimeout)
+	} else {
+		kerberosContext = ctx
+	}
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
-	for kerberosTicketSuccess := range kerberosChannels.GetSuccessChan() {
-		if !kerberosTicketSuccess.GetSuccess() {
-			log.WithField(
-				"service", getServiceName(kerberosTicketSuccess.GetService()),
-			).Fatal("Failed to obtain kerberos ticket. Stopping onboarding")
-		}
+	if err := worker.GetKerberosTicketandVerify(kerberosContext, serviceConfig); err != nil {
+		log.WithField(
+			"service", getServiceName(serviceConfig.Service),
+		).Error("Failed to obtain kerberos ticket. Stopping onboarding")
+		return errors.New("could not obtain kerberos ticket")
 	}
 
 	// 2.  Get and store vault tokens for service

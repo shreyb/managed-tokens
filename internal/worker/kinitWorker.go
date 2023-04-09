@@ -43,11 +43,11 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
-		success := &kinitSuccess{
-			Service: sc.Service,
-		}
+		func(sc *Config) {
 
-		func() {
+			success := &kinitSuccess{
+				Service: sc.Service,
+			}
 			defer func(k *kinitSuccess) {
 				chans.GetSuccessChan() <- k
 			}(success)
@@ -55,35 +55,43 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 			kerbContext, kerbCancel := context.WithTimeout(ctx, kerberosTimeout)
 			defer kerbCancel()
 
-			if err := kerberos.GetTicket(kerbContext, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
+			if err := GetKerberosTicketandVerify(kerbContext, sc); err != nil {
 				var msg string
 				if errors.Is(err, context.DeadlineExceeded) {
 					msg = "Timeout error"
 				} else {
-					msg = "Could not obtain kerberos ticket"
+					msg = "Could not obtain and verify kerberos ticket"
 				}
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Error(msg)
+				log.Error(msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 				return
 			}
-
-			if err := kerberos.CheckPrincipal(kerbContext, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-				msg := "Kerberos ticket verification failed"
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Error(msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
-			} else {
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Debug("Kerberos ticket obtained and verified")
-				success.success = true
-			}
-		}()
+			success.success = true
+		}(sc)
 	}
+}
+
+func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
+	if err := kerberos.GetTicket(ctx, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
+		msg := "Could not obtain kerberos ticket"
+		log.WithFields(log.Fields{
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
+		}).Error(msg)
+		return err
+	}
+
+	if err := kerberos.CheckPrincipal(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
+		msg := "Kerberos ticket verification failed"
+		log.WithFields(log.Fields{
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
+		}).Error(msg)
+		return err
+	}
+	log.WithFields(log.Fields{
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
+	}).Debug("Kerberos ticket obtained and verified")
+	return nil
 }
