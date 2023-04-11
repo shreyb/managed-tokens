@@ -221,7 +221,7 @@ func main() {
 
 	// Run our actual operation
 	if err := run(ctx); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Error running operations to update database from FERRY.  Exiting")
+		log.WithField("executable", currentExecutable).Fatal("Error running onboarding.  Exiting")
 	}
 	log.Debug("Finished run")
 
@@ -313,15 +313,17 @@ func run(ctx context.Context) error {
 	} else {
 		vaultStorerContext = ctx
 	}
+	defer func() {
+		if err := vaultToken.RemoveServiceVaultTokens(viper.GetString("service")); err != nil {
+			log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service.  Please clean up manually")
+		}
+	}()
 	if err := worker.StoreAndGetRefreshAndVaultTokens(vaultStorerContext, serviceConfig); err != nil {
 		log.WithFields(log.Fields{
 			"experiment": serviceConfig.Service.Experiment(),
 			"role":       serviceConfig.Service.Role(),
 		}).Error("Could not generate refresh tokens and store vault token for service")
 		return err
-	}
-	if err := vaultToken.RemoveServiceVaultTokens(viper.GetString("service")); err != nil {
-		log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service.  Please clean up manually")
 	}
 
 	log.WithField("service", getServiceName(serviceConfig.Service)).Info("Successfully generated refresh token in vault.  Onboarding complete.")
