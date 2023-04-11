@@ -3,16 +3,41 @@ package main
 import (
 	"context"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
 var once sync.Once
+
+// Prep admin notifications
+func setupAdminNotifications() (adminNotifications []notifications.SendMessager) {
+	var prefix string
+	if viper.GetBool("test") {
+		prefix = "notifications_test."
+	} else {
+		prefix = "notifications."
+	}
+
+	now := time.Now().Format(time.RFC822)
+	email := notifications.NewEmail(
+		viper.GetString("email.from"),
+		viper.GetStringSlice(prefix+"admin_email"),
+		"Managed Tokens Errors "+now,
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		"",
+	)
+	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
+	adminNotifications = append(adminNotifications, email, slackMessage)
+	return adminNotifications
+}
 
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
 // and send notification.Notifications on, and sends *worker.Configs to the worker

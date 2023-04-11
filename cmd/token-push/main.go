@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -78,7 +79,6 @@ var (
 
 // Initial setup.  Read flags, find config file
 func init() {
-	const configFile string = "managedTokens"
 	startSetup = time.Now()
 
 	// Get current executable name
@@ -92,6 +92,40 @@ func init() {
 		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
+	initFlags()
+	if viper.GetBool("version") {
+		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
+		os.Exit(0)
+	}
+
+	if err := initConfig(); err != nil {
+		fmt.Println("Fatal error setting up configuration.  Exiting now")
+		os.Exit(1)
+	}
+
+	// If user wants to list all services, do that and exit
+	if viper.GetBool("list-services") {
+		allServices := make([]string, 0)
+		for experiment := range viper.GetStringMap("experiments") {
+			roleMap := viper.GetStringMap("experiments." + experiment + ".roles")
+			for role := range roleMap {
+				allServices = append(allServices, fmt.Sprintf("%s_%s", experiment, role))
+			}
+		}
+		fmt.Println(strings.Join(allServices, "\n"))
+		os.Exit(0)
+	}
+	initLogs()
+	initServices()
+	if err := initTimeouts(); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
+	}
+	if err := initMetrics(); err != nil {
+		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
+	}
+}
+
+func initFlags() {
 	// Defaults
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
@@ -107,18 +141,16 @@ func init() {
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+}
 
-	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		os.Exit(0)
-	}
-
+func initConfig() error {
 	// Get config file
+	configFileName := "managedTokens"
 	// Check for override
 	if config := viper.GetString("configfile"); config != "" {
 		viper.SetConfigFile(config)
 	} else {
-		viper.SetConfigName(configFile)
+		viper.SetConfigName(configFileName)
 	}
 
 	viper.AddConfigPath("/etc/managed-tokens/")
@@ -127,28 +159,14 @@ func init() {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
+		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
+		return err
 	}
-
-	// Grab HTGETTOKENOPTS if it's there
-	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
-
-	// List all services
-	if viper.GetBool("list-services") {
-		allServices := make([]string, 0)
-		for experiment := range viper.GetStringMap("experiments") {
-			roleMap := viper.GetStringMap("experiments." + experiment + ".roles")
-			for role := range roleMap {
-				allServices = append(allServices, fmt.Sprintf("%s_%s", experiment, role))
-			}
-		}
-		fmt.Println(strings.Join(allServices, "\n"))
-		os.Exit(0)
-	}
+	return nil
 }
 
 // Set up logs
-func init() {
+func initLogs() {
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.token-push.debugfile"
 	logConfigLookup := "logs.token-push.logfile"
@@ -179,7 +197,7 @@ func init() {
 }
 
 // Setup of timeouts, if they're set
-func init() {
+func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
 		// Only save the timeout if it's supported, otherwise ignore it
@@ -211,12 +229,15 @@ func init() {
 
 	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		log.WithField("executable", currentExecutable).Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
+		log.WithField("executable", currentExecutable).Error(msg)
+		return errors.New(msg)
 	}
+	return nil
 }
 
 // Set up prometheus metrics
-func init() {
+func initMetrics() error {
 	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
 		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
@@ -224,36 +245,17 @@ func init() {
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
 		prometheusUp = false
+		return err
 	}
-
 	metrics.MetricsRegistry.MustRegister(promDuration)
 	metrics.MetricsRegistry.MustRegister(servicePushFailureCount)
-}
-
-// Prep admin notifications
-func init() {
-	var prefix string
-	if viper.GetBool("test") {
-		prefix = "notifications_test."
-	} else {
-		prefix = "notifications."
-	}
-
-	now := time.Now().Format(time.RFC822)
-	email := notifications.NewEmail(
-		viper.GetString("email.from"),
-		viper.GetStringSlice(prefix+"admin_email"),
-		"Managed Tokens Errors "+now,
-		viper.GetString("email.smtphost"),
-		viper.GetInt("email.smtpport"),
-		"",
-	)
-	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
-	adminNotifications = append(adminNotifications, email, slackMessage)
+	return nil
 }
 
 // Setup of services
-func init() {
+func initServices() {
+	// Grab HTGETTOKENOPTS if it's there
+	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
 	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
 	switch {
 	case viper.GetString("experiment") != "":
@@ -302,6 +304,9 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
+
+	// Set up admin notifications
+	adminNotifications = setupAdminNotifications()
 
 	// Set up our service config collector
 	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
@@ -526,3 +531,9 @@ func cleanup(ctx context.Context, successMap map[string]bool) error {
 
 	return nil
 }
+
+// admin notifications setup moved to new func from init
+// adminNotifications no longer var
+// adminNotifications use this trick to send: https://go.dev/play/p/rww0ORt94pU (pointer)
+// cleanup split up - consolidate handlNotificationsFinealization into adminNotifications sending
+// initServices channel and serviceConfig channel are consolidated
