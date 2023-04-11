@@ -68,7 +68,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 				}).Error(msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
+				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 			} else {
 				success.success = true
 				log.WithFields(log.Fields{

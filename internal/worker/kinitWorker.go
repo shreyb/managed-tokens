@@ -63,7 +63,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 					msg = "Could not obtain and verify kerberos ticket"
 				}
 				log.Error(msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
+				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 				return
 			}
 			success.success = true

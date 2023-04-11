@@ -101,7 +101,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				log.WithField("service", sc.Service.Name()).Errorf("Failed Nodes: %s", strings.Join(failedNodesStrings, ", "))
 				chans.GetNotificationsChan() <- notifications.NewSetupError(
 					"Could not ping the following nodes: "+strings.Join(failedNodesStrings, ", "),
-					sc.Service.Name(),
+					sc.ServiceNameFromExperimentAndRole(),
 				)
 			}
 		}(sc)

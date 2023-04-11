@@ -136,7 +136,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						}
 						pushSuccess.success = false
 						failNodes[destinationNode] = struct{}{}
-						chans.GetNotificationsChan() <- notifications.NewPushError(notificationErrorString, sc.Service.Name(), destinationNode)
+						chans.GetNotificationsChan() <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
 					}
 				}
 				if pushSuccess.success {
