@@ -32,9 +32,6 @@ var (
 	version           string
 )
 
-// Timeouts
-const globalTimeoutDefaultStr string = "300s"
-
 // Supported timeouts and their default values
 var timeouts = map[string]time.Duration{
 	"globalTimeout":      time.Duration(300 * time.Second),
@@ -43,8 +40,6 @@ var timeouts = map[string]time.Duration{
 	"pingTimeout":        time.Duration(10 * time.Second),
 	"pushTimeout":        time.Duration(30 * time.Second),
 }
-
-var adminNotifications = make([]notifications.SendMessager, 0)
 
 var (
 	startSetup      time.Time
@@ -283,70 +278,38 @@ func initServices() {
 }
 
 func main() {
-	// Order of operations:
-	//
-	// 0. Setup (global context, generate worker.Configs, set up notification listeners)
-	// 1. Get kerberos tickets
-	// 2. Get and store vault tokens
-	// 3. Ping nodes to check their status
-	// 4. Push vault tokens to nodes
-	var globalTimeout time.Duration
-	var setupWg sync.WaitGroup
-
 	// Global context
+	var globalTimeout time.Duration
 	var ok bool
-	var err error
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
-		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
-			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
-		}
+		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
-	// Set up admin notifications
-	adminNotifications = setupAdminNotifications()
-
-	// Set up our service config collector
-	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
-	collectServiceConfigs := make(chan *worker.Config, len(services))
-	setupWg.Add(1)
-	go func() {
-		defer setupWg.Done()
-		for serviceConfig := range collectServiceConfigs {
-			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
-		}
-	}()
-
-	// Initialize Map of services for which all steps were successful
-	successfulServices := make(map[string]bool)
-	initializeSuccessfulServices := make(chan string, len(services))
-	setupWg.Add(1)
-	go func() {
-		defer setupWg.Done()
-		for service := range initializeSuccessfulServices {
-			successfulServices[service] = false
-		}
-	}()
-
-	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
-	if err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+	// Run our actual operation
+	if err := run(ctx); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Error running operations to push vault tokens.  Exiting")
 	}
+	log.Debug("Finished run")
+}
 
-	// All the cleanup actions needed to run any time main() returns
+func run(ctx context.Context) error {
+	// Order of operations:
+	// 0. Setup (admin notifications, kerberos cache dir, generate worker.Configs, set up notification listeners)
+	// 1. Get kerberos tickets
+	// 2. Get and store vault tokens
+	// 3. Ping nodes to check their status
+	// 4. Push vault tokens to nodes
+	var setupWg sync.WaitGroup
+	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
+
+	// All the cleanup actions that should run any time run() returns
 	defer func() {
-		// Wait for all notifications to finish before moving onto cleanup
-		handleNotificationsFinalization()
-		// Clear kerberos cache
-		os.RemoveAll(krb5ccname)
-		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 		// Run cleanup actions
 		func(successfulServices map[string]bool) { // Cleanup
-			if err := cleanup(ctx, successfulServices); err != nil {
-				log.WithField("executable", currentExecutable).Fatal("Error cleaning up")
+			if err := reportSuccessesAndFailures(ctx, successfulServices); err != nil {
+				log.WithField("executable", currentExecutable).Error("Error aggregating successes and failures")
 			}
 		}(successfulServices)
 		// Push metrics to prometheus pushgateway
@@ -359,11 +322,74 @@ func main() {
 		}
 	}()
 
+	// Set up admin notifications
+	adminNotifications := setupAdminNotifications()
+	// Make sure notifications are always sent at the end of the run
+	// We need to pass the pointer in here since we need to pick up the
+	// changes made to adminNotifications, as explained here:
+	// https://stackoverflow.com/a/52070387
+	// and mocked out here:
+	// https://go.dev/play/p/rww0ORt94pU
+	defer func(adminNotificationsPtr *[]notifications.SendMessager) {
+		// Wait for all notifications to finish filtering through before moving onto cleanup
+		handleNotificationsFinalization()
+		if err := notifications.SendAdminNotifications(
+			ctx,
+			"token-push",
+			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
+			(*adminNotificationsPtr)...,
+		); err != nil {
+			log.Error("Error sending admin notifications")
+		}
+	}(&adminNotifications)
+
+	// Create temporary dir for all kerberos caches to live in
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	if err != nil {
+		log.WithField("executable", currentExecutable).Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Returning")
+		return err
+	}
+	defer func() {
+		// Clear kerberos cache dir
+		if err := os.RemoveAll(krb5ccname); err != nil {
+			log.WithFields(
+				log.Fields{
+					"executable":   currentExecutable,
+					"kerbCacheDir": krb5ccname,
+				}).Error("Could not clear kerberos cache.  Please clean up manually")
+			return
+		}
+		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+	}()
+
+	// For all services, initialize success value to false
+	initializeSuccessfulServices := make(chan string, len(services))
+	setupWg.Add(1)
+	go func() {
+		defer setupWg.Done()
+		for service := range initializeSuccessfulServices {
+			successfulServices[service] = false
+		}
+	}()
+
+	// Set up our service config collector
+	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
+	collectServiceConfigs := make(chan *worker.Config, len(services))
+	setupWg.Add(1)
+	go func() {
+		defer setupWg.Done()
+		defer close(initializeSuccessfulServices)
+		for serviceConfig := range collectServiceConfigs {
+			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
+			initializeSuccessfulServices <- getServiceName(serviceConfig.Service)
+		}
+	}()
+
 	// Set up our serviceConfigs and load them into various collection channels
 	func() {
 		var serviceConfigSetupWg sync.WaitGroup
 		defer close(collectServiceConfigs)
-		defer close(initializeSuccessfulServices)
 		for _, s := range services {
 			// Setup the configs
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
@@ -387,10 +413,10 @@ func main() {
 					log.WithFields(log.Fields{
 						"experiment": s.Experiment(),
 						"role":       s.Role(),
-					}).Fatal("Could not create config for service")
+					}).Error("Could not create config for service")
+					return
 				}
 				collectServiceConfigs <- c
-				initializeSuccessfulServices <- getServiceName(s)
 				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
 			}(s, serviceConfigPath)
 		}
@@ -430,7 +456,8 @@ func main() {
 		).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
 	}
 	if len(serviceConfigs) == 0 {
-		return
+		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
+		return nil
 	}
 
 	// 2. Get and store vault tokens
@@ -462,12 +489,12 @@ func main() {
 		for service := range serviceConfigs {
 			successfulServices[service] = true
 		}
-		return
+		return nil
 	}
 
 	if len(serviceConfigs) == 0 {
 		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
-		return
+		return nil
 	}
 
 	// 3. Ping nodes to check their status
@@ -492,25 +519,17 @@ func main() {
 		}
 	}
 
+	return nil
 }
 
-func cleanup(ctx context.Context, successMap map[string]bool) error {
+// cleanup split up - consolidate handlNotificationsFinealization into adminNotifications sending
+// initServices channel and serviceConfig channel are consolidated
+
+func reportSuccessesAndFailures(ctx context.Context, successMap map[string]bool) error {
 	startCleanup = time.Now()
 	defer func() {
 		if prometheusUp {
 			promDuration.WithLabelValues(currentExecutable, "cleanup").Set(time.Since(startCleanup).Seconds())
-		}
-	}()
-
-	defer func() {
-		if err := notifications.SendAdminNotifications(
-			ctx,
-			"token-push",
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			adminNotifications...,
-		); err != nil {
-			log.Error("Error sending admin notifications")
 		}
 	}()
 
@@ -531,9 +550,3 @@ func cleanup(ctx context.Context, successMap map[string]bool) error {
 
 	return nil
 }
-
-// admin notifications setup moved to new func from init
-// adminNotifications no longer var
-// adminNotifications use this trick to send: https://go.dev/play/p/rww0ORt94pU (pointer)
-// cleanup split up - consolidate handlNotificationsFinealization into adminNotifications sending
-// initServices channel and serviceConfig channel are consolidated
