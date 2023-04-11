@@ -255,19 +255,24 @@ func run(ctx context.Context) error {
 
 	adminNotifications, notificationsChan := setupAdminNotifications(ctx)
 	// Send admin notifications at end of run
-	defer func() {
+	// We need to pass the pointer in here since we need to pick up the
+	// changes made to adminNotifications, as explained here:
+	// https://stackoverflow.com/a/52070387
+	// and mocked out here:
+	// https://go.dev/play/p/rww0ORt94pU
+	defer func(adminNotificationsPtr *[]notifications.SendMessager) {
 		close(notificationsChan)
 		if err := notifications.SendAdminNotifications(
 			ctx,
 			currentExecutable,
 			viper.GetString("templates.adminerrors"),
 			viper.GetBool("test"),
-			adminNotifications...,
+			(*adminNotificationsPtr)...,
 		); err != nil {
 			// We don't want to halt execution at this point
 			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
 		}
-	}()
+	}(&adminNotifications)
 
 	// Setup complete
 	if prometheusUp {
