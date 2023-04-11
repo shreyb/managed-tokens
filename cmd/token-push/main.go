@@ -522,9 +522,6 @@ func run(ctx context.Context) error {
 	return nil
 }
 
-// cleanup split up - consolidate handlNotificationsFinealization into adminNotifications sending
-// initServices channel and serviceConfig channel are consolidated
-
 func reportSuccessesAndFailures(ctx context.Context, successMap map[string]bool) error {
 	startCleanup = time.Now()
 	defer func() {
