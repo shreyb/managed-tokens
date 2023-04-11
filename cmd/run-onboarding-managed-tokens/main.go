@@ -26,8 +26,6 @@ var (
 	version           string
 )
 
-const globalTimeoutDefaultStr string = "300s"
-
 // Supported timeouts and their default values
 var timeouts = map[string]time.Duration{
 	"globaltimeout":      time.Duration(300 * time.Second),
@@ -212,13 +210,9 @@ func initTimeouts() error {
 func main() {
 	var globalTimeout time.Duration
 	var ok bool
-	var err error
 
 	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
-		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
-			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
-		}
+		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
 	}
 
 	// Global context
