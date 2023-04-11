@@ -28,9 +28,9 @@ var (
 
 // Supported timeouts and their default values
 var timeouts = map[string]time.Duration{
-	"globaltimeout":      time.Duration(300 * time.Second),
-	"kerberostimeout":    time.Duration(20 * time.Second),
-	"vaultstorertimeout": time.Duration(60 * time.Second),
+	"global":      time.Duration(300 * time.Second),
+	"kerberos":    time.Duration(20 * time.Second),
+	"vaultstorer": time.Duration(60 * time.Second),
 }
 
 // Initial setup.  Read flags, find config file
@@ -170,6 +170,7 @@ func initLogs() {
 func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
 		// Only save the timeout if it's supported, otherwise ignore it
 		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
@@ -193,12 +194,12 @@ func initTimeouts() error {
 	timeForComponentCheck := now
 
 	for timeoutKey, timeout := range timeouts {
-		if timeoutKey != "globaltimeout" {
+		if timeoutKey != "global" {
 			timeForComponentCheck = timeForComponentCheck.Add(timeout)
 		}
 	}
 
-	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
 		log.WithField("executable", currentExecutable).Error(msg)
@@ -211,7 +212,7 @@ func main() {
 	var globalTimeout time.Duration
 	var ok bool
 
-	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
+	if globalTimeout, ok = timeouts["global"]; !ok {
 		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
 	}
 
@@ -292,7 +293,7 @@ func run(ctx context.Context) error {
 	// 1. Get Kerberos ticket
 	// Channel, context, and worker for getting kerberos ticket
 	var kerberosContext context.Context
-	if kerberosTimeout, ok := timeouts["kerberostimeout"]; ok {
+	if kerberosTimeout, ok := timeouts["kerberos"]; ok {
 		kerberosContext = utils.ContextWithOverrideTimeout(ctx, kerberosTimeout)
 	} else {
 		kerberosContext = ctx
@@ -308,11 +309,12 @@ func run(ctx context.Context) error {
 
 	// 2.  Get and store vault tokens for service
 	var vaultStorerContext context.Context
-	if vaultStorerTimeout, ok := timeouts["vaultstorertimeout"]; ok {
+	if vaultStorerTimeout, ok := timeouts["vaultstorer"]; ok {
 		vaultStorerContext = utils.ContextWithOverrideTimeout(ctx, vaultStorerTimeout)
 	} else {
 		vaultStorerContext = ctx
 	}
+
 	defer func() {
 		if err := vaultToken.RemoveServiceVaultTokens(viper.GetString("service")); err != nil {
 			log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service.  Please clean up manually")

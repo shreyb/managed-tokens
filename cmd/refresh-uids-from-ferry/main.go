@@ -31,9 +31,9 @@ var (
 
 // Supported Timeouts and their defaults
 var timeouts = map[string]time.Duration{
-	"globaltimeout":       time.Duration(300 * time.Second),
-	"ferryrequesttimeout": time.Duration(30 * time.Second),
-	"dbtimeout":           time.Duration(10 * time.Second),
+	"global":       time.Duration(300 * time.Second),
+	"ferryrequest": time.Duration(30 * time.Second),
+	"db":           time.Duration(10 * time.Second),
 }
 
 // Metrics
@@ -170,6 +170,7 @@ func initLogs() {
 func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
 		// Only save the timeout if it's supported, otherwise ignore it
 		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
@@ -193,12 +194,12 @@ func initTimeouts() error {
 	timeForComponentCheck := now
 
 	for timeoutKey, timeout := range timeouts {
-		if timeoutKey != "globaltimeout" {
+		if timeoutKey != "global" {
 			timeForComponentCheck = timeForComponentCheck.Add(timeout)
 		}
 	}
 
-	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
 		log.WithField("executable", currentExecutable).Error(msg)
@@ -229,7 +230,7 @@ func main() {
 	var globalTimeout time.Duration
 	var ok bool
 
-	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
+	if globalTimeout, ok = timeouts["global"]; !ok {
 		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
@@ -356,13 +357,20 @@ func run(ctx context.Context) error {
 	func() {
 		var ferryDataWg sync.WaitGroup // WaitGroup to make sure we don't close ferryDataChan before all data is sent
 		defer close(ferryDataChan)
+
+		var ferryContext context.Context
+		if timeout, ok := timeouts["ferryrequest"]; ok {
+			ferryContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+		} else {
+			ferryContext = ctx
+		}
 		// For each username, query FERRY for UID info
 		for _, username := range usernames {
 			ferryDataWg.Add(1)
 
 			go func(username string) {
 				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(ctx, username, authFunc, ferryDataChan, notificationsChan)
+				getAndAggregateFERRYData(ferryContext, username, authFunc, ferryDataChan, notificationsChan)
 			}(username)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
@@ -394,7 +402,7 @@ func run(ctx context.Context) error {
 
 	// INSERT all collected FERRY data into FERRYUIDDatabase
 	var dbContext context.Context
-	if timeout, ok := timeouts["dbtimeout"]; ok {
+	if timeout, ok := timeouts["db"]; ok {
 		dbContext = utils.ContextWithOverrideTimeout(ctx, timeout)
 	} else {
 		dbContext = ctx

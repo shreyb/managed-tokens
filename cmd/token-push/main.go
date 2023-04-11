@@ -34,11 +34,11 @@ var (
 
 // Supported timeouts and their default values
 var timeouts = map[string]time.Duration{
-	"globalTimeout":      time.Duration(300 * time.Second),
-	"kerberosTimeout":    time.Duration(20 * time.Second),
-	"vaultStorerTimeout": time.Duration(60 * time.Second),
-	"pingTimeout":        time.Duration(10 * time.Second),
-	"pushTimeout":        time.Duration(30 * time.Second),
+	"global":      time.Duration(300 * time.Second),
+	"kerberos":    time.Duration(20 * time.Second),
+	"vaultstorer": time.Duration(60 * time.Second),
+	"ping":        time.Duration(10 * time.Second),
+	"push":        time.Duration(30 * time.Second),
 }
 
 var (
@@ -195,6 +195,7 @@ func initLogs() {
 func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
 		// Only save the timeout if it's supported, otherwise ignore it
 		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
@@ -205,8 +206,9 @@ func initTimeouts() error {
 				}).Warn("Could not parse configured timeout.  Using default")
 			}
 			log.WithFields(log.Fields{
-				"executable": currentExecutable,
-				"timeoutKey": timeoutKey,
+				"executable":   currentExecutable,
+				"timeoutKey":   timeoutKey,
+				"timeoutValue": timeout,
 			}).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
@@ -217,12 +219,12 @@ func initTimeouts() error {
 	timeForComponentCheck := now
 
 	for timeoutKey, timeout := range timeouts {
-		if timeoutKey != "globaltimeout" {
+		if timeoutKey != "global" {
 			timeForComponentCheck = timeForComponentCheck.Add(timeout)
 		}
 	}
 
-	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
 		log.WithField("executable", currentExecutable).Error(msg)
@@ -281,7 +283,7 @@ func main() {
 	// Global context
 	var globalTimeout time.Duration
 	var ok bool
-	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
+	if globalTimeout, ok = timeouts["global"]; !ok {
 		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
@@ -445,7 +447,7 @@ func run(ctx context.Context) error {
 
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
-	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberos")
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
@@ -462,7 +464,7 @@ func run(ctx context.Context) error {
 
 	// 2. Get and store vault tokens
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
-	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorertimeout")
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
 	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
@@ -499,7 +501,7 @@ func run(ctx context.Context) error {
 
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
-	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "pingtimeout")
+	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "ping")
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
@@ -510,7 +512,7 @@ func run(ctx context.Context) error {
 
 	// 4. Push vault tokens to nodes
 	// Get channels and start worker for pushing tokens to service nodes
-	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "pushtimeout")
+	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "push")
 
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
