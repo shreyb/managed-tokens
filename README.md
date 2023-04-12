@@ -8,7 +8,7 @@ The Managed Tokens Service stores and distributes HashiCorp Vault tokens for the
 # Executables
 The Managed Tokens Service consists of three executables:
 
-* `token-push`: Executable that uses the service keytabs to generate vault tokens, store them on HTCondor credd machines, and push the vault tokens to the experiment interactive nodes. By default, this runs every hour.
+* `token-push`: Executable that uses the service keytabs to generate vault tokens, store them on [HTCondor](https://htcondor.org/) credd machines, and push the vault tokens to the experiment interactive nodes. By default, this runs every hour.
 * `refresh-uids-from-ferry`: Executable that queries FERRY (the credentials and grid mapping registry service at Fermilab) to pull down the applicable UIDs for the configured UNIX accounts. By default, this runs daily each morning.
 * `run-onboarding-managed-tokens`: A lightweight wrapper around condor_vault_storer that must be run when onboarding a new experiment or experiment account to the Managed Tokens Service. In lieu of this, the operator may run condor_vault_storer [experiment]_[role].
 
@@ -33,7 +33,7 @@ The logfiles for the Managed Tokens service are, by default, located in the /var
 
 There are currently four prometheus metrics that can be pushed from the Managed Tokens executables to a [prometheus pushgateway](https://prometheus.io/docs/practices/pushing/) configured at the `prometheus.host` entry in the configuration file. These are:
 
-- managed_tokens_stage_duration_seconds:  Per executable, per stage (setup, processing, cleanup).  How long each stage took to run.
-- managed_tokens_last_ferry_refresh: Timestamp of when refresh-uids-from-ferry executable last got information from FERRY.
-- managed_tokens_failed_services_push_count:  Count of how many services registered a failure to push a vault token to a node in the current run of token-push.  Basically, a failure count.
-- managed_tokens_last_token_push_timestamp: Timestamp of when token-push last pushed a particular service vault token to a particular node.
+* `managed_tokens_stage_duration_seconds`:  Per executable, per stage (setup, processing, cleanup).  How long each stage took to run.
+* `managed_tokens_last_ferry_refresh`: Timestamp of when refresh-uids-from-ferry executable last got information from FERRY.
+* `managed_tokens_failed_services_push_count`:  Count of how many services registered a failure to push a vault token to a node in the current run of token-push.  Basically, a failure count.
+* `managed_tokens_last_token_push_timestamp`: Timestamp of when token-push last pushed a particular service vault token to a particular node.
