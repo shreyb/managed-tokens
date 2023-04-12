@@ -1,5 +1,5 @@
 NAME = managed-tokens
-VERSION = v0.6
+VERSION = v0.7
 ROOTDIR = $(shell pwd)
 BUILD = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 rpmVersion := $(subst v,,$(VERSION))
@@ -10,7 +10,7 @@ executables = refresh-uids-from-ferry run-onboarding-managed-tokens token-push
 specfile := $(ROOTDIR)/packaging/$(NAME).spec
 
 all: build tarball spec rpm
-.PHONY: all clean build tarball spec rpm
+.PHONY: all clean clean-all build tarball spec rpm
 
 rpm: rpmSourcesDir := $$HOME/rpmbuild/SOURCES
 rpm: rpmSpecsDir := $$HOME/rpmbuild/SPECS
@@ -48,7 +48,10 @@ build:
 	done
 
 
+clean-all: clean
+	(test -e $(ROOTDIR)/$(NAME)-$(rpmVersion)*.rpm) && (rm $(ROOTDIR)/$(NAME)-$(rpmVersion)*.rpm)
+
+
 clean:
 	(test -e $(buildTarPath)) && (rm $(buildTarPath))
 	(test -e $(SOURCEDIR)) && (rm -Rf $(SOURCEDIR))
-	(test -e $(ROOTDIR)/$(NAME)-$(rpmVersion)*.rpm) && (rm $(ROOTDIR)/$(NAME)-$(rpmVersion)*.rpm)
