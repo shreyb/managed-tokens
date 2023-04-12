@@ -66,10 +66,12 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 
 	// Listener for all of the getTokensAndStoreInVault goroutines
 	var isError bool
-	errChan := make(chan error)
+	errorCollectionDone := make(chan struct{}) // Channel to close when we're done determining if there was an error or not
+	errChan := make(chan error, len(schedds))
 	go func() {
+		defer close(errorCollectionDone)
 		for err := range errChan {
-			if err != nil && !isError {
+			if err != nil {
 				isError = true
 			}
 		}
@@ -86,7 +88,10 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 					log.WithField("serviceName", serviceName).Error("Context timeout")
 					errChan <- ctx.Err()
 				}
-				log.WithField("serviceName", serviceName).Errorf("Could not obtain vault token: %s", err)
+				log.WithFields(log.Fields{
+					"serviceName": serviceName,
+					"credd":       environmentForCommand.ToValues()["CondorCreddHost"],
+				}).Errorf("Could not obtain vault token: %s", err)
 				errChan <- err
 				return
 			}
@@ -99,6 +104,7 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 	}
 	wg.Wait()
 	close(errChan)
+	<-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
 
 	if isError {
 		msg := "Error obtaining and/or storing vault tokens"
@@ -197,14 +203,20 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 				log.WithField("service", serviceName).Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithField("service", serviceName).Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
+			log.WithFields(log.Fields{
+				"service": serviceName,
+				"credd":   environ.ToValues()["CondorCreddHost"],
+			}).Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
 		}
 		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
 				log.WithField("service", serviceName).Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithField("service", serviceName).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+			log.WithFields(log.Fields{
+				"service": serviceName,
+				"credd":   environ.ToValues()["CondorCreddHost"],
+			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 			return err
 		}
 	} else {
@@ -213,12 +225,22 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 				log.WithField("service", serviceName).Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithField("service", serviceName).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
-			log.WithField("service", serviceName).Errorf("%s", stdoutStderr)
+			log.WithFields(log.Fields{
+				"service": serviceName,
+				"credd":   environ.ToValues()["CondorCreddHost"],
+			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+			log.WithFields(log.Fields{
+				"service": serviceName,
+				"credd":   environ.ToValues()["CondorCreddHost"],
+			}).Errorf("%s", stdoutStderr)
 			return err
 		} else {
 			if len(stdoutStderr) > 0 {
-				log.WithField("service", serviceName).Debugf("%s", stdoutStderr)
+				log.WithFields(log.Fields{
+					"service":     serviceName,
+					"environment": environ.String(),
+					"credd":       environ.ToValues()["CondorCreddHost"],
+				}).Debugf("%s", stdoutStderr)
 			}
 		}
 	}

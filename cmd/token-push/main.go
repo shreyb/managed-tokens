@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -31,19 +32,14 @@ var (
 	version           string
 )
 
-const globalTimeoutDefaultStr string = "300s"
-
-var (
-	timeouts          = make(map[string]time.Duration)
-	supportedTimeouts = map[string]struct{}{
-		"globaltimeout":      {},
-		"kerberostimeout":    {},
-		"vaultstorertimeout": {},
-		"pingtimeout":        {},
-		"pushtimeout":        {},
-	}
-	adminNotifications = make([]notifications.SendMessager, 0)
-)
+// Supported timeouts and their default values
+var timeouts = map[string]time.Duration{
+	"global":      time.Duration(300 * time.Second),
+	"kerberos":    time.Duration(20 * time.Second),
+	"vaultstorer": time.Duration(60 * time.Second),
+	"ping":        time.Duration(10 * time.Second),
+	"push":        time.Duration(30 * time.Second),
+}
 
 var (
 	startSetup      time.Time
@@ -78,7 +74,6 @@ var (
 
 // Initial setup.  Read flags, find config file
 func init() {
-	const configFile string = "managedTokens"
 	startSetup = time.Now()
 
 	// Get current executable name
@@ -92,6 +87,40 @@ func init() {
 		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
 	}
 
+	initFlags()
+	if viper.GetBool("version") {
+		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
+		os.Exit(0)
+	}
+
+	if err := initConfig(); err != nil {
+		fmt.Println("Fatal error setting up configuration.  Exiting now")
+		os.Exit(1)
+	}
+
+	// If user wants to list all services, do that and exit
+	if viper.GetBool("list-services") {
+		allServices := make([]string, 0)
+		for experiment := range viper.GetStringMap("experiments") {
+			roleMap := viper.GetStringMap("experiments." + experiment + ".roles")
+			for role := range roleMap {
+				allServices = append(allServices, fmt.Sprintf("%s_%s", experiment, role))
+			}
+		}
+		fmt.Println(strings.Join(allServices, "\n"))
+		os.Exit(0)
+	}
+	initLogs()
+	initServices()
+	if err := initTimeouts(); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
+	}
+	if err := initMetrics(); err != nil {
+		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
+	}
+}
+
+func initFlags() {
 	// Defaults
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
@@ -107,18 +136,16 @@ func init() {
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+}
 
-	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		os.Exit(0)
-	}
-
+func initConfig() error {
 	// Get config file
+	configFileName := "managedTokens"
 	// Check for override
 	if config := viper.GetString("configfile"); config != "" {
 		viper.SetConfigFile(config)
 	} else {
-		viper.SetConfigName(configFile)
+		viper.SetConfigName(configFileName)
 	}
 
 	viper.AddConfigPath("/etc/managed-tokens/")
@@ -127,28 +154,14 @@ func init() {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		log.WithField("executable", currentExecutable).Panicf("Fatal error reading in config file: %v", err)
+		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
+		return err
 	}
-
-	// Grab HTGETTOKENOPTS if it's there
-	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
-
-	// List all services
-	if viper.GetBool("list-services") {
-		allServices := make([]string, 0)
-		for experiment := range viper.GetStringMap("experiments") {
-			roleMap := viper.GetStringMap("experiments." + experiment + ".roles")
-			for role := range roleMap {
-				allServices = append(allServices, fmt.Sprintf("%s_%s", experiment, role))
-			}
-		}
-		fmt.Println(strings.Join(allServices, "\n"))
-		os.Exit(0)
-	}
+	return nil
 }
 
 // Set up logs
-func init() {
+func initLogs() {
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.token-push.debugfile"
 	logConfigLookup := "logs.token-push.logfile"
@@ -179,20 +192,23 @@ func init() {
 }
 
 // Setup of timeouts, if they're set
-func init() {
+func initTimeouts() error {
 	// Save supported timeouts into timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
-		if _, ok := supportedTimeouts[timeoutKey]; ok {
+		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
+		// Only save the timeout if it's supported, otherwise ignore it
+		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
 				log.WithFields(log.Fields{
 					"executable": currentExecutable,
 					"timeoutKey": timeoutKey,
-				}).Warn("Configured timeout not supported by this utility")
+				}).Warn("Could not parse configured timeout.  Using default")
 			}
 			log.WithFields(log.Fields{
-				"executable": currentExecutable,
-				"timeoutKey": timeoutKey,
+				"executable":   currentExecutable,
+				"timeoutKey":   timeoutKey,
+				"timeoutValue": timeout,
 			}).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
@@ -203,19 +219,22 @@ func init() {
 	timeForComponentCheck := now
 
 	for timeoutKey, timeout := range timeouts {
-		if timeoutKey != "globaltimeout" {
+		if timeoutKey != "global" {
 			timeForComponentCheck = timeForComponentCheck.Add(timeout)
 		}
 	}
 
-	timeForGlobalCheck := now.Add(timeouts["globaltimeout"])
+	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
-		log.WithField("executable", currentExecutable).Fatal("Configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts: ", timeouts)
+		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
+		log.WithField("executable", currentExecutable).Error(msg)
+		return errors.New(msg)
 	}
+	return nil
 }
 
 // Set up prometheus metrics
-func init() {
+func initMetrics() error {
 	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
 		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
@@ -223,36 +242,17 @@ func init() {
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
 		prometheusUp = false
+		return err
 	}
-
 	metrics.MetricsRegistry.MustRegister(promDuration)
 	metrics.MetricsRegistry.MustRegister(servicePushFailureCount)
-}
-
-// Prep admin notifications
-func init() {
-	var prefix string
-	if viper.GetBool("test") {
-		prefix = "notifications_test."
-	} else {
-		prefix = "notifications."
-	}
-
-	now := time.Now().Format(time.RFC822)
-	email := notifications.NewEmail(
-		viper.GetString("email.from"),
-		viper.GetStringSlice(prefix+"admin_email"),
-		"Managed Tokens Errors "+now,
-		viper.GetString("email.smtphost"),
-		viper.GetInt("email.smtpport"),
-		"",
-	)
-	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
-	adminNotifications = append(adminNotifications, email, slackMessage)
+	return nil
 }
 
 // Setup of services
-func init() {
+func initServices() {
+	// Grab HTGETTOKENOPTS if it's there
+	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
 	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
 	switch {
 	case viper.GetString("experiment") != "":
@@ -280,67 +280,38 @@ func init() {
 }
 
 func main() {
-	// Order of operations:
-	//
-	// 0. Setup (global context, generate worker.Configs, set up notification listeners)
-	// 1. Get kerberos tickets
-	// 2. Get and store vault tokens
-	// 3. Ping nodes to check their status
-	// 4. Push vault tokens to nodes
-	var globalTimeout time.Duration
-	var setupWg sync.WaitGroup
-
 	// Global context
+	var globalTimeout time.Duration
 	var ok bool
-	var err error
-	if globalTimeout, ok = timeouts["globaltimeout"]; !ok {
-		log.WithField("executable", currentExecutable).Debugf("Global timeout not configured in config file.  Using default global timeout of %s", globalTimeoutDefaultStr)
-		if globalTimeout, err = time.ParseDuration(globalTimeoutDefaultStr); err != nil {
-			log.WithField("executable", currentExecutable).Fatal("Could not parse default global timeout.")
-		}
+	if globalTimeout, ok = timeouts["global"]; !ok {
+		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
-	// Set up our service config collector
-	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
-	collectServiceConfigs := make(chan *worker.Config, len(services))
-	setupWg.Add(1)
-	go func() {
-		defer setupWg.Done()
-		for serviceConfig := range collectServiceConfigs {
-			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
-		}
-	}()
-
-	// Initialize Map of services for which all steps were successful
-	successfulServices := make(map[string]bool)
-	initializeSuccessfulServices := make(chan string, len(services))
-	setupWg.Add(1)
-	go func() {
-		defer setupWg.Done()
-		for service := range initializeSuccessfulServices {
-			successfulServices[service] = false
-		}
-	}()
-
-	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
-	if err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+	// Run our actual operation
+	if err := run(ctx); err != nil {
+		log.WithField("executable", currentExecutable).Fatal("Error running operations to push vault tokens.  Exiting")
 	}
+	log.Debug("Finished run")
+}
 
-	// All the cleanup actions needed to run any time main() returns
+func run(ctx context.Context) error {
+	// Order of operations:
+	// 0. Setup (admin notifications, kerberos cache dir, generate worker.Configs, set up notification listeners)
+	// 1. Get kerberos tickets
+	// 2. Get and store vault tokens
+	// 3. Ping nodes to check their status
+	// 4. Push vault tokens to nodes
+	var setupWg sync.WaitGroup
+	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
+
+	// All the cleanup actions that should run any time run() returns
 	defer func() {
-		// Wait for all notifications to finish before moving onto cleanup
-		handleNotificationsFinalization()
-		// Clear kerberos cache
-		os.RemoveAll(krb5ccname)
-		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 		// Run cleanup actions
 		func(successfulServices map[string]bool) { // Cleanup
-			if err := cleanup(ctx, successfulServices); err != nil {
-				log.WithField("executable", currentExecutable).Fatal("Error cleaning up")
+			if err := reportSuccessesAndFailures(ctx, successfulServices); err != nil {
+				log.WithField("executable", currentExecutable).Error("Error aggregating successes and failures")
 			}
 		}(successfulServices)
 		// Push metrics to prometheus pushgateway
@@ -353,11 +324,74 @@ func main() {
 		}
 	}()
 
+	// Set up admin notifications
+	adminNotifications := setupAdminNotifications()
+	// Make sure notifications are always sent at the end of the run
+	// We need to pass the pointer in here since we need to pick up the
+	// changes made to adminNotifications, as explained here:
+	// https://stackoverflow.com/a/52070387
+	// and mocked out here:
+	// https://go.dev/play/p/rww0ORt94pU
+	defer func(adminNotificationsPtr *[]notifications.SendMessager) {
+		// Wait for all notifications to finish filtering through before moving onto cleanup
+		handleNotificationsFinalization()
+		if err := notifications.SendAdminNotifications(
+			ctx,
+			"token-push",
+			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
+			(*adminNotificationsPtr)...,
+		); err != nil {
+			log.Error("Error sending admin notifications")
+		}
+	}(&adminNotifications)
+
+	// Create temporary dir for all kerberos caches to live in
+	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	if err != nil {
+		log.WithField("executable", currentExecutable).Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Returning")
+		return err
+	}
+	defer func() {
+		// Clear kerberos cache dir
+		if err := os.RemoveAll(krb5ccname); err != nil {
+			log.WithFields(
+				log.Fields{
+					"executable":   currentExecutable,
+					"kerbCacheDir": krb5ccname,
+				}).Error("Could not clear kerberos cache.  Please clean up manually")
+			return
+		}
+		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+	}()
+
+	// For all services, initialize success value to false
+	initializeSuccessfulServices := make(chan string, len(services))
+	setupWg.Add(1)
+	go func() {
+		defer setupWg.Done()
+		for service := range initializeSuccessfulServices {
+			successfulServices[service] = false
+		}
+	}()
+
+	// Set up our service config collector
+	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
+	collectServiceConfigs := make(chan *worker.Config, len(services))
+	setupWg.Add(1)
+	go func() {
+		defer setupWg.Done()
+		defer close(initializeSuccessfulServices)
+		for serviceConfig := range collectServiceConfigs {
+			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
+			initializeSuccessfulServices <- getServiceName(serviceConfig.Service)
+		}
+	}()
+
 	// Set up our serviceConfigs and load them into various collection channels
 	func() {
 		var serviceConfigSetupWg sync.WaitGroup
 		defer close(collectServiceConfigs)
-		defer close(initializeSuccessfulServices)
 		for _, s := range services {
 			// Setup the configs
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
@@ -381,10 +415,10 @@ func main() {
 					log.WithFields(log.Fields{
 						"experiment": s.Experiment(),
 						"role":       s.Role(),
-					}).Fatal("Could not create config for service")
+					}).Error("Could not create config for service")
+					return
 				}
 				collectServiceConfigs <- c
-				initializeSuccessfulServices <- getServiceName(s)
 				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
 			}(s, serviceConfigPath)
 		}
@@ -413,7 +447,7 @@ func main() {
 
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
-	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberostimeout")
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberos")
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
@@ -424,12 +458,13 @@ func main() {
 		).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
 	}
 	if len(serviceConfigs) == 0 {
-		return
+		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
+		return nil
 	}
 
 	// 2. Get and store vault tokens
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
-	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorertimeout")
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
 	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
@@ -456,17 +491,17 @@ func main() {
 		for service := range serviceConfigs {
 			successfulServices[service] = true
 		}
-		return
+		return nil
 	}
 
 	if len(serviceConfigs) == 0 {
 		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
-		return
+		return nil
 	}
 
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
-	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "pingtimeout")
+	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "ping")
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
@@ -477,7 +512,7 @@ func main() {
 
 	// 4. Push vault tokens to nodes
 	// Get channels and start worker for pushing tokens to service nodes
-	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "pushtimeout")
+	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "push")
 
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
@@ -486,25 +521,14 @@ func main() {
 		}
 	}
 
+	return nil
 }
 
-func cleanup(ctx context.Context, successMap map[string]bool) error {
+func reportSuccessesAndFailures(ctx context.Context, successMap map[string]bool) error {
 	startCleanup = time.Now()
 	defer func() {
 		if prometheusUp {
 			promDuration.WithLabelValues(currentExecutable, "cleanup").Set(time.Since(startCleanup).Seconds())
-		}
-	}()
-
-	defer func() {
-		if err := notifications.SendAdminNotifications(
-			ctx,
-			"token-push",
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			adminNotifications...,
-		); err != nil {
-			log.Error("Error sending admin notifications")
 		}
 	}()
 

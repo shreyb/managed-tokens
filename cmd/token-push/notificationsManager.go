@@ -23,21 +23,21 @@ var notificationSorter sync.Once                                         // sync
 // This registration is stored in the serviceNotificationsChanMap.  It also increments a waitgroup so the caller can keep track of how many
 // EmailManagers have been opened.
 func registerServiceNotificationsChan(ctx context.Context, s service.Service, wg *sync.WaitGroup) {
-	timestamp := time.Now().Format(time.RFC822)
-	e := notifications.NewEmail(
-		viper.GetString("email.from"),
-		viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
-		fmt.Sprintf("Managed Tokens Push Errors for %s - %s", s.Name(), timestamp),
-		viper.GetString("email.smtphost"),
-		viper.GetInt("email.smtpport"),
-		viper.GetString("templates.serviceerrors"),
-	)
 	var serviceName string
 	if val, ok := s.(*ExperimentOverriddenService); ok {
 		serviceName = val.ConfigName()
 	} else {
 		serviceName = s.Name()
 	}
+	timestamp := time.Now().Format(time.RFC822)
+	e := notifications.NewEmail(
+		viper.GetString("email.from"),
+		viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
+		fmt.Sprintf("Managed Tokens Push Errors for %s - %s", serviceName, timestamp),
+		viper.GetString("email.smtphost"),
+		viper.GetInt("email.smtpport"),
+		viper.GetString("templates.serviceerrors"),
+	)
 	wg.Add(1)
 	m := notifications.NewServiceEmailManager(ctx, wg, serviceName, e)
 	serviceNotificationChanMap.Store(serviceName, m)
@@ -61,8 +61,8 @@ func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan noti
 			case <-ctx.Done():
 				return
 			default:
+				notificationsFromWorkersChan <- n
 			}
-			notificationsFromWorkersChan <- n
 		}
 	}()
 }

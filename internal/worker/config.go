@@ -69,3 +69,11 @@ func NewConfig(service service.Service, options ...func(*Config) error) (*Config
 	}).Debug("Set up service worker config")
 	return &c, nil
 }
+
+// ServiceNameFromExperimentAndRole returns a reconstructed service name by concatenating the underlying Service.Experiment() value, "_", and
+// the underlying Service.Role() value.  This is useful in case the caller has overridden the experiment or role name in the case of duplicate
+// services that have different configurations (e.g. the same vault token needs to be pushed to two sets of credds in two different pools)
+// In general, this should be used in lieu of Config.Service.Name() for notifications passing
+func (c *Config) ServiceNameFromExperimentAndRole() string {
+	return c.Service.Experiment() + "_" + c.Service.Role()
+}

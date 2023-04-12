@@ -42,7 +42,7 @@ func CopyToDestination(ctx context.Context, f FileCopier) error {
 var rsyncTemplate = template.Must(template.New("rsync").Parse(rsyncArgs))
 
 const (
-	rsyncArgs = "-e \"{{.SSHExe}} {{.SSHOpts}}\" --chmod=u=rw,go= {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
+	rsyncArgs = "-e \"{{.SSHExe}} {{.SSHOpts}}\" --chmod=u=r,go= {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
 	sshOpts   = "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
 )
 

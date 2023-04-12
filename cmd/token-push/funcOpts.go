@@ -1,50 +1,38 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"html/template"
-	"os"
 	"path"
 	"strings"
-	"sync"
+	"text/template"
 
 	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
-var once sync.Once
-
-// Custom usage function for positional argument.
-func onboardingUsage() {
-	fmt.Printf("Usage: %s [OPTIONS] service...\n", os.Args[0])
-	fmt.Printf("service must be of the form 'experiment_role', e.g. 'dune_production'\n")
-	pflag.PrintDefaults()
-}
-
-// Functional options for initialization of serviceConfigs
+// Functional options for worker.Config initialization
 
 // setCondorCredHost sets the _condor_CREDD_HOST environment variable in the worker.Config's environment
-func setCondorCreddHost(serviceConfigPath string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
+func setCondorCreddHost(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
 		addString := "_condor_CREDD_HOST="
 		overrideVar := serviceConfigPath + ".condorCreddHostOverride"
 		if viper.IsSet(overrideVar) {
 			addString = addString + viper.GetString(overrideVar)
-		} else {
-			addString = addString + viper.GetString("condorCreddHost")
+			sc.CommandEnvironment.CondorCreddHost = addString
 		}
-		c.CommandEnvironment.CondorCreddHost = addString
 		return nil
 	}
 }
 
 // setCondorCollectorHost sets the _condor_COLLECTOR_HOST environment variable in the worker.Config's environment
-func setCondorCollectorHost(serviceConfigPath string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
+func setCondorCollectorHost(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
 		addString := "_condor_COLLECTOR_HOST="
 		overrideVar := serviceConfigPath + ".condorCollectorHostOverride"
 		if viper.IsSet(overrideVar) {
@@ -52,34 +40,30 @@ func setCondorCollectorHost(serviceConfigPath string) func(c *worker.Config) err
 		} else {
 			addString = addString + viper.GetString("condorCollectorHost")
 		}
-		c.CommandEnvironment.CondorCollectorHost = addString
+		sc.CommandEnvironment.CondorCollectorHost = addString
 		return nil
 	}
 }
 
 // setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable
-func setUserPrincipalAndHtgettokenopts(serviceConfigPath, experiment string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
+func setUserPrincipalAndHtgettokenopts(serviceConfigPath, experiment string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
 		var htgettokenOptsRaw string
-		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))
-		if err != nil {
-			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
-			return err
-		}
 		userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"
 		if viper.IsSet(userPrincipalOverrideConfigPath) {
-			c.UserPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
+			sc.UserPrincipal = viper.GetString(userPrincipalOverrideConfigPath)
 		} else {
+			userPrincipalTemplate := template.Must(template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern")))
 			var b strings.Builder
 			templateArgs := struct{ Account string }{Account: viper.GetString(serviceConfigPath + ".account")}
 			if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
 				log.WithField("experiment", experiment).Error("Could not execute kerberos prinicpal template")
 				return err
 			}
-			c.UserPrincipal = b.String()
+			sc.UserPrincipal = b.String()
 		}
 
-		credKey := strings.ReplaceAll(c.UserPrincipal, "@FNAL.GOV", "")
+		credKey := strings.ReplaceAll(sc.UserPrincipal, "@FNAL.GOV", "")
 
 		// Look for HTGETTOKKENOPTS in environment.  If it's given here, take as is, but add credkey if it's absent
 		if viper.IsSet("ORIG_HTGETTOKENOPTS") {
@@ -98,7 +82,7 @@ func setUserPrincipalAndHtgettokenopts(serviceConfigPath, experiment string) fun
 		} else {
 			// Calculate minimum vault token lifetime from config
 			var lifetimeString string
-			defaultLifetimeString := "10s"
+			defaultLifetimeString := "3d"
 			if viper.IsSet("minTokenLifetime") {
 				lifetimeString = viper.GetString("minTokenLifetime")
 			} else {
@@ -107,24 +91,23 @@ func setUserPrincipalAndHtgettokenopts(serviceConfigPath, experiment string) fun
 
 			htgettokenOptsRaw = "--vaulttokenminttl=" + lifetimeString + " --credkey=" + credKey
 		}
-
 		log.Debugf("Final HTGETTOKENOPTS: %s", htgettokenOptsRaw)
-		c.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=" + htgettokenOptsRaw
+		sc.CommandEnvironment.HtgettokenOpts = "HTGETTOKENOPTS=" + htgettokenOptsRaw
 		return nil
 	}
 }
 
 // setKeytabOverride checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
 // If the override does not exist, it uses the configuration to calculate the default path to the keytab for a worker.Config
-func setKeytabOverride(serviceConfigPath string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
+func setKeytabOverride(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
 		keytabConfigPath := serviceConfigPath + ".keytabPathOverride"
 		if viper.IsSet(keytabConfigPath) {
-			c.KeytabPath = viper.GetString(keytabConfigPath)
+			sc.KeytabPath = viper.GetString(keytabConfigPath)
 		} else {
 			// Default keytab location
 			keytabDir := viper.GetString("keytabPath")
-			c.KeytabPath = path.Join(
+			sc.KeytabPath = path.Join(
 				keytabDir,
 				fmt.Sprintf(
 					"%s.keytab",
@@ -136,19 +119,74 @@ func setKeytabOverride(serviceConfigPath string) func(c *worker.Config) error {
 	}
 }
 
-// account sets the account field in the worker.Config object
-func account(serviceConfigPath string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
-		c.Account = viper.GetString(serviceConfigPath + ".account")
+// setDesiredUIByOverrideOrLookup sets the worker.Config's DesiredUID field by checking the configuration for the "account"
+// field.  It then checks the configuration to see if there is a configured override for the UID.  If it not overridden,
+// the default behavior is to query the managed tokens database that should be populated by the refresh-uids-from-ferry executable.
+//
+// If the default behavior is not possible, the configuration should have a desiredUIDOverride field to allow token-push to run properly
+func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath string) func(*worker.Config) error {
+	return func(sc *worker.Config) error {
+		if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
+			sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
+		} else {
+			// Get UID from SQLite DB that should be kept up to date by refresh-uids-from-ferry
+			func() error {
+				var dbLocation string
+				var uid int
+
+				username := viper.GetString(serviceConfigPath + ".account")
+
+				if viper.IsSet("dbLocation") {
+					dbLocation = viper.GetString("dbLocation")
+				} else {
+					dbLocation = "/var/lib/managed-tokens/uid.db"
+
+				}
+
+				ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
+				if err != nil {
+					log.WithField("executable", currentExecutable).Error("Could not open or create FERRYUIDDatabase")
+					return err
+				}
+				defer ferryUidDb.Close()
+
+				uid, err = ferryUidDb.GetUIDByUsername(ctx, username)
+				if err != nil {
+					log.Error("Could not get UID by username")
+					return err
+				}
+				log.WithFields(log.Fields{
+					"username": username,
+					"uid":      uid,
+				}).Debug("Got UID")
+				sc.DesiredUID = uint32(uid)
+				return nil
+			}()
+		}
 		return nil
 	}
 }
 
-// setkrb5ccname sets the KRB5CCNAME directory environment variable in the worker.Config's
-// environment
-func setkrb5ccname(krb5ccname string) func(c *worker.Config) error {
-	return func(c *worker.Config) error {
-		c.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
+// setkrb5ccname sets the KRB5CCNAME directory environment variable in the worker.Config's environment
+func setkrb5ccname(krb5ccname string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
+		sc.CommandEnvironment.Krb5ccname = "KRB5CCNAME=DIR:" + krb5ccname
+		return nil
+	}
+}
+
+// destinationNodes sets the Nodes field in the worker.Config object from the configuration's serviceConfigPath.destinationNodes field
+func destinationNodes(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
+		sc.Nodes = viper.GetStringSlice(serviceConfigPath + ".destinationNodes")
+		return nil
+	}
+}
+
+// account sets the Account field in the worker.Config object from the configuration's serviceConfigPath.account field
+func account(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
+		sc.Account = viper.GetString(serviceConfigPath + ".account")
 		return nil
 	}
 }
@@ -197,5 +235,24 @@ func setSchedds(serviceConfigPath string) func(sc *worker.Config) error {
 		log.WithField("schedds", sc.Schedds).Debug("Set schedds successfully")
 		return nil
 
+	}
+}
+
+// setDefaultRoleFileDestinationTemplate sets the DefaultRoleFileDestinationTemplate field in the passed in worker.Config object
+// to the template that the pushTokenWorker should use when deriving the default role file path on the destination node.
+func setDefaultRoleFileDestinationTemplate(serviceConfigPath string) func(sc *worker.Config) error {
+	return func(sc *worker.Config) error {
+		defaultRoleFileDestOverridePath := serviceConfigPath + ".defaultRoleFileDestinationTemplateOverride"
+		if viper.IsSet(defaultRoleFileDestOverridePath) {
+			worker.SetDefaultRoleFileTemplateValueInExtras(sc, viper.GetString(defaultRoleFileDestOverridePath))
+		} else {
+			notSetBackup := "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
+			if defaultRoleFileDestinationTplString := viper.GetString("defaultRoleFileDestinationTemplate"); defaultRoleFileDestinationTplString != "" {
+				worker.SetDefaultRoleFileTemplateValueInExtras(sc, defaultRoleFileDestinationTplString)
+			} else {
+				worker.SetDefaultRoleFileTemplateValueInExtras(sc, notSetBackup)
+			}
+		}
+		return nil
 	}
 }

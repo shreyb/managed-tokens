@@ -6,8 +6,9 @@ The following errors were reported by the Managed Tokens service at {{.Timestamp
     • {{.}}
 {{end}}
 {{end}}
+{{if .PushErrorsCombined }}
 
-{{if .PushErrorsCombined }}Processing errors:
+Processing errors:
 {{range .PushErrorsCombined}}
     • {{.}}
 {{end}}
@@ -20,8 +21,9 @@ The following errors were reported by the Managed Tokens service at {{.Timestamp
 {{ . }}
 {{end}}
 {{end}}
+{{ if ne $adminData.PushErrorsTable "" }}
 
-{{ if ne $adminData.PushErrorsTable "" }}Processing errors:
+Processing errors:
 {{ $adminData.PushErrorsTable}}
 {{end}}
 {{end}}
