@@ -307,7 +307,7 @@ func run(ctx context.Context) error {
 	}
 	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 
-	ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
+	ferryUidDb, err := db.OpenOrCreateFERRYUIDDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create FERRYUIDDatabase"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)

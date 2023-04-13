@@ -143,7 +143,7 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 
 				}
 
-				ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
+				ferryUidDb, err := db.OpenOrCreateFERRYUIDDatabase(dbLocation)
 				if err != nil {
 					log.WithField("executable", currentExecutable).Error("Could not open or create FERRYUIDDatabase")
 					return err
