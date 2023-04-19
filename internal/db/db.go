@@ -3,12 +3,14 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -78,6 +80,68 @@ func checkDatabaseApplicationId(db databaseConnector) error {
 		log.WithField("filename", db.Filename()).Errorf(errMsg)
 		return errors.New(errMsg)
 	}
+	return nil
+}
+
+type insertValues interface {
+	values() []any
+}
+
+func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
+	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	if err != nil {
+		log.Error("Could not parse db timeout duration")
+		return err
+	}
+	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
+	defer dbCancel()
+
+	tx, err := db.Begin()
+	if err != nil {
+		if dbContext.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return dbContext.Err()
+		}
+		log.Errorf("Could not open transaction to database: %s", err)
+		return err
+	}
+
+	insertStatement, err := tx.Prepare(insertStatementString)
+	if err != nil {
+		if dbContext.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return dbContext.Err()
+		}
+		log.Errorf("Could not prepare INSERT statement to database: %s", err)
+		return err
+	}
+	defer insertStatement.Close()
+
+	// Run the passed-in insertFunc on insertData
+	for _, datum := range insertData {
+		datumValues := datum.values()
+		_, err := insertStatement.ExecContext(dbContext, datumValues...)
+		if err != nil {
+			if dbContext.Err() == context.DeadlineExceeded {
+				log.Error("Context timeout")
+				return dbContext.Err()
+			}
+			log.Errorf("Could not insert FERRY data into database: %s", err)
+			return err
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		if dbContext.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return dbContext.Err()
+		}
+		log.Errorf("Could not commit transaction to database.  Rolling back.  Error: %s", err)
+		return err
+	}
+
+	log.Info("Inserted data into database")
 	return nil
 }
 
