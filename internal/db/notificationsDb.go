@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -301,12 +302,148 @@ func (n *NotificationsDatabase) createPushErrorsTable() error {
 }
 
 // External-facing functions to modify db
-// TODO Figure out signatures.  Make sure all return errors
+// TODO Make sure all funcs are documented
+// GetAllServices queries the NotificationsDatabase for the registered services
+// and returns a slice of strings with their names
+func (n *NotificationsDatabase) GetAllServices(ctx context.Context) ([]string, error) {
+	dataConverted := make([]string, 0)
+	data, err := getValuesTransactionRunner(ctx, n.db, getAllServicesFromTableStatement)
+	if err != nil {
+		log.Error("Could not get service names from notifications database")
+		return dataConverted, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No services in database")
+		return dataConverted, nil
+	}
+
+	for _, resultRow := range data {
+		if len(resultRow) != 1 {
+			msg := "service name data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errors.New(msg)
+		}
+		if val, ok := resultRow[0].(string); !ok {
+			msg := "service name query result has wrong type.  Expected string"
+			log.Errorf("%s: %T", msg, val)
+			return dataConverted, errors.New(msg)
+		} else {
+			dataConverted = append(dataConverted, val)
+		}
+	}
+	return dataConverted, nil
+}
+
+// GetAllNodes queries the NotificationsDatabase for the registered nodes
+// and returns a slice of strings with their names
+func (n *NotificationsDatabase) GetAllNodes(ctx context.Context) ([]string, error) {
+	dataConverted := make([]string, 0)
+	data, err := getValuesTransactionRunner(ctx, n.db, getAllNodesFromTableStatement)
+	if err != nil {
+		log.Error("Could not get node names from notifications database")
+		return dataConverted, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No nodes in database")
+		return dataConverted, nil
+	}
+
+	for _, resultRow := range data {
+		if len(resultRow) != 1 {
+			msg := "node name data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errors.New(msg)
+		}
+		if val, ok := resultRow[0].(string); !ok {
+			msg := "node name query result has wrong type.  Expected string"
+			log.Errorf("%s: got %T", msg, val)
+			return dataConverted, errors.New(msg)
+		} else {
+			dataConverted = append(dataConverted, val)
+		}
+	}
+	return dataConverted, nil
+}
+
+func (n *NotificationsDatabase) GetSetupErrorsInfo(ctx context.Context) (map[string]int, error) {
+	dataConverted := make(map[string]int, 0)
+	data, err := getValuesTransactionRunner(ctx, n.db, getSetupErrorsCountsStatement)
+	if err != nil {
+		log.Error("Could not get setup errors information from notifications database")
+		return dataConverted, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No setup error data in database")
+		return dataConverted, nil
+	}
+
+	// Unpack data
+	for _, resultRow := range data {
+		if len(resultRow) != 2 {
+			msg := "setup error data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errors.New(msg)
+		}
+		// Type check each element
+		serviceVal, serviceTypeOk := resultRow[0].(string)
+		countVal, countTypeOk := resultRow[1].(int)
+		if !(serviceTypeOk && countTypeOk) {
+			msg := "setup errors query result has wrong type.  Expected (string, int)"
+			log.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
+			return dataConverted, errors.New(msg)
+		}
+		dataConverted[serviceVal] = countVal
+	}
+	return dataConverted, nil
+}
+
+func (n *NotificationsDatabase) GetPushErrorsInfo(ctx context.Context) (map[string]map[string]int, error) {
+	dataConverted := make(map[string]map[string]int, 0)
+	data, err := getValuesTransactionRunner(ctx, n.db, getPushErrorsCountsStatement)
+	if err != nil {
+		log.Error("Could not get push errors information from notifications database")
+		return dataConverted, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No push error data in database")
+		return dataConverted, nil
+	}
+
+	// Unpack data
+	for _, resultRow := range data {
+		if len(resultRow) != 3 {
+			msg := "push error data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errors.New(msg)
+		}
+		// Type check each element
+		serviceVal, serviceTypeOk := resultRow[0].(string)
+		nodeVal, nodeTypeOk := resultRow[1].(string)
+		countVal, countTypeOk := resultRow[2].(int)
+		if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
+			msg := "push errors query result has wrong type.  Expected (string, string, int)"
+			log.Errorf("%s: got (%T, %T, %T)", msg, serviceVal, nodeVal, countVal)
+			return dataConverted, errors.New(msg)
+		}
+		if _, ok := dataConverted[serviceVal]; !ok {
+			dataConverted[serviceVal] = make(map[string]int)
+		}
+		dataConverted[serviceVal][nodeVal] = countVal
+	}
+	return dataConverted, nil
+}
 
 type serviceDatum struct{ value string }
 
 func (s *serviceDatum) values() []any { return []any{s.value} }
 
+// UpdateServices updates the services table in the NotificationsDatabase.  It takes a slice
+// of strings for the service names, and inserts them if they don't already exist in the
+// database
 func (n *NotificationsDatabase) UpdateServices(ctx context.Context, serviceNames []string) error {
 	serviceDatumSlice := make([]insertValues, len(serviceNames))
 	for _, s := range serviceNames {
@@ -317,13 +454,83 @@ func (n *NotificationsDatabase) UpdateServices(ctx context.Context, serviceNames
 		log.Error("Could not update services in notifications database")
 		return err
 	}
-	log.Info("Updated services in notifications database")
+	log.Debug("Updated services in notifications database")
 	return nil
 }
-func (n *NotificationsDatabase) UpdateNodes()            {}
-func (n *NotificationsDatabase) GetAllServices()         {}
-func (n *NotificationsDatabase) GetAllNodes()            {}
-func (n *NotificationsDatabase) GetSetupErrorsInfo()     {}
-func (n *NotificationsDatabase) GetPushErrorsInfo()      {}
-func (n *NotificationsDatabase) UpdateSetupErrorsTable() {}
-func (n *NotificationsDatabase) UpdatePushErrorsTable()  {}
+
+type nodeDatum struct{ value string }
+
+func (n *nodeDatum) values() []any { return []any{n.value} }
+
+// UpdateNodes updates the nodes table in the NotificationsDatabase.  It takes a slice
+// of strings for the node names, and inserts them if they don't already exist in the
+// database
+func (n *NotificationsDatabase) UpdateNodes(ctx context.Context, nodes []string) error {
+	nodesDatumSlice := make([]insertValues, len(nodes))
+	for _, s := range nodes {
+		nodesDatumSlice = append(nodesDatumSlice, &nodeDatum{s})
+	}
+
+	if err := insertTransactionRunner(ctx, n.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
+		log.Error("Could not update nodes in notifications database")
+		return err
+	}
+	log.Debug("Updated nodes in notifications database")
+	return nil
+
+}
+
+type setupErrorDatum struct {
+	serviceName string
+	count       int
+}
+
+func (s *setupErrorDatum) values() []any { return []any{s.serviceName, s.count} }
+
+func (n *NotificationsDatabase) UpdateSetupErrorsTable(ctx context.Context, setupErrorsbyService map[string]int) error {
+	setupErrorDatumSlice := make([]insertValues, len(setupErrorsbyService))
+	for serviceName, count := range setupErrorsbyService {
+		setupErrorDatumSlice = append(setupErrorDatumSlice,
+			&setupErrorDatum{
+				serviceName: serviceName,
+				count:       count,
+			})
+	}
+
+	if err := insertTransactionRunner(ctx, n.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
+		log.Error("Could not update setup errors in notifications database")
+		return err
+	}
+	log.Debug("Updated setup errors in notifications database")
+	return nil
+
+}
+
+type pushErrorDatum struct {
+	serviceName string
+	nodeName    string
+	count       int
+}
+
+func (p *pushErrorDatum) values() []any { return []any{p.serviceName, p.nodeName, p.count} }
+
+func (n *NotificationsDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode map[string]map[string]int) error {
+	pushErrorDatumSlice := make([]insertValues, 0)
+	for serviceName, nodeMap := range pushErrorsByServiceAndNode {
+		for nodeName, count := range nodeMap {
+			pushErrorDatumSlice = append(pushErrorDatumSlice,
+				&pushErrorDatum{
+					serviceName: serviceName,
+					nodeName:    nodeName,
+					count:       count,
+				})
+		}
+	}
+
+	if err := insertTransactionRunner(ctx, n.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
+		log.Error("Could not update push errors in notifications database")
+		return err
+	}
+	log.Debug("Updated push errors in notifications database")
+	return nil
+}

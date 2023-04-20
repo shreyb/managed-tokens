@@ -83,10 +83,77 @@ func checkDatabaseApplicationId(db databaseConnector) error {
 	return nil
 }
 
+// getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.
+func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string) ([][]any, error) {
+	data := make([][]any, 0)
+
+	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	if err != nil {
+		log.Error("Could not parse db timeout duration")
+		return data, err
+	}
+	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
+	defer dbCancel()
+
+	rows, err := db.QueryContext(dbContext, getStatementString)
+	if err != nil {
+		if dbContext.Err() == context.DeadlineExceeded {
+			log.Error("Context timeout")
+			return data, dbContext.Err()
+		}
+		log.Errorf("Error running SELECT query against database: %s", err)
+		return data, err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		log.Error("Error getting columns list from query results")
+		return data, err
+	}
+
+	for rows.Next() {
+		rowValues := make([]any, len(cols))
+		err := rows.Scan(rowValues...)
+		if err != nil {
+			if dbContext.Err() == context.DeadlineExceeded {
+				log.Error("Context timeout")
+				return data, dbContext.Err()
+			}
+			log.Errorf("Error retrieving results of SELECT query: %s", err)
+			return data, err
+		}
+		data = append(data, rowValues)
+		log.Debugf("Got row values: %s", rowValues...)
+	}
+	err = rows.Err()
+	if err != nil {
+		log.Error(err)
+		return data, err
+	}
+	return data, nil
+}
+
+// insertValues is a bridge interface that contains a values() method.  This values method should
+// return a []any, where each element is any(value).  For each element, the type of value should
+// match the intended database column type.  For example, to use this interface to insert to columns
+// of type (string, int), we would do something like the following:
+//
+//	type myType struct {
+//			stringField string
+//			intField    int
+//	}
+//
+// func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
+//
+// And then pass in a []*myType as the insertData parameter in insertTransactionRunner
 type insertValues interface {
 	values() []any
 }
 
+// insertTransactionRunner inserts data into a database.  Besides the context to be used and the databse
+// itself, it also takes an insertStatementString string that contains the SQL query to be prepared and
+// filled in with the values given by each element of insertData.
 func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
@@ -141,9 +208,56 @@ func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementStr
 		return err
 	}
 
-	log.Info("Inserted data into database")
+	log.Debug("Inserted data into database")
 	return nil
 }
+
+// // getDimensionValuesTransactionRunner queries a database dimensions table (one with only id/name column structures)
+// // and returns a []string of the dimension values
+// func getDimensionValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string) ([]string, error) {
+// 	data := make([]string, 0)
+
+// 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+// 	if err != nil {
+// 		log.Error("Could not parse db timeout duration")
+// 		return data, err
+// 	}
+// 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
+// 	defer dbCancel()
+
+// 	rows, err := db.QueryContext(dbContext, getStatementString)
+// 	if err != nil {
+// 		if dbContext.Err() == context.DeadlineExceeded {
+// 			log.Error("Context timeout")
+// 			return data, dbContext.Err()
+// 		}
+// 		log.Errorf("Error running SELECT query against database: %s", err)
+// 		return data, err
+// 	}
+// 	defer rows.Close()
+// 	for rows.Next() {
+// 		var value string
+// 		err := rows.Scan(&value)
+// 		if err != nil {
+// 			if dbContext.Err() == context.DeadlineExceeded {
+// 				log.Error("Context timeout")
+// 				return data, dbContext.Err()
+// 			}
+// 			log.Errorf("Error retrieving results of SELECT query: %s", err)
+// 			return data, err
+// 		}
+// 		data = append(data, value)
+// 		log.Debugf("Got dimension value: %s", value)
+// 	}
+// 	err = rows.Err()
+// 	if err != nil {
+// 		log.Error(err)
+// 		return data, err
+// 	}
+// 	return data, nil
+// }
+
+// getValuesTransactio
 
 // databaseCreateError is returned when the database cannot be created
 type databaseCreateError struct{ msg string }

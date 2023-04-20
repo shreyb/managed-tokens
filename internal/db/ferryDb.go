@@ -122,6 +122,7 @@ func (f *FERRYUIDDatabase) createUidsTable() error {
 	return nil
 }
 
+// TODO Convert all these to using new db runner funcs
 // InsertUidsIntoTableFromFERRY takes a slice of FERRYUIDDatum and inserts the data it represents into the FERRYUIDDatabase.
 // If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
 // with the information in the FERRYUIDDatum
