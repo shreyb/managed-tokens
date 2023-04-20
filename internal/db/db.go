@@ -113,7 +113,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	}
 
 	for rows.Next() {
-		rowValues := make([]any, len(cols))
+		rowValues := make([]any, 0, len(cols))
 		err := rows.Scan(rowValues...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
