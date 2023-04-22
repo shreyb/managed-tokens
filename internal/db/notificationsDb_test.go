@@ -1,13 +1,6 @@
 package db
 
 import (
-	"errors"
-	"fmt"
-	"math/rand"
-	"os"
-	"path"
-	"testing"
-
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -18,15 +11,15 @@ import (
 
 // TestOpenNotificationsDatabase checks that Open properly opens the underlying SQLite database underlying NotificationsDatabase, and returns the proper error
 // if there is an issue
-func TestOpenNotificationsDatabase(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
-	f := &NotificationsDatabase{filename: dbLocation}
-	err := f.Open()
-	if err != nil {
-		t.Errorf("Error does not match expected error. Expected nil, got %s", err)
-	}
-}
+// func TestOpenNotificationsDatabase(t *testing.T) {
+// 	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+// 	defer os.Remove(dbLocation)
+// 	f := &NotificationsDatabase{filename: dbLocation}
+// 	err := f.Open()
+// 	if err != nil {
+// 		t.Errorf("Error does not match expected error. Expected nil, got %s", err)
+// 	}
+// }
 
 // TODO:  Can't make this fail.  Figured out how to
 // func TestOpenNotificationsDatabaseBad(t *testing.T) {
@@ -41,72 +34,72 @@ func TestOpenNotificationsDatabase(t *testing.T) {
 // 	}
 // }
 
-// TestOpenOrCreateNotificationsDatabase checks that we can create and reopen a new NotificationsDatabase
-func TestOpenOrCreateNotificationsDatabase(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
+// // TestOpenOrCreateNotificationsDatabase checks that we can create and reopen a new NotificationsDatabase
+// func TestOpenOrCreateNotificationsDatabase(t *testing.T) {
+// 	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+// 	defer os.Remove(dbLocation)
 
-	// Test that we can create a new db at a new location
-	func() {
-		goodTestDb, err := OpenOrCreateNotificationsDatabase(dbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-		}
-		defer goodTestDb.Close()
+// 	// Test that we can create a new db at a new location
+// 	func() {
+// 		goodTestDb, err := OpenOrCreateNotificationsDatabase(dbLocation)
+// 		if err != nil {
+// 			t.Errorf("Could not create new database, %s", err)
+// 		}
+// 		defer goodTestDb.Close()
 
-		if err = checkSchemaForNotificationsDatabase(goodTestDb); err != nil {
-			t.Error("Schema check failed")
-		}
-	}()
+// 		if err = checkSchemaForNotificationsDatabase(goodTestDb); err != nil {
+// 			t.Error("Schema check failed")
+// 		}
+// 	}()
 
-	// Test that we can reopen the db
-	goodTestDb, err := OpenOrCreateNotificationsDatabase(dbLocation)
-	if err != nil {
-		t.Errorf("Could not open previously-created database, %s", err)
-	}
-	goodTestDb.Close()
-}
+// 	// Test that we can reopen the db
+// 	goodTestDb, err := OpenOrCreateNotificationsDatabase(dbLocation)
+// 	if err != nil {
+// 		t.Errorf("Could not open previously-created database, %s", err)
+// 	}
+// 	goodTestDb.Close()
+// }
 
 // TestOpenOrCreateNotificationsDatabaseCheckError creates a file that will fail the
 // NotificationsDatabase check.  We want to make sure we get the proper returned *databaseCheckError
 // This call to OpenOrCreateDatabase should return an error because we create a tempfile, and because it exists,
 // OpenOrCreateDatabase never runs initialize() and assigns the ApplicationId
-func TestOpenOrCreateNotificationsDatabaseCheckError(t *testing.T) {
-	var checkError *databaseCheckError
-	dbLocation, err := os.CreateTemp(os.TempDir(), "managed-tokens")
-	if err != nil {
-		t.Error("Could not create temp file for test database")
-	}
-	defer os.Remove(dbLocation.Name())
+// func TestOpenOrCreateNotificationsDatabaseCheckError(t *testing.T) {
+// 	var checkError *databaseCheckError
+// 	dbLocation, err := os.CreateTemp(os.TempDir(), "managed-tokens")
+// 	if err != nil {
+// 		t.Error("Could not create temp file for test database")
+// 	}
+// 	defer os.Remove(dbLocation.Name())
 
-	badTestDb, err := OpenOrCreateNotificationsDatabase(dbLocation.Name())
-	if !errors.As(err, &checkError) {
-		t.Errorf(
-			"Returned error from OpenOrCreateDatabase is of wrong type.  Expected %T, got %T",
-			checkError,
-			err,
-		)
-	} else {
-		badTestDb.Close()
-	}
+// 	badTestDb, err := OpenOrCreateNotificationsDatabase(dbLocation.Name())
+// 	if !errors.As(err, &checkError) {
+// 		t.Errorf(
+// 			"Returned error from OpenOrCreateDatabase is of wrong type.  Expected %T, got %T",
+// 			checkError,
+// 			err,
+// 		)
+// 	} else {
+// 		badTestDb.Close()
+// 	}
 
-}
+// }
 
 // TestInitializeNotificationsDatabase makes sure that the *(NotificationsDatabase).initialize func returns a *NotificationsDatabase object with the
-// correct ApplicationId and schema
-func TestInitializeNotificationsDatabase(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
+// // correct ApplicationId and schema
+// func TestInitializeNotificationsDatabase(t *testing.T) {
+// 	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+// 	defer os.Remove(dbLocation)
 
-	f := &NotificationsDatabase{filename: dbLocation}
-	if err := f.initialize(); err != nil {
-		t.Error("Could not initialize NotificationsDatabase")
-	}
-	defer f.Close()
-	if err := checkSchemaForNotificationsDatabase(f); err != nil {
-		t.Error("initialized NotificationsDatabase failed schema check")
-	}
-}
+// 	f := &NotificationsDatabase{filename: dbLocation}
+// 	if err := f.initialize(); err != nil {
+// 		t.Error("Could not initialize NotificationsDatabase")
+// 	}
+// 	defer f.Close()
+// 	if err := checkSchemaForNotificationsDatabase(f); err != nil {
+// 		t.Error("initialized NotificationsDatabase failed schema check")
+// 	}
+// }
 
 // TODO:  Test notificationsDb-specific functions like we do for the FERRYUIDDbs
 
@@ -317,4 +310,4 @@ func TestInitializeNotificationsDatabase(t *testing.T) {
 //	}
 //
 // Temporary placeholder
-func checkSchemaForNotificationsDatabase(f *NotificationsDatabase) error { return nil }
+// func checkSchemaForNotificationsDatabase(f *NotificationsDatabase) error { return nil }

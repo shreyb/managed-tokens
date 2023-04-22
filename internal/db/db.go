@@ -22,62 +22,69 @@ const (
 	dbDefaultTimeoutStr string = "10s"
 )
 
-type databaseConnector interface {
-	Filename() string
-	Database() *sql.DB
-	Open() error
-	Close() error
-	initialize() error
+// FERRYUIDDatabase is a database in which FERRY username to uid mappings are stored
+type ManagedTokensDatabase struct {
+	filename string
+	db       *sql.DB
 }
 
 // OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
 // exists at the filename provided, it will open that database as long as the ApplicationId matches
-func openOrCreateDatabase(db databaseConnector) error {
-	filename := db.Filename()
+// OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
+// exists at the filename provided, it will open that database as long as the ApplicationId matches
+func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
+	m := ManagedTokensDatabase{filename: filename}
 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
-		// DB file doesn't exist: Create a new database and initialize it
-		err = db.initialize()
+		err = m.initialize()
 		if err != nil {
-			msg := "Could not create new database"
+			msg := "Could not create new ManagedTokensDatabase"
 			log.Error(msg)
 			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
 				log.Error("Could not remove corrupt database file.  Please do so manually")
-				return err
+				return &ManagedTokensDatabase{}, err
 			}
-			return &databaseCreateError{msg}
+			return nil, &databaseCreateError{msg}
 		}
-		log.WithField("filename", filename).Debug("Created new database")
+		log.WithField("filename", filename).Debug("Created new ManagedTokensDatabase")
 	} else {
-		// Database file exists, so try to open the DB and use it
-		err = db.Open()
+		m.db, err = sql.Open("sqlite3", filename)
 		if err != nil {
-			msg := "Could not open the database file"
+			msg := "Could not open the UID database file"
 			log.WithField("filename", filename).Errorf("%s: %s", msg, err)
-			return &databaseOpenError{msg}
+			return nil, &databaseOpenError{msg}
 		}
-		log.WithField("filename", filename).Debug("Database file already exists.  Will try to use it")
+		log.WithField("filename", filename).Debug("ManagedTokensDatabase file already exists.  Will try to use it")
 	}
-	if err := checkDatabaseApplicationId(db); err != nil {
-		// Check the database
-		msg := "database failed check"
+	// Enforce foreign key constraints
+	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		log.WithField("filename", m.filename).Error(err)
+		return nil, err
+	}
+	if err := m.check(); err != nil {
+		msg := "ManagedTokensDatabase failed check"
 		log.WithField("filename", filename).Error(msg)
-		return &databaseCheckError{msg}
+		return &m, &databaseCheckError{msg}
 	}
-	log.WithField("filename", filename).Debug("database connection ready")
-	return nil
+	log.WithField("filename", filename).Debug("ManagedTokensDatabase connection ready")
+	return &m, nil
 }
 
-// check makes sure that an object claiming to be a NotificationsDatabase actually is, by checking the ApplicationID
-func checkDatabaseApplicationId(db databaseConnector) error {
+// Close closes the FERRYUIDDatabase
+func (m *ManagedTokensDatabase) Close() error {
+	return m.db.Close()
+}
+
+// check makes sure that an object claiming to be a ManagedTokensDatabase actually is, by checking the ApplicationID
+func (m *ManagedTokensDatabase) check() error {
 	var dbApplicationId int
-	err := db.Database().QueryRow("PRAGMA application_id").Scan(&dbApplicationId)
+	err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId)
 	if err != nil {
-		log.WithField("filename", db.Filename()).Error("Could not get application_id from database")
+		log.WithField("filename", m.filename).Error("Could not get application_id from ManagedTokensDatabase")
 		return err
 	}
 	if dbApplicationId != ApplicationId {
 		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
-		log.WithField("filename", db.Filename()).Errorf(errMsg)
+		log.WithField("filename", m.filename).Errorf(errMsg)
 		return errors.New(errMsg)
 	}
 	return nil
@@ -108,13 +115,24 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 
 	cols, err := rows.Columns()
 	if err != nil {
-		log.Error("Error getting columns list from query results")
+		log.Error("Error getting columns from query results")
 		return data, err
 	}
 
 	for rows.Next() {
-		rowValues := make([]any, 0, len(cols))
-		err := rows.Scan(rowValues...)
+		// rowVals := make([]reflect.Type, 0, len(colTypes))
+		// for _, colType := range colTypes {
+		// 	rowVals = append(rowVals, (colType.ScanType()))
+		// }
+		// rowValues := make([]*any, len(cols))
+		// for
+		// err := rows.Scan(rowValues...)
+		resultRow := make([]any, len(cols))
+		resultRowPtrs := make([]any, len(cols))
+		for idx := range resultRow {
+			resultRowPtrs[idx] = &resultRow[idx]
+		}
+		err := rows.Scan(resultRowPtrs...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
 				log.Error("Context timeout")
@@ -123,8 +141,8 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 			log.Errorf("Error retrieving results of SELECT query: %s", err)
 			return data, err
 		}
-		data = append(data, rowValues)
-		log.Debugf("Got row values: %s", rowValues...)
+		data = append(data, resultRow)
+		log.Debugf("Got row values: %s", resultRow...)
 	}
 	err = rows.Err()
 	if err != nil {
@@ -212,6 +230,119 @@ func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementStr
 	return nil
 }
 
+// databaseCreateError is returned when the database cannot be created
+type databaseCreateError struct{ msg string }
+
+func (d *databaseCreateError) Error() string { return d.msg }
+
+// databaseOpenError is returned when the database cannot be opened
+type databaseOpenError struct{ msg string }
+
+func (d *databaseOpenError) Error() string { return d.msg }
+
+// databaseCheckError is returned when the database fails the verification check
+type databaseCheckError struct{ msg string }
+
+func (d *databaseCheckError) Error() string { return d.msg }
+
+// type databaseConnector interface {
+// 	Filename() string
+// 	Database() *sql.DB
+// 	Open() error
+// 	Close() error
+// 	initialize() error
+// }
+
+// initialize prepares a new FERRYUIDDatabase for use
+// func (m *ManagedTokensDatabase) initialize() error {
+// 	var err error
+// 	if m.db, err = sql.Open("sqlite3", m.filename); err != nil {
+// 		log.WithField("filename", m.filename).Error(err)
+// 		return err
+// 	}
+
+// 	// Set our application ID
+// 	if _, err := m.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
+// 		log.WithField("filename", m.filename).Error(err)
+// 		return err
+// 	}
+
+// 	// Create the UID table
+// 	if err = m.createUidsTable(); err != nil {
+// 		log.Error("Could not create the UID table in the ManagedTokensDatabase")
+// 		return err
+// 	}
+// 	// Create the tables in the database
+// 	if err := m.createServicesTable(); err != nil {
+// 		log.WithField("filename", m.filename).Error(err)
+// 		return &databaseCreateError{err.Error()}
+// 	}
+// 	if err := m.createNodesTable(); err != nil {
+// 		log.WithField("filename", m.filename).Error(err)
+// 		return &databaseCreateError{err.Error()}
+// 	}
+// 	if err := m.createSetupErrorsTable(); err != nil {
+// 		log.WithField("filename", m.filename).Error(err)
+// 		return &databaseCreateError{err.Error()}
+// 	}
+// 	if err := m.createPushErrorsTable(); err != nil {
+// 		log.WithField("filename", m.filename).Error(err)
+// 		return &databaseCreateError{err.Error()}
+// 	}
+// 	return nil
+// }
+
+// func openOrCreateDatabase(db databaseConnector) error {
+// 	filename := db.Filename()
+// 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
+// 		// DB file doesn't exist: Create a new database and initialize it
+// 		err = db.initialize()
+// 		if err != nil {
+// 			msg := "Could not create new database"
+// 			log.Error(msg)
+// 			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
+// 				log.Error("Could not remove corrupt database file.  Please do so manually")
+// 				return err
+// 			}
+// 			return &databaseCreateError{msg}
+// 		}
+// 		log.WithField("filename", filename).Debug("Created new database")
+// 	} else {
+// 		// Database file exists, so try to open the DB and use it
+// 		err = db.Open()
+// 		if err != nil {
+// 			msg := "Could not open the database file"
+// 			log.WithField("filename", filename).Errorf("%s: %s", msg, err)
+// 			return &databaseOpenError{msg}
+// 		}
+// 		log.WithField("filename", filename).Debug("Database file already exists.  Will try to use it")
+// 	}
+// 	if err := checkDatabaseApplicationId(db); err != nil {
+// 		// Check the database
+// 		msg := "database failed check"
+// 		log.WithField("filename", filename).Error(msg)
+// 		return &databaseCheckError{msg}
+// 	}
+// 	log.WithField("filename", filename).Debug("database connection ready")
+// 	return nil
+// }
+
+// // check makes sure that an object claiming to be a NotificationsDatabase actually is, by checking the ApplicationID
+// func checkDatabaseApplicationId(db databaseConnector) error {
+// 	var dbApplicationId int
+// 	err := db.Database().QueryRow("PRAGMA application_id").Scan(&dbApplicationId)
+// 	if err != nil {
+// 		log.WithField("filename", db.Filename()).Error("Could not get application_id from database")
+// 		return err
+// 	}
+// 	if dbApplicationId != ApplicationId {
+// 		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
+// 		log.WithField("filename", db.Filename()).Errorf(errMsg)
+// 		return errors.New(errMsg)
+// 	}
+// 	return nil
+// }
+
 // // getDimensionValuesTransactionRunner queries a database dimensions table (one with only id/name column structures)
 // // and returns a []string of the dimension values
 // func getDimensionValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string) ([]string, error) {
@@ -258,18 +389,3 @@ func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementStr
 // }
 
 // getValuesTransactio
-
-// databaseCreateError is returned when the database cannot be created
-type databaseCreateError struct{ msg string }
-
-func (d *databaseCreateError) Error() string { return d.msg }
-
-// databaseOpenError is returned when the database cannot be opened
-type databaseOpenError struct{ msg string }
-
-func (d *databaseOpenError) Error() string { return d.msg }
-
-// databaseCheckError is returned when the database fails the verification check
-type databaseCheckError struct{ msg string }
-
-func (d *databaseCheckError) Error() string { return d.msg }

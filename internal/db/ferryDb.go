@@ -2,7 +2,7 @@ package db
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -13,12 +13,6 @@ import (
 
 // SQL Statements
 var (
-	createUIDTableStatement = `
-	CREATE TABLE uids (
-	username STRING NOT NULL PRIMARY KEY,
-	uid INTEGER NOT NULL
-	);
-	`
 	insertIntoUIDTableStatement = `
 	INSERT INTO uids(username, uid)
 	VALUES
@@ -43,197 +37,77 @@ type FerryUIDDatum interface {
 	String() string
 }
 
-// FERRYUIDDatabase is a database in which FERRY username to uid mappings are stored
-type FERRYUIDDatabase struct {
-	filename string
-	db       *sql.DB
+// Implements both insertValues and FERRYUIDDatum interfaces
+type ferryUidDatum struct {
+	username string
+	uid      int
 }
 
-// OpenOrCreateFERRYUIDDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
-// exists at the filename provided, it will open that database as long as the ApplicationId matches
-func OpenOrCreateFERRYUIDDatabase(filename string) (*FERRYUIDDatabase, error) {
-	var err error
-	f := FERRYUIDDatabase{filename: filename}
-	err = openOrCreateDatabase(&f)
-	if err != nil {
-		log.WithField("filename", f.filename).Error("Could not create or open FERRYUIDDatabase")
-	}
-	return &f, err
-}
+func (f *ferryUidDatum) values() []any { return []any{f.username, f.uid, f.uid} }
 
-// Filename returns the path to the file holding the database
-func (f *FERRYUIDDatabase) Filename() string {
-	return f.filename
-}
-
-// Database returns the underlying SQL database of the FERRYUIDDatabase
-func (f *FERRYUIDDatabase) Database() *sql.DB {
-	return f.db
-}
-
-// Open opens the underlying db for the FERRYUIDDatabase and assigns the resultant *sql.DB object to the FERRYUIDDatabase
-func (f *FERRYUIDDatabase) Open() error {
-	var err error
-	f.db, err = sql.Open("sqlite3", f.filename)
-	if err != nil {
-		msg := "Could not open the database file"
-		log.WithField("filename", f.filename).Errorf("%s: %s", msg, err)
-		return &databaseOpenError{msg}
-	}
-	return nil
-}
-
-// Close closes the FERRYUIDDatabase
-func (f *FERRYUIDDatabase) Close() error {
-	return f.db.Close()
-}
-
-// initialize prepares a new FERRYUIDDatabase for use and returns a pointer to the underlying sql.DB
-func (f *FERRYUIDDatabase) initialize() error {
-	var err error
-	if f.db, err = sql.Open("sqlite3", f.filename); err != nil {
-		log.WithField("filename", f.filename).Error(err)
-		return err
-	}
-
-	// Set our application ID
-	if _, err := f.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
-		log.WithField("filename", f.filename).Error(err)
-		return err
-	}
-
-	// Create the UID table
-	if err = f.createUidsTable(); err != nil {
-		log.Error("Could not create the UID table in the FERRYUIDDatabase")
-		return err
-	}
-	return nil
-}
+func (f *ferryUidDatum) Username() string { return f.username }
+func (f *ferryUidDatum) Uid() int         { return f.uid }
+func (f *ferryUidDatum) String() string   { return fmt.Sprintf("%s, %d", f.username, f.uid) }
 
 // FERRYUIDDatabse-specific functions
 
-// createUidsTable creates a database table in the FERRYUIDDatabase that holds the username to UID mapping
-func (f *FERRYUIDDatabase) createUidsTable() error {
-	if _, err := f.db.Exec(createUIDTableStatement); err != nil {
-		log.Error(err)
-		return err
-	}
-	log.Debug("Created uid table in FERRYUIDDatabase")
-	return nil
-}
-
-// TODO Convert all these to using new db runner funcs
 // InsertUidsIntoTableFromFERRY takes a slice of FERRYUIDDatum and inserts the data it represents into the FERRYUIDDatabase.
 // If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
 // with the information in the FERRYUIDDatum
-func (f *FERRYUIDDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
-	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
-	if err != nil {
-		log.Error("Could not parse db timeout duration")
+func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
+	ferryUIDDatumSlice := make([]insertValues, 0)
+	for _, ferryDatum := range ferryData {
+		ferryUIDDatumSlice = append(ferryUIDDatumSlice,
+			&ferryUidDatum{ferryDatum.Username(), ferryDatum.Uid()},
+		)
+	}
+
+	if err := insertTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
+		log.Error("Could not update uids table in database")
 		return err
 	}
-	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
-	defer dbCancel()
-
-	tx, err := f.db.Begin()
-	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
-			return dbContext.Err()
-		}
-		log.Errorf("Could not open transaction to database: %s", err)
-		return err
-	}
-
-	insertStatement, err := tx.Prepare(insertIntoUIDTableStatement)
-	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
-			return dbContext.Err()
-		}
-		log.Errorf("Could not prepare INSERT statement to database: %s", err)
-		return err
-	}
-	defer insertStatement.Close()
-
-	for _, datum := range ferryData {
-		_, err := insertStatement.ExecContext(dbContext, datum.Username(), datum.Uid(), datum.Uid())
-		if err != nil {
-			if dbContext.Err() == context.DeadlineExceeded {
-				log.Error("Context timeout")
-				return dbContext.Err()
-			}
-			log.Errorf("Could not insert FERRY data into database: %s", err)
-			return err
-		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
-			return dbContext.Err()
-		}
-		log.Errorf("Could not commit transaction to database.  Rolling back.  Error: %s", err)
-		return err
-	}
-
-	log.Info("Inserted FERRY data into database")
+	log.Debug("Updated uid table in database with FERRY data")
 	return nil
 }
 
-// ConfirmUIDsInTable returns all the user to UID mapping information in the FERRYUIDDatabase in the form of
+// ConfirmUIDsInTable returns all the user to UID mapping information in the ManagedTokensDatabase in the form of
 // a FERRYUIDDatum slice
-func (f *FERRYUIDDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
-	var username string
-	var uid int
-	data := make([]FerryUIDDatum, 0)
-	log.Debug("Checking UIDs in DB table")
+func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
+	dataConverted := make([]FerryUIDDatum, 0)
+	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
+	if err != nil {
+		log.Error("Could not get usernames and uids from database")
+		return dataConverted, err
+	}
 
-	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
-	if err != nil {
-		log.Error("Could not parse db timeout duration")
-		return data, err
+	if len(data) == 0 {
+		log.Debug("No uids in database")
+		return dataConverted, nil
 	}
-	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
-	defer dbCancel()
 
-	rows, err := f.db.QueryContext(dbContext, confirmUIDsInTableStatement)
-	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
-			return data, dbContext.Err()
+	// Unpack data
+	for _, resultRow := range data {
+		// Make sure we have the right number of values
+		if len(resultRow) != 2 {
+			msg := "uid data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errors.New(msg)
 		}
-		log.Errorf("Error running SELECT query against database: %s", err)
-		return data, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		err := rows.Scan(&username, &uid)
-		if err != nil {
-			if dbContext.Err() == context.DeadlineExceeded {
-				log.Error("Context timeout")
-				return data, dbContext.Err()
-			}
-			log.Errorf("Error retrieving results of SELECT query: %s", err)
-			return data, err
+		// Type check each element
+		usernameVal, usernameOk := resultRow[0].(string)
+		uidVal, uidOk := resultRow[1].(int64)
+		if !(usernameOk && uidOk) {
+			msg := "uid query result datum has wrong type.  Expected (string, int)"
+			log.Errorf("%s: got (%T, %T)", msg, usernameVal, uidVal)
+			return dataConverted, errors.New(msg)
 		}
-		data = append(data, &checkDatum{
-			username: username,
-			uid:      uid,
-		})
-		log.Debugf("Got row: %s, %d", username, uid)
+		dataConverted = append(dataConverted, &ferryUidDatum{usernameVal, int(uidVal)})
 	}
-	err = rows.Err()
-	if err != nil {
-		log.Error(err)
-		return data, err
-	}
-	return data, nil
+	return dataConverted, nil
 }
 
-// GetUIDByUsername queries the FERRYUIDDatabase for a UID, given a username
-func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
+// GetUIDByUsername queries the ManagedTokensDatabase for a UID, given a username
+func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
 	var uid int
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
@@ -244,7 +118,7 @@ func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
-	stmt, err := f.db.Prepare(getUIDbyUsernameStatement)
+	stmt, err := m.db.Prepare(getUIDbyUsernameStatement)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")
@@ -267,12 +141,79 @@ func (f *FERRYUIDDatabase) GetUIDByUsername(ctx context.Context, username string
 	return uid, nil
 }
 
-// checkDatum hold a username and uid. It implements the FERRYUIDDatum interface
-type checkDatum struct {
-	username string
-	uid      int
-}
+// // FERRYUIDDatabase is a database in which FERRY username to uid mappings are stored
+// type FERRYUIDDatabase struct {
+// 	filename string
+// 	db       *sql.DB
+// }
 
-func (c *checkDatum) Username() string { return c.username }
-func (c *checkDatum) Uid() int         { return c.uid }
-func (c *checkDatum) String() string   { return fmt.Sprintf("Username: %s, Uid: %d", c.username, c.uid) }
+// // OpenOrCreateFERRYUIDDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
+// // exists at the filename provided, it will open that database as long as the ApplicationId matches
+// func OpenOrCreateFERRYUIDDatabase(filename string) (*FERRYUIDDatabase, error) {
+// 	var err error
+// 	f := FERRYUIDDatabase{filename: filename}
+// 	err = openOrCreateDatabase(&f)
+// 	if err != nil {
+// 		log.WithField("filename", f.filename).Error("Could not create or open FERRYUIDDatabase")
+// 	}
+// 	return &f, err
+// }
+
+// // Filename returns the path to the file holding the database
+// func (f *FERRYUIDDatabase) Filename() string {
+// 	return f.filename
+// }
+
+// // Database returns the underlying SQL database of the FERRYUIDDatabase
+// func (f *FERRYUIDDatabase) Database() *sql.DB {
+// 	return f.db
+// }
+
+// // Open opens the underlying db for the FERRYUIDDatabase and assigns the resultant *sql.DB object to the FERRYUIDDatabase
+// func (f *FERRYUIDDatabase) Open() error {
+// 	var err error
+// 	f.db, err = sql.Open("sqlite3", f.filename)
+// 	if err != nil {
+// 		msg := "Could not open the database file"
+// 		log.WithField("filename", f.filename).Errorf("%s: %s", msg, err)
+// 		return &databaseOpenError{msg}
+// 	}
+// 	return nil
+// }
+
+// // Close closes the FERRYUIDDatabase
+// func (f *FERRYUIDDatabase) Close() error {
+// 	return f.db.Close()
+// }
+
+// // initialize prepares a new FERRYUIDDatabase for use and returns a pointer to the underlying sql.DB
+// func (f *FERRYUIDDatabase) initialize() error {
+// 	var err error
+// 	if f.db, err = sql.Open("sqlite3", f.filename); err != nil {
+// 		log.WithField("filename", f.filename).Error(err)
+// 		return err
+// // 	}
+
+// 	// Set our application ID
+// 	if _, err := f.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
+// 		log.WithField("filename", f.filename).Error(err)
+// 		return err
+// 	}
+
+// 	// Create the UID table
+// 	if err = f.createUidsTable(); err != nil {
+// 		log.Error("Could not create the UID table in the ManagedTokensDatabase")
+// 		return err
+// 	}
+// 	return nil
+// }
+
+// // checkDatum hold a username and uid. It implements the FERRYUIDDatum interface
+// type checkDatum struct {
+// 	username string
+// 	uid      int
+// }
+
+// func (c *checkDatum) Username() string { return c.username }
+// func (c *checkDatum) Uid() int         { return c.uid }
+// func (c *checkDatum) String() string   { return fmt.Sprintf("Username: %s, Uid: %d", c.username, c.uid) }
