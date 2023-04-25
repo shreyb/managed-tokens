@@ -307,14 +307,14 @@ func run(ctx context.Context) error {
 	}
 	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 
-	ferryUidDb, err := db.OpenOrCreateFERRYUIDDatabase(dbLocation)
+	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create FERRYUIDDatabase"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.WithField("executable", currentExecutable).Error(msg)
 		return err
 	}
-	defer ferryUidDb.Close()
+	defer database.Close()
 
 	// Start up worker to aggregate all FERRY data
 	ferryData := make([]db.FerryUIDDatum, 0)
@@ -407,7 +407,7 @@ func run(ctx context.Context) error {
 	} else {
 		dbContext = ctx
 	}
-	if err := ferryUidDb.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
+	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 		log.Error(msg)
@@ -415,7 +415,7 @@ func run(ctx context.Context) error {
 	}
 
 	// Confirm and verify that INSERT was successful
-	dbData, err := ferryUidDb.ConfirmUIDsInTable(ctx)
+	dbData, err := database.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)

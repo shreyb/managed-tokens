@@ -143,14 +143,14 @@ func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath strin
 
 				}
 
-				ferryUidDb, err := db.OpenOrCreateFERRYUIDDatabase(dbLocation)
+				database, err := db.OpenOrCreateDatabase(dbLocation)
 				if err != nil {
 					log.WithField("executable", currentExecutable).Error("Could not open or create FERRYUIDDatabase")
 					return err
 				}
-				defer ferryUidDb.Close()
+				defer database.Close()
 
-				uid, err = ferryUidDb.GetUIDByUsername(ctx, username)
+				uid, err = database.GetUIDByUsername(ctx, username)
 				if err != nil {
 					log.Error("Could not get UID by username")
 					return err
