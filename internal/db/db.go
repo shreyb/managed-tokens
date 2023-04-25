@@ -20,9 +20,10 @@ const (
 	// ApplicationId is used to uniquely identify a sqlite database as belonging to an application, rather than being a simple DB
 	ApplicationId              = 0x5da82553
 	dbDefaultTimeoutStr string = "10s"
+	schemaVersion              = 1
 )
 
-// FERRYUIDDatabase is a database in which FERRY username to uid mappings are stored
+// ManagedTokensDatabase is a database in which FERRY username to uid mappings are stored
 type ManagedTokensDatabase struct {
 	filename string
 	db       *sql.DB
@@ -77,15 +78,26 @@ func (m *ManagedTokensDatabase) Close() error {
 // check makes sure that an object claiming to be a ManagedTokensDatabase actually is, by checking the ApplicationID
 func (m *ManagedTokensDatabase) check() error {
 	var dbApplicationId int
-	err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId)
-	if err != nil {
+	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
 		log.WithField("filename", m.filename).Error("Could not get application_id from ManagedTokensDatabase")
 		return err
 	}
+	// Make sure our application IDs match
 	if dbApplicationId != ApplicationId {
 		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
 		log.WithField("filename", m.filename).Errorf(errMsg)
 		return errors.New(errMsg)
+	}
+	// Migrate to the right userVersion of the database
+	var userVersion int
+	if err := m.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		log.WithField("filename", m.filename).Error("Could not get user_version from ManagedTokensDatabase")
+		return err
+	}
+	if userVersion < schemaVersion {
+		return m.migrate(userVersion, schemaVersion)
+	} else if userVersion > schemaVersion {
+		log.Warn("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
 	}
 	return nil
 }
