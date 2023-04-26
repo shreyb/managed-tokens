@@ -188,7 +188,7 @@ func TestInsertTransactionRunner(t *testing.T) {
 	// The actual test
 	ctx := context.Background()
 	insertStatementString := "INSERT INTO test_table VALUES (?, ?)"
-	if err = insertTransactionRunner(ctx, m.db, insertStatementString, []insertValues{&fakeDatum{expectedId, expectedFakeName}}); err != nil {
+	if err = insertValuesTransactionRunner(ctx, m.db, insertStatementString, []insertValues{&fakeDatum{expectedId, expectedFakeName}}); err != nil {
 		t.Errorf("Could not insert values into database for TestInsertTransactionRunner test")
 		return
 	}

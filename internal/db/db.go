@@ -188,7 +188,7 @@ type insertValues interface {
 // insertTransactionRunner inserts data into a database.  Besides the context to be used and the databse
 // itself, it also takes an insertStatementString string that contains the SQL query to be prepared and
 // filled in with the values given by each element of insertData.
-func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
+func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		log.Error("Could not parse db timeout duration")

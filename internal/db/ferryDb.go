@@ -62,7 +62,7 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 		)
 	}
 
-	if err := insertTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
+	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
 		log.Error("Could not update uids table in database")
 		return err
 	}

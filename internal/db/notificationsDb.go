@@ -266,7 +266,7 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 		serviceDatumSlice = append(serviceDatumSlice, &serviceDatum{s})
 	}
 
-	if err := insertTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
+	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
 		log.Error("Could not update services in notifications database")
 		return err
 	}
@@ -287,7 +287,7 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 		nodesDatumSlice = append(nodesDatumSlice, &nodeDatum{s})
 	}
 
-	if err := insertTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
+	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
 		log.Error("Could not update nodes in notifications database")
 		return err
 	}
@@ -306,7 +306,7 @@ func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setu
 			})
 	}
 
-	if err := insertTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
+	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
 		log.Error("Could not update setup errors in notifications database")
 		return err
 	}
@@ -326,7 +326,7 @@ func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushE
 			})
 	}
 
-	if err := insertTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
+	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
 		log.Error("Could not update push errors in notifications database")
 		return err
 	}
