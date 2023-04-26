@@ -38,13 +38,13 @@ func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
 		err = m.initialize()
 		if err != nil {
-			msg := "Could not create new ManagedTokensDatabase"
+			msg := "Could not initialize database"
 			log.Error(msg)
 			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
 				log.Error("Could not remove corrupt database file.  Please do so manually")
 				return &ManagedTokensDatabase{}, err
 			}
-			return nil, &databaseCreateError{msg}
+			return nil, err
 		}
 		log.WithField("filename", filename).Debug("Created new ManagedTokensDatabase")
 	} else {
@@ -52,7 +52,7 @@ func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
 		if err != nil {
 			msg := "Could not open the UID database file"
 			log.WithField("filename", filename).Errorf("%s: %s", msg, err)
-			return nil, &databaseOpenError{msg}
+			return nil, &databaseOpenError{filename, err}
 		}
 		log.WithField("filename", filename).Debug("ManagedTokensDatabase file already exists.  Will try to use it")
 	}
@@ -64,7 +64,7 @@ func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
 	if err := m.check(); err != nil {
 		msg := "ManagedTokensDatabase failed check"
 		log.WithField("filename", filename).Error(msg)
-		return &m, &databaseCheckError{msg}
+		return nil, err
 	}
 	log.WithField("filename", filename).Debug("ManagedTokensDatabase connection ready")
 	return &m, nil
@@ -79,23 +79,27 @@ func (m *ManagedTokensDatabase) Close() error {
 func (m *ManagedTokensDatabase) check() error {
 	var dbApplicationId int
 	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
-		log.WithField("filename", m.filename).Error("Could not get application_id from ManagedTokensDatabase")
-		return err
+		msg := "Could not get application_id from ManagedTokensDatabase"
+		log.WithField("filename", m.filename).Error(msg)
+		return &databaseCheckError{msg, err}
 	}
 	// Make sure our application IDs match
 	if dbApplicationId != ApplicationId {
 		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
 		log.WithField("filename", m.filename).Errorf(errMsg)
-		return errors.New(errMsg)
+		return &databaseCheckError{errMsg, nil}
 	}
 	// Migrate to the right userVersion of the database
 	var userVersion int
 	if err := m.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
-		log.WithField("filename", m.filename).Error("Could not get user_version from ManagedTokensDatabase")
-		return err
+		msg := "Could not get user_version from ManagedTokensDatabase"
+		log.WithField("filename", m.filename).Error(msg)
+		return &databaseCheckError{msg, err}
 	}
 	if userVersion < schemaVersion {
-		return m.migrate(userVersion, schemaVersion)
+		if err := m.migrate(userVersion, schemaVersion); err != nil {
+			return &databaseCheckError{"Error migrating database schema versions", err}
+		}
 	} else if userVersion > schemaVersion {
 		log.Warn("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
 	}
@@ -242,20 +246,20 @@ func insertTransactionRunner(ctx context.Context, db *sql.DB, insertStatementStr
 	return nil
 }
 
-// databaseCreateError is returned when the database cannot be created
-type databaseCreateError struct{ msg string }
-
-func (d *databaseCreateError) Error() string { return d.msg }
-
-// databaseOpenError is returned when the database cannot be opened
-type databaseOpenError struct{ msg string }
-
-func (d *databaseOpenError) Error() string { return d.msg }
-
 // databaseCheckError is returned when the database fails the verification check
-type databaseCheckError struct{ msg string }
+type databaseCheckError struct {
+	msg string
+	err error
+}
 
-func (d *databaseCheckError) Error() string { return d.msg }
+func (d *databaseCheckError) Error() string {
+	msg := d.msg
+	if d.err != nil {
+		return fmt.Sprintf("%s: %s", msg, d.err)
+	}
+	return msg
+}
+func (d *databaseCheckError) Unwrap() error { return d.err }
 
 // type databaseConnector interface {
 // 	Filename() string

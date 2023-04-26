@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -60,7 +59,7 @@ FOREIGN KEY (node_id)
 	REFERENCES nodes (id)
 		ON DELETE CASCADE
 		ON UPDATE NO ACTION
-); `,
+);`,
 	},
 }
 
@@ -69,13 +68,16 @@ func (m *ManagedTokensDatabase) initialize() error {
 	var err error
 	if m.db, err = sql.Open("sqlite3", m.filename); err != nil {
 		log.WithField("filename", m.filename).Error(err)
-		return err
+		return &databaseOpenError{
+			m.filename,
+			err,
+		}
 	}
 
 	// Set our application ID
 	if _, err := m.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
 		log.WithField("filename", m.filename).Error(err)
-		return err
+		return &databaseCreateError{err}
 	}
 
 	// Create tables
@@ -90,17 +92,75 @@ func (m *ManagedTokensDatabase) migrate(from, to int) error {
 	if to > len(migrations) {
 		msg := "trying to migrate to a database version that does not exist"
 		log.Error(msg)
-		return errors.New(msg)
+		return &databaseMigrateError{
+			msg,
+			from,
+			to,
+			nil,
+		}
 	}
 
 	for i := from; i < to; i++ {
 		log.WithField("migration", fmt.Sprintf("v%d-v%d", from, to)).Debug("Migrating database")
 		if _, err := m.db.Exec(migrations[i].sqlText); err != nil {
-			return err
+			return &databaseMigrateError{
+				"",
+				from,
+				to,
+				err,
+			}
 		}
 	}
 	return nil
 }
+
+// databaseCreateError is returned when the database cannot be created
+type databaseCreateError struct {
+	err error
+}
+
+func (d *databaseCreateError) Error() string {
+	msg := "Could not create new ManagedTokensDatabase"
+	if d.err != nil {
+		return fmt.Sprintf("%s: %s", msg, d.err)
+	}
+	return msg
+}
+func (d *databaseCreateError) Unwrap() error { return d.err }
+
+// databaseOpenError is returned when the database file cannot be opened
+type databaseOpenError struct {
+	filename string
+	err      error
+}
+
+func (d *databaseOpenError) Error() string {
+	msg := fmt.Sprintf("Could not open database file at %s", d.filename)
+	if d.err != nil {
+		return fmt.Sprintf("%s: %s", msg, d.err)
+	}
+	return msg
+}
+func (d *databaseOpenError) Unwrap() error { return d.err }
+
+// databaseMigrateError is returned when migration between schema versions fails
+type databaseMigrateError struct {
+	msg      string
+	from, to int
+	err      error
+}
+
+func (d *databaseMigrateError) Error() string {
+	msg := fmt.Sprintf("Could not migrate between schemaVersions %d and %d", d.from, d.to)
+	if d.msg != "" {
+		msg = fmt.Sprintf("%s: %s", msg, d.msg)
+	}
+	if d.err != nil {
+		return fmt.Sprintf("%s: %s", msg, d.err)
+	}
+	return msg
+}
+func (d *databaseMigrateError) Unwrap() error { return d.err }
 
 // // Funcs to create tables
 // // createUidsTable creates a database table in the FERRYUIDDatabase that holds the username to UID mapping
