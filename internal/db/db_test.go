@@ -14,7 +14,7 @@ import (
 
 // TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase
 func TestOpenOrCreateDatabase(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	defer os.Remove(dbLocation)
 
 	// Test that we can create a new db at a new location
@@ -38,9 +38,9 @@ func TestOpenOrCreateDatabase(t *testing.T) {
 	goodTestDb.Close()
 }
 
-// TestCheckDatabaseBadApplicationId checks that if we open a database with the wrong
+// TestCheckDatabaseBadApplicationId checks that if we open a database with the wrong ApplicationId, we get the correct error type
 func TestCheckDatabaseBadApplicationId(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	defer os.Remove(dbLocation)
 	m := &ManagedTokensDatabase{
 		filename: dbLocation,
@@ -66,7 +66,9 @@ func TestCheckDatabaseBadApplicationId(t *testing.T) {
 
 }
 
-func TestCheckDatabaseBadVersion(t *testing.T) {
+// TestCheckMigrationsFromHigherSchemaVersions checks that if we open a database with a higher schema version than schemaVersion, we
+// leave the database alone
+func TestCheckMigrationsFromHigherSchemaVersions(t *testing.T) {
 	// Check user version by opening a DB, seeing if we can mock that it's on lower, higher, and correct versions
 	m, err := createAndOpenTestDatabaseWithApplicationId()
 	if err != nil {
@@ -92,10 +94,24 @@ func TestCheckDatabaseBadVersion(t *testing.T) {
 	if err := m.db.QueryRow("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL;").Scan(&s); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("Schema should be empty in the test where our database version number for an empty database is higher than the schemaVersion.  Got %s", s)
 	}
+}
 
+// TestCheckMigrationsFromLowerSchemaVersions checks that if we open a database with a lower schema version than schemaVersion, we
+// migrate the database to the current schemaVersion
+func TestCheckMigrationsFromLowerSchemaVersion(t *testing.T) {
+	// Check user version by opening a DB, seeing if we can mock that it's on lower, higher, and correct versions
+	m, err := createAndOpenTestDatabaseWithApplicationId()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer func() {
+		m.db.Close()
+		os.Remove(m.filename)
+	}()
 	// Lower version than schemaVersion - so our test DB should match the migrations
 	lowerVersion := schemaVersion - 1
-	msg = "error running test where the database version number is lower than the schemaVersion"
+	msg := "error running test where the database version number is lower than the schemaVersion"
 	if _, err = m.db.Exec(fmt.Sprintf("PRAGMA user_version=%d;", lowerVersion)); err != nil {
 		t.Errorf("%s: %s", msg, err)
 	}
@@ -105,9 +121,10 @@ func TestCheckDatabaseBadVersion(t *testing.T) {
 	if err := checkSchema(m); err != nil {
 		t.Errorf("Schema check failed: %s", err)
 	}
-
 }
 
+// TestGetValuesTransactionRunner inserts values into a test database table and makes sure that getValuesTransactionRunner properly
+// returns those values
 func TestGetValuesTransactionRunner(t *testing.T) {
 	// Create fake DB, check that this func works
 	m, err := createAndOpenTestDatabaseWithApplicationId()
@@ -164,9 +181,9 @@ type fakeDatum struct {
 
 func (f *fakeDatum) values() []any { return []any{f.id, f.fakeName} }
 
-func TestInsertTransactionRunner(t *testing.T) {
-	// Create fake DB, try to insert values, check that we get the right values
-	// Create fake DB, check that this func works
+// TestInsertValuesTransactionRunner checks that insertValuesTransactionRunner properly inserts values into a test database
+func TestInsertValuesTransactionRunner(t *testing.T) {
+	// Create fake DB, try to insert values, check that we get the right values back
 	m, err := createAndOpenTestDatabaseWithApplicationId()
 	if err != nil {
 		t.Error(err)
@@ -206,8 +223,7 @@ func TestInsertTransactionRunner(t *testing.T) {
 	}
 }
 
-// TODO Implement this when migration stuff is done
-// checkSchema is a testing utility function to make sure that a test ManagedTokensDatabase has the right schema
+// checkSchema is a testing utility function to make sure that a test ManagedTokensDatabase that has been initialized has the right schema
 func checkSchema(m *ManagedTokensDatabase) error {
 	schemaRows := make([]string, 0)
 	rows, err := m.db.Query("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL;")
@@ -245,6 +261,8 @@ func checkSchema(m *ManagedTokensDatabase) error {
 	return nil
 }
 
+// slicesHaveSameElements compares two slices of comparable type to make sure that they have the same elements.  The ordering of those elements
+// does not matter
 func slicesHaveSameElements[C comparable](a, b []C) bool {
 	if len(a) != len(b) {
 		return false
@@ -265,13 +283,19 @@ func slicesHaveSameElements[C comparable](a, b []C) bool {
 	return true
 }
 
+// standardizeSpaces is a simple utility function to reprint any string with only a single space character separating.  This
+// helps to compare two strings that have the same text, but different spacing schemes/indents/newlines, etc.
+// For example:
+// standardizeSpaces("blah  blah blahblah") = standardizeSpaces("blah blah      blahblah ")
 // Thanks to https://stackoverflow.com/a/42251527
 func standardizeSpaces(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
+// createAndOpenTestDatabaseWithApplicationId creates a test ManagedTokensDatabase object at a random location in os.TempDir,
+// sets the application ID, and returns a pointer to the ManagedTokensDatabase, along with any error in creating that object
 func createAndOpenTestDatabaseWithApplicationId() (*ManagedTokensDatabase, error) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	m := &ManagedTokensDatabase{
 		filename: dbLocation,
 	}
