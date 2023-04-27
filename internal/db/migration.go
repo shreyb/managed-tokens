@@ -24,22 +24,22 @@ PRAGMA user_version=1;
 PRAGMA foreign_keys=on;
 
 CREATE TABLE uids (
-username STRING NOT NULL PRIMARY KEY,
-uid INTEGER NOT NULL
+username STRING UNIQUE NOT NULL PRIMARY KEY,
+uid INTEGER UNIQUE NOT NULL
 );
 
 CREATE TABLE services (
 id INTEGER NOT NULL PRIMARY KEY,
-name STRING NOT NULL
+name STRING UNIQUE NOT NULL
 );
 
 CREATE TABLE nodes (
 id INTEGER NOT NULL PRIMARY KEY,
-name STRING NOT NULL
+name STRING UNIQUE NOT NULL
 );
 
 CREATE TABLE setup_errors (
-service_id INTEGER,
+service_id INTEGER UNIQUE,
 count INTEGER,
 FOREIGN KEY (service_id)
 	REFERENCES services (id)
@@ -51,6 +51,7 @@ CREATE TABLE push_errors (
 service_id INTEGER,
 node_id INTEGER,
 count INTEGER,
+UNIQUE(service_id, node_id),
 FOREIGN KEY (service_id)
 	REFERENCES services (id)
 		ON DELETE CASCADE
