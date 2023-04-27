@@ -261,6 +261,11 @@ func (d *databaseCheckError) Error() string {
 }
 func (d *databaseCheckError) Unwrap() error { return d.err }
 
+var (
+	errDatabaseDataWrongStructure error = errors.New("returned data has wrong structure")
+	errDatabaseDataWrongType      error = errors.New("returned data has wrong type")
+)
+
 // type databaseConnector interface {
 // 	Filename() string
 // 	Database() *sql.DB

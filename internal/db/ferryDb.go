@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -91,7 +90,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 		if len(resultRow) != 2 {
 			msg := "uid data has wrong structure"
 			log.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errors.New(msg)
+			return dataConverted, errDatabaseDataWrongStructure
 		}
 		// Type check each element
 		usernameVal, usernameOk := resultRow[0].(string)
@@ -99,7 +98,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 		if !(usernameOk && uidOk) {
 			msg := "uid query result datum has wrong type.  Expected (string, int)"
 			log.Errorf("%s: got (%T, %T)", msg, usernameVal, uidVal)
-			return dataConverted, errors.New(msg)
+			return dataConverted, errDatabaseDataWrongType
 		}
 		dataConverted = append(dataConverted, &ferryUidDatum{usernameVal, int(uidVal)})
 	}
