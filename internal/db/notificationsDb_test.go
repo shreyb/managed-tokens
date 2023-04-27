@@ -1,8 +1,19 @@
 package db
 
 import (
+	"testing"
+
 	_ "github.com/mattn/go-sqlite3"
 )
+
+func TestGetAllServices(t *testing.T)         {}
+func TestGetAllNodes(t *testing.T)            {}
+func TestGetSetupErrorsInfo(t *testing.T)     {}
+func TestGetPushErrorsInfo(t *testing.T)      {}
+func TestUpdateServices(t *testing.T)         {}
+func TestUpdateNodes(t *testing.T)            {}
+func TestUpdateSetupErrorsTable(t *testing.T) {}
+func TestUpdatePushErrorsTable(t *testing.T)  {}
 
 // TODO
 // TODO:  Figure out how to make OpenNotificationsDatabse return non-nil error so we can test it
