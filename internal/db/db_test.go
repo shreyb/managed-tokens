@@ -138,37 +138,73 @@ func TestGetValuesTransactionRunner(t *testing.T) {
 	}()
 
 	// Set up test data
-	expectedId := 12345
-	expectedFakeName := "foobar"
-	if _, err = m.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, fake_name STRING NOT NULL)"); err != nil {
-		t.Error("Could not create table for TestGetValuesTransactionRunner test")
-		return
+	type expectedData struct {
+		id       int
+		fakeName string
 	}
-	if _, err = m.db.Exec("INSERT INTO test_table VALUES (?, ?)", expectedId, expectedFakeName); err != nil {
-		t.Error("Could not insert test values into test_table for TestGetValuesTransactionRunner test")
-		return
+	type testCase struct {
+		description string
+		insertFunc  func(id int, fakeName string) error
+		expectedData
 	}
 
-	// The actual test
-	ctx := context.Background()
-	testQuery := "SELECT id, fake_name FROM test_table"
-	data, err := getValuesTransactionRunner(ctx, m.db, testQuery)
-	if err != nil {
-		t.Errorf("Could not obtain values from database for TestGetValuesTransactionRunner test: %s", err)
-		return
+	testCases := []testCase{
+		{
+			"No data inserted",
+			func(id int, fakeName string) error { return nil },
+			expectedData{},
+		},
+		{
+			"One row of data inserted",
+			func(id int, fakeName string) error {
+				_, err = m.db.Exec("INSERT INTO test_table VALUES (?, ?)", id, fakeName)
+				return err
+			},
+			expectedData{
+				id:       12345,
+				fakeName: "foobar",
+			},
+		},
 	}
-	if dataId, ok := data[0][0].(int64); !ok {
-		t.Errorf("Got wrong data type for id value.  Expected int, got %T", dataId)
-	} else {
-		if int(dataId) != expectedId {
-			t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", expectedId, dataId)
+	for _, test := range testCases {
+		if _, err = m.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, fake_name STRING NOT NULL)"); err != nil {
+			t.Error("Could not create table for TestGetValuesTransactionRunner test")
+			return
 		}
-	}
-	if dataFakeName, ok := data[0][1].(string); !ok {
-		t.Errorf("Got wrong data type for fake_name value.  Expected string, got %T", dataFakeName)
-	} else {
-		if dataFakeName != expectedFakeName {
-			t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", expectedFakeName, dataFakeName)
+		// Insert our test data
+		if err = test.insertFunc(test.expectedData.id, test.expectedData.fakeName); err != nil {
+			t.Errorf("Failed to run insert func for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+			return
+		}
+
+		// The actual test
+		ctx := context.Background()
+		testQuery := "SELECT id, fake_name FROM test_table"
+		data, err := getValuesTransactionRunner(ctx, m.db, testQuery)
+		if err != nil {
+			t.Errorf("Could not obtain values from database for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+			return
+		}
+		var noExpectedData expectedData
+		if test.expectedData == noExpectedData {
+			if len(data) != 0 {
+				t.Errorf("Should not have gotten any data back.  Got %v", data)
+			}
+			return
+		}
+		if dataId, ok := data[0][0].(int64); !ok {
+			t.Errorf("Got wrong data type for id value.  Expected int, got %T", dataId)
+		} else {
+			if int(dataId) != test.expectedData.id {
+				t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", test.expectedData.id, dataId)
+			}
+		}
+		if dataFakeName, ok := data[0][1].(string); !ok {
+			t.Errorf("Got wrong data type for fake_name value.  Expected string, got %T", dataFakeName)
+		} else {
+			if dataFakeName != test.expectedData.fakeName {
+				t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", test.expectedData.fakeName, dataFakeName)
+			}
 		}
 	}
 
