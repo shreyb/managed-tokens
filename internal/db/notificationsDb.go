@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"errors"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -56,30 +55,19 @@ var (
 	`
 	insertOrUpdateSetupErrorsStatement = `
 	INSERT INTO setup_errors(service_id, count)
-		SELECT
-			services.id,
-			? as new_count
-		FROM
-			services
-		WHERE
-			services.name = ?
+	SELECT
+		(SELECT services.id FROM services WHERE services.name = ?) AS service_id,
+		? AS count
 	ON CONFLICT(service_id) DO
 		UPDATE SET count = ?
 	;
 	`
 	insertOrUpdatePushErrorsStatement = `
 	INSERT INTO push_errors(service_id, node_id, count)
-		SELECT
-			services.id,
-			nodes.id,
-			? as new_count
-		FROM
-			push_errors
-			INNER JOIN services ON services.id = push_errors.service_id
-			INNER JOIN nodes ON nodes.id = push_errors.node_id
-		WHERE
-			services.name = ?
-			AND nodes.name = ?
+	SELECT
+		(SELECT services.id FROM services WHERE services.name = ?) AS service_id,
+		(SELECT nodes.id, FROM nodes WHERE nodes.name = ?) AS node_id,
+		? as count
 	ON CONFLICT(service_id, node_id) DO
 		UPDATE SET count = ?
 	;
@@ -124,7 +112,7 @@ type setupErrorCount struct {
 
 func (s *setupErrorCount) Service() string { return s.service }
 func (s *setupErrorCount) Count() int      { return s.count }
-func (s *setupErrorCount) values() []any   { return []any{s.service, s.count} }
+func (s *setupErrorCount) values() []any   { return []any{s.service, s.count, s.count} }
 
 func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]SetupErrorCount, error) {
 	dataConverted := make([]SetupErrorCount, 0)
@@ -136,7 +124,6 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 
 	if len(data) == 0 {
 		log.Debug("No setup error data in database")
-		return dataConverted, nil
 	}
 
 	// Unpack data
@@ -145,15 +132,15 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 		if len(resultRow) != 2 {
 			msg := "setup error data has wrong structure"
 			log.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errors.New(msg)
+			return dataConverted, errDatabaseDataWrongStructure
 		}
 		// Type check each element
 		serviceVal, serviceTypeOk := resultRow[0].(string)
 		countVal, countTypeOk := resultRow[1].(int64)
 		if !(serviceTypeOk && countTypeOk) {
-			msg := "setup errors query result has wrong type.  Expected (string, int)"
+			msg := "setup errors query result has wrong type.  Expected (int, string)"
 			log.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
-			return dataConverted, errors.New(msg)
+			return dataConverted, errDatabaseDataWrongType
 		}
 		dataConverted = append(dataConverted, &setupErrorCount{serviceVal, int(countVal)})
 	}
@@ -173,10 +160,10 @@ type pushErrorCount struct {
 	count   int
 }
 
-func (s *pushErrorCount) Service() string { return s.service }
-func (s *pushErrorCount) Node() string    { return s.node }
-func (s *pushErrorCount) Count() int      { return s.count }
-func (p *pushErrorCount) values() []any   { return []any{p.service, p.node, p.count} }
+func (p *pushErrorCount) Service() string { return p.service }
+func (p *pushErrorCount) Node() string    { return p.node }
+func (p *pushErrorCount) Count() int      { return p.count }
+func (p *pushErrorCount) values() []any   { return []any{p.service, p.node, p.count, p.count} }
 
 func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushErrorCount, error) {
 	dataConverted := make([]PushErrorCount, 0)
@@ -196,7 +183,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 		if len(resultRow) != 3 {
 			msg := "push error data has wrong structure"
 			log.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errors.New(msg)
+			return dataConverted, errDatabaseDataWrongStructure
 		}
 		// Type check each element
 		serviceVal, serviceTypeOk := resultRow[0].(string)
@@ -205,7 +192,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 		if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
 			msg := "push errors query result has wrong type.  Expected (string, string, int)"
 			log.Errorf("%s: got (%T, %T, %T)", msg, serviceVal, nodeVal, countVal)
-			return dataConverted, errors.New(msg)
+			return dataConverted, errDatabaseDataWrongType
 		}
 		dataConverted = append(dataConverted, &pushErrorCount{serviceVal, nodeVal, int(countVal)})
 	}
@@ -220,7 +207,7 @@ func (s *serviceDatum) values() []any { return []any{s.value} }
 // of strings for the service names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames []string) error {
-	serviceDatumSlice := make([]insertValues, len(serviceNames))
+	serviceDatumSlice := make([]insertValues, 0, len(serviceNames))
 	for _, s := range serviceNames {
 		serviceDatumSlice = append(serviceDatumSlice, &serviceDatum{s})
 	}
@@ -241,7 +228,7 @@ func (n *nodeDatum) values() []any { return []any{n.value} }
 // of strings for the node names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string) error {
-	nodesDatumSlice := make([]insertValues, len(nodes))
+	nodesDatumSlice := make([]insertValues, 0, len(nodes))
 	for _, s := range nodes {
 		nodesDatumSlice = append(nodesDatumSlice, &nodeDatum{s})
 	}
@@ -256,7 +243,7 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 }
 
 func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setupErrorsByService []SetupErrorCount) error {
-	setupErrorDatumSlice := make([]insertValues, 0)
+	setupErrorDatumSlice := make([]insertValues, 0, len(setupErrorsByService))
 	for _, datum := range setupErrorsByService {
 		setupErrorDatumSlice = append(setupErrorDatumSlice,
 			&setupErrorCount{
@@ -275,7 +262,7 @@ func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setu
 }
 
 func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode []PushErrorCount) error {
-	pushErrorDatumSlice := make([]insertValues, 0)
+	pushErrorDatumSlice := make([]insertValues, 0, len(pushErrorsByServiceAndNode))
 	for _, datum := range pushErrorsByServiceAndNode {
 		pushErrorDatumSlice = append(pushErrorDatumSlice,
 			&pushErrorCount{
