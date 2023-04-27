@@ -43,7 +43,7 @@ func TestInsertUidsIntoTableFromFERRY(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 				defer os.Remove(goodDbLocation)
 
 				goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
@@ -109,7 +109,7 @@ func TestConfirmUIDsInTable(t *testing.T) {
 
 	for _, test := range testCases {
 
-		goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 		defer os.Remove(goodDbLocation)
 
 		goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
@@ -175,7 +175,7 @@ func TestGetUIDsByUsername(t *testing.T) {
 		},
 	}
 
-	goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	defer os.Remove(goodDbLocation)
 
 	goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
