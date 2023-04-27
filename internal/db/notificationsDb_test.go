@@ -1,13 +1,177 @@
 package db
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"math/rand"
+	"os"
+	"path"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestGetAllServices(t *testing.T)         {}
-func TestGetAllNodes(t *testing.T)            {}
+// TestGetAllServices checks that GetAllServices correctly retrieves services from the ManagedTokensDatabase
+func TestGetAllServices(t *testing.T) {
+	type testCase struct {
+		description  string
+		expectedData []string
+	}
+	testCases := []testCase{
+		{
+			"No services in database",
+			[]string{},
+		},
+		{
+			"Some services in database",
+			[]string{"foo", "bar", "baz"},
+		},
+	}
+
+	for _, test := range testCases {
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		defer os.Remove(goodDbLocation)
+
+		m, err := OpenOrCreateDatabase(goodDbLocation)
+		if err != nil {
+			t.Errorf("Could not create new database, %s", err)
+		}
+		defer m.Close()
+
+		// INSERT our test data
+		for _, datum := range test.expectedData {
+			if _, err := m.db.Exec("INSERT INTO services (name) VALUES (?);", datum); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+			}
+		}
+
+		// The test
+		ctx := context.Background()
+		services, err := m.GetAllServices(ctx)
+		if err != nil {
+			t.Errorf("Failure to obtain services for test %s: %s", test.description, err)
+		}
+		if !slicesHaveSameElements(services, test.expectedData) {
+			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, services)
+		}
+	}
+
+}
+
+// TestGetAllNodes checks that GetAllNodes correctly retrieves nodes from the ManagedTokensDatabase
+func TestGetAllNodes(t *testing.T) {
+	type testCase struct {
+		description  string
+		expectedData []string
+	}
+	testCases := []testCase{
+		{
+			"No nodes in database",
+			[]string{},
+		},
+		{
+			"Some nodes in database",
+			[]string{"foo", "bar", "baz"},
+		},
+	}
+
+	for _, test := range testCases {
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		defer os.Remove(goodDbLocation)
+
+		m, err := OpenOrCreateDatabase(goodDbLocation)
+		if err != nil {
+			t.Errorf("Could not create new database, %s", err)
+		}
+		defer m.Close()
+
+		// INSERT our test data
+		for _, datum := range test.expectedData {
+			if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+			}
+		}
+
+		// The test
+		ctx := context.Background()
+		nodes, err := m.GetAllNodes(ctx)
+		if err != nil {
+			t.Errorf("Failure to obtain nodes for test %s: %s", test.description, err)
+		}
+		if !slicesHaveSameElements(nodes, test.expectedData) {
+			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, nodes)
+		}
+	}
+
+}
+
+// TestGetNamedDimensionStringValues checks that getNamedDimentionStringValues returns the expected result or error depending on
+// the given SQL to run
+func TestGetNamedDimensionStringValues(t *testing.T) {
+	type testCase struct {
+		description     string
+		sqlGetStatement string
+		expectedData    []string
+		expectedErr     error
+	}
+	testCases := []testCase{
+		{
+			"No data in table",
+			"SELECT name FROM nodes",
+			[]string{},
+			nil,
+		},
+		{
+			"Valid data in table",
+			"SELECT name FROM nodes",
+			[]string{"foo", "bar", "baz"},
+			nil,
+		},
+		{
+			"Valid data in table, bad query result structure",
+			"SELECT id, name FROM nodes",
+			[]string{"foo", "bar", "baz"},
+			errDatabaseDataWrongStructure,
+		},
+		{
+			"Valid data in table, but the type of the column we picked is wrong",
+			"SELECT id FROM nodes",
+			[]string{"foo", "bar", "baz"},
+			errDatabaseDataWrongType,
+		},
+	}
+
+	for _, test := range testCases {
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		defer os.Remove(goodDbLocation)
+
+		m, err := OpenOrCreateDatabase(goodDbLocation)
+		if err != nil {
+			t.Errorf("Could not create new database, %s", err)
+		}
+		defer m.Close()
+
+		// INSERT our test data
+		for _, datum := range test.expectedData {
+			if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+			}
+		}
+
+		// The test
+		ctx := context.Background()
+		data, err := m.getNamedDimensionStringValues(ctx, test.sqlGetStatement)
+		if !errors.Is(err, test.expectedErr) {
+			t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
+		}
+		if err == nil && !slicesHaveSameElements(data, test.expectedData) {
+			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
+		}
+	}
+
+}
+
 func TestGetSetupErrorsInfo(t *testing.T)     {}
 func TestGetPushErrorsInfo(t *testing.T)      {}
 func TestUpdateServices(t *testing.T)         {}
