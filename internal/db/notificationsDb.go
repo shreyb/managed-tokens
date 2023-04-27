@@ -88,34 +88,14 @@ var (
 
 // External-facing functions to modify db
 // TODO Make sure all funcs are documented
+
 // GetAllServices queries the NotificationsDatabase for the registered services
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, error) {
-	dataConverted := make([]string, 0)
-	data, err := getValuesTransactionRunner(ctx, m.db, getAllServicesFromTableStatement)
+	dataConverted, err := m.getNamedDimensionStringValues(ctx, getAllServicesFromTableStatement)
 	if err != nil {
-		log.Error("Could not get service names from notifications database")
-		return dataConverted, err
-	}
-
-	if len(data) == 0 {
-		log.Debug("No services in database")
-		return dataConverted, nil
-	}
-
-	for _, resultRow := range data {
-		if len(resultRow) != 1 {
-			msg := "service name data has wrong structure"
-			log.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errors.New(msg)
-		}
-		if val, ok := resultRow[0].(string); !ok {
-			msg := "service name query result has wrong type.  Expected string"
-			log.Errorf("%s: %T", msg, val)
-			return dataConverted, errors.New(msg)
-		} else {
-			dataConverted = append(dataConverted, val)
-		}
+		log.Error("Could not get service names from database")
+		return nil, err
 	}
 	return dataConverted, nil
 }
@@ -123,31 +103,10 @@ func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, e
 // GetAllNodes queries the NotificationsDatabase for the registered nodes
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, error) {
-	dataConverted := make([]string, 0)
-	data, err := getValuesTransactionRunner(ctx, m.db, getAllNodesFromTableStatement)
+	dataConverted, err := m.getNamedDimensionStringValues(ctx, getAllNodesFromTableStatement)
 	if err != nil {
-		log.Error("Could not get node names from notifications database")
-		return dataConverted, err
-	}
-
-	if len(data) == 0 {
-		log.Debug("No nodes in database")
-		return dataConverted, nil
-	}
-
-	for _, resultRow := range data {
-		if len(resultRow) != 1 {
-			msg := "node name data has wrong structure"
-			log.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errors.New(msg)
-		}
-		if val, ok := resultRow[0].(string); !ok {
-			msg := "node name query result has wrong type.  Expected string"
-			log.Errorf("%s: got %T", msg, val)
-			return dataConverted, errors.New(msg)
-		} else {
-			dataConverted = append(dataConverted, val)
-		}
+		log.Error("Could not get node names from database")
+		return nil, err
 	}
 	return dataConverted, nil
 }
@@ -332,6 +291,39 @@ func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushE
 	}
 	log.Debug("Updated push errors in notifications database")
 	return nil
+}
+
+// getNamedDimensionStringValues queries a table as given in the sqlGetStatement provided that each row returned by the query
+// in sqlGetStatement is a single string (one column of string type). An example of a valid query for sqlGetStatement would be
+// "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table"
+func (m *ManagedTokensDatabase) getNamedDimensionStringValues(ctx context.Context, sqlGetStatement string) ([]string, error) {
+	dataConverted := make([]string, 0)
+	data, err := getValuesTransactionRunner(ctx, m.db, sqlGetStatement)
+	if err != nil {
+		log.Error("Could not get values from database")
+		return dataConverted, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No values in database")
+		return dataConverted, nil
+	}
+
+	for _, resultRow := range data {
+		if len(resultRow) != 1 {
+			msg := "dimension name data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errDatabaseDataWrongStructure
+		}
+		if val, ok := resultRow[0].(string); !ok {
+			msg := "dimension name query result has wrong type.  Expected string"
+			log.Errorf("%s: got %T", msg, val)
+			return dataConverted, errDatabaseDataWrongType
+		} else {
+			dataConverted = append(dataConverted, val)
+		}
+	}
+	return dataConverted, nil
 }
 
 // Pragma:  PRAGMA foreign_keys = ON;
