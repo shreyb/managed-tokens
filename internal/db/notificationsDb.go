@@ -66,7 +66,7 @@ var (
 	INSERT INTO push_errors(service_id, node_id, count)
 	SELECT
 		(SELECT services.id FROM services WHERE services.name = ?) AS service_id,
-		(SELECT nodes.id, FROM nodes WHERE nodes.name = ?) AS node_id,
+		(SELECT nodes.id FROM nodes WHERE nodes.name = ?) AS node_id,
 		? as count
 	ON CONFLICT(service_id, node_id) DO
 		UPDATE SET count = ?
