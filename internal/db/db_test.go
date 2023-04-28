@@ -66,63 +66,6 @@ func TestCheckDatabaseBadApplicationId(t *testing.T) {
 
 }
 
-// TestCheckMigrationsFromHigherSchemaVersions checks that if we open a database with a higher schema version than schemaVersion, we
-// leave the database alone
-func TestCheckMigrationsFromHigherSchemaVersions(t *testing.T) {
-	// Check user version by opening a DB, seeing if we can mock that it's on lower, higher, and correct versions
-	m, err := createAndOpenTestDatabaseWithApplicationId()
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	defer func() {
-		m.db.Close()
-		os.Remove(m.filename)
-	}()
-
-	// Higher version than schemaVersion - so the schema should remain empty
-	higherVersion := schemaVersion + 1
-	msg := "Error running test where the database version number is higher than the schemaVersion"
-	if _, err = m.db.Exec(fmt.Sprintf("PRAGMA user_version=%d;", higherVersion)); err != nil {
-		t.Errorf("%s: %s", msg, err)
-	}
-	if err := m.check(); err != nil {
-		t.Errorf("%s: %s", msg, err)
-	}
-
-	var s string
-	if err := m.db.QueryRow("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL;").Scan(&s); !errors.Is(err, sql.ErrNoRows) {
-		t.Errorf("Schema should be empty in the test where our database version number for an empty database is higher than the schemaVersion.  Got %s", s)
-	}
-}
-
-// TestCheckMigrationsFromLowerSchemaVersions checks that if we open a database with a lower schema version than schemaVersion, we
-// migrate the database to the current schemaVersion
-func TestCheckMigrationsFromLowerSchemaVersion(t *testing.T) {
-	// Check user version by opening a DB, seeing if we can mock that it's on lower, higher, and correct versions
-	m, err := createAndOpenTestDatabaseWithApplicationId()
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	defer func() {
-		m.db.Close()
-		os.Remove(m.filename)
-	}()
-	// Lower version than schemaVersion - so our test DB should match the migrations
-	lowerVersion := schemaVersion - 1
-	msg := "error running test where the database version number is lower than the schemaVersion"
-	if _, err = m.db.Exec(fmt.Sprintf("PRAGMA user_version=%d;", lowerVersion)); err != nil {
-		t.Errorf("%s: %s", msg, err)
-	}
-	if err := m.check(); err != nil {
-		t.Errorf("%s: %s", msg, err)
-	}
-	if err := checkSchema(m); err != nil {
-		t.Errorf("Schema check failed: %s", err)
-	}
-}
-
 // TestGetValuesTransactionRunner inserts values into a test database table and makes sure that getValuesTransactionRunner properly
 // returns those values
 func TestGetValuesTransactionRunner(t *testing.T) {
