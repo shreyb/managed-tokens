@@ -626,7 +626,151 @@ func TestUpdateSetupErrorsTable(t *testing.T) {
 		}
 	}
 }
-func TestUpdatePushErrorsTable(t *testing.T) {}
+func TestUpdatePushErrorsTable(t *testing.T) {
+	type testCase struct {
+		description  string
+		originalData []pushErrorCount
+		newData      []pushErrorCount
+		expectedData []pushErrorCount
+	}
+
+	testCases := []testCase{
+		{
+			description:  "No data exists, none inserted",
+			originalData: nil,
+			newData:      nil,
+			expectedData: nil,
+		},
+		{
+			description:  "First insert of data",
+			originalData: nil,
+			newData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+			},
+			expectedData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+			},
+		},
+		{
+			description: "Add more data",
+			originalData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+			},
+			newData: []pushErrorCount{{"gopher", "gophernode", 1}},
+			expectedData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+				{"gopher", "gophernode", 1},
+			},
+		},
+		{
+			description: "A subset of existing data is modified.  Should retain everything else",
+			originalData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+				{"gopher", "gophernode", 1},
+			},
+			newData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"foo", "foonode2", 1},
+				{"bar", "barnode", 0},
+			},
+			expectedData: []pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 0},
+				{"baz", "baznode", 0},
+				{"gopher", "gophernode", 1},
+				{"foo", "foonode2", 1},
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		defer os.Remove(goodDbLocation)
+
+		m, err := OpenOrCreateDatabase(goodDbLocation)
+		if err != nil {
+			t.Errorf("Could not create new database, %s", err)
+			return
+		}
+		defer m.Close()
+
+		// INSERT our test data
+		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+		insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+		insertPushErrors := `
+		INSERT INTO push_errors(service_id, node_id, count)
+		SELECT
+			(SELECT id FROM services WHERE services.name = ?) AS service_id,
+			(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
+			? AS count
+		;
+		`
+		for _, datum := range test.expectedData {
+			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+			if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+			if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+		}
+
+		newData := make([]PushErrorCount, 0, len(test.newData))
+		for _, datum := range test.newData {
+			newData = append(newData, &datum)
+		}
+		// The test
+		ctx := context.Background()
+		if err = m.UpdatePushErrorsTable(ctx, newData); err != nil {
+			t.Errorf("Could not update push_errors table for test %s: %s", test.description, err)
+		}
+
+		checkQuery := `
+		SELECT
+			services.name,
+			nodes.name,
+			push_errors.count
+		FROM
+			push_errors
+			INNER JOIN services ON services.id = push_errors.service_id
+			INNER JOIN nodes ON nodes.id = push_errors.node_id
+		;
+		`
+		rows, err := m.db.Query(checkQuery)
+		if err != nil {
+			t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
+		}
+
+		retrievedData := make([]pushErrorCount, 0, len(test.expectedData))
+		for rows.Next() {
+			var serviceName string
+			var nodeName string
+			var count int
+			if err := rows.Scan(&serviceName, &nodeName, &count); err != nil {
+				t.Errorf("Error scanning row for test %s: %s", test.description, err)
+			}
+			retrievedData = append(retrievedData, pushErrorCount{serviceName, nodeName, count})
+		}
+		if !slicesHaveSameElements(retrievedData, test.expectedData) {
+			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+		}
+	}
+}
 
 // TODO
 // TODO:  Figure out how to make OpenNotificationsDatabse return non-nil error so we can test it
