@@ -187,6 +187,5 @@ func TestMigrate(t *testing.T) {
 				}
 			}
 		}
-
 	}
 }
