@@ -107,7 +107,7 @@ func (m *ManagedTokensDatabase) check() error {
 }
 
 // getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.
-func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string) ([][]any, error) {
+func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string, args ...any) ([][]any, error) {
 	data := make([][]any, 0)
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
@@ -118,7 +118,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
-	rows, err := db.QueryContext(dbContext, getStatementString)
+	rows, err := db.QueryContext(dbContext, getStatementString, args...)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
 			log.Error("Context timeout")

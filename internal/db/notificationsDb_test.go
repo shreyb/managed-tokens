@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -183,11 +184,13 @@ func TestGetSetupErrorsInfo(t *testing.T) {
 	type testCase struct {
 		description  string
 		expectedData []setupErrorCount
+		expectedErr  error
 	}
 	testCases := []testCase{
 		{
 			"No information in database",
 			[]setupErrorCount{},
+			sql.ErrNoRows,
 		},
 		{
 			"Some setup error counts in database",
@@ -196,6 +199,7 @@ func TestGetSetupErrorsInfo(t *testing.T) {
 				{"bar", 2},
 				{"baz", 0},
 			},
+			nil,
 		},
 	}
 	for _, test := range testCases {
@@ -234,8 +238,14 @@ func TestGetSetupErrorsInfo(t *testing.T) {
 		ctx := context.Background()
 		data, err := m.GetSetupErrorsInfo(ctx)
 		if err != nil {
+			if !errors.Is(err, test.expectedErr) {
+				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+			} else {
+				continue
+			}
 			t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
 		}
+
 		retrievedData := make([]setupErrorCount, 0, len(data))
 		for _, datum := range data {
 			val, ok := datum.(*setupErrorCount)
@@ -251,16 +261,104 @@ func TestGetSetupErrorsInfo(t *testing.T) {
 	}
 }
 
+// TestGetSetupErrorsInfoByService checks that GetSetupErrorsInfoByService properly retrieves the setupError count for a single service
+func TestGetSetupErrorsInfoByService(t *testing.T) {
+	type testCase struct {
+		description    string
+		testData       []setupErrorCount
+		serviceToQuery string
+		expectedCount  int
+		expectedErr    error
+	}
+	testCases := []testCase{
+		{
+			"No information in database",
+			[]setupErrorCount{},
+			"foo",
+			0,
+			sql.ErrNoRows,
+		},
+		{
+			"Some setup error counts in database",
+			[]setupErrorCount{
+				{"foo", 1},
+				{"bar", 2},
+				{"baz", 0},
+			},
+			"foo",
+			1,
+			nil,
+		},
+	}
+	for _, test := range testCases {
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		defer os.Remove(goodDbLocation)
+
+		m, err := OpenOrCreateDatabase(goodDbLocation)
+		if err != nil {
+			t.Errorf("Could not create new database, %s", err)
+			return
+		}
+		defer m.Close()
+
+		// INSERT our test data
+		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+		insertSetupErrors := `
+		INSERT INTO setup_errors(service_id, count)
+		SELECT
+			(SELECT id FROM services WHERE services.name = ?) AS service_id,
+			? AS count
+		;
+		`
+
+		for _, datum := range test.testData {
+			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+			if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+		}
+
+		// The test
+		ctx := context.Background()
+		datum, err := m.GetSetupErrorsInfoByService(ctx, test.serviceToQuery)
+		if err != nil {
+			if !errors.Is(err, test.expectedErr) {
+				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+			} else {
+				continue
+			}
+			t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
+		}
+
+		val, ok := datum.(*setupErrorCount)
+		if ok {
+			if val != nil {
+				if val.count != test.expectedCount {
+					t.Errorf("Got wrong count from test %s.  Expected %d, got %d", test.description, test.expectedCount, val.count)
+				}
+			}
+		} else {
+			t.Errorf("Got wrong type from test %s.  Expected *setupErrorCount, got %T", test.description, val)
+		}
+	}
+}
+
 // TestGetPushErrorsInfo checks that GetPushErrorsInfo properly retrieves pushError counts from the database
 func TestGetPushErrorsInfo(t *testing.T) {
 	type testCase struct {
 		description  string
 		expectedData []pushErrorCount
+		expectedErr  error
 	}
 	testCases := []testCase{
 		{
 			"No information in database",
 			[]pushErrorCount{},
+			sql.ErrNoRows,
 		},
 		{
 			"Some push error counts in database",
@@ -270,6 +368,7 @@ func TestGetPushErrorsInfo(t *testing.T) {
 				{"baz", "baznode", 0},
 				{"baz", "baznode2", 1},
 			},
+			nil,
 		},
 	}
 	for _, test := range testCases {
@@ -314,7 +413,123 @@ func TestGetPushErrorsInfo(t *testing.T) {
 		ctx := context.Background()
 		data, err := m.GetPushErrorsInfo(ctx)
 		if err != nil {
-			t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
+			if !errors.Is(err, test.expectedErr) {
+				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+			} else {
+				continue
+			}
+			t.Errorf("Failure to obtain push errors data for test %s: %s", test.description, err)
+		}
+		retrievedData := make([]pushErrorCount, 0, len(data))
+		for _, datum := range data {
+			val, ok := datum.(*pushErrorCount)
+			if ok {
+				if val != nil {
+					retrievedData = append(retrievedData, *val)
+				}
+			}
+		}
+		if !slicesHaveSameElements(retrievedData, test.expectedData) {
+			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+		}
+	}
+}
+
+// TestGetPushErrorsInfo checks that GetPushErrorsInfo properly retrieves pushError counts from the database
+func TestGetPushErrorsByServiceInfo(t *testing.T) {
+	type testCase struct {
+		description    string
+		testData       []pushErrorCount
+		serviceToQuery string
+		expectedData   []pushErrorCount
+		expectedErr    error
+	}
+	testCases := []testCase{
+		{
+			"No information in database",
+			[]pushErrorCount{},
+			"foo",
+			[]pushErrorCount{},
+			sql.ErrNoRows,
+		},
+		{
+			"Some push error counts in database, multiple results",
+			[]pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+				{"baz", "baznode2", 1},
+			},
+			"baz",
+			[]pushErrorCount{
+				{"baz", "baznode", 0},
+				{"baz", "baznode2", 1},
+			},
+			nil,
+		},
+		{
+			"Some push error counts in database, single result",
+			[]pushErrorCount{
+				{"foo", "foonode", 1},
+				{"bar", "barnode", 2},
+				{"baz", "baznode", 0},
+				{"baz", "baznode2", 1},
+			},
+			"foo",
+			[]pushErrorCount{
+				{"foo", "foonode", 1},
+			},
+			nil,
+		},
+	}
+	for _, test := range testCases {
+		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+		defer os.Remove(goodDbLocation)
+
+		m, err := OpenOrCreateDatabase(goodDbLocation)
+		if err != nil {
+			t.Errorf("Could not create new database, %s", err)
+			return
+		}
+		defer m.Close()
+
+		// INSERT our test data
+		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+		insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+		insertPushErrors := `
+		INSERT INTO push_errors(service_id, node_id, count)
+		SELECT
+			(SELECT id FROM services WHERE services.name = ?) AS service_id,
+			(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
+			? AS count
+		;
+		`
+
+		for _, datum := range test.testData {
+			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+			if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+			if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
+				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+				return
+			}
+		}
+
+		// The test
+		ctx := context.Background()
+		data, err := m.GetPushErrorsInfoByService(ctx, test.serviceToQuery)
+		if err != nil {
+			if !errors.Is(err, test.expectedErr) {
+				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+			} else {
+				continue
+			}
+			t.Errorf("Failure to obtain push errors data for test %s: %s", test.description, err)
 		}
 		retrievedData := make([]pushErrorCount, 0, len(data))
 		for _, datum := range data {

@@ -66,6 +66,7 @@ func TestCheckDatabaseBadApplicationId(t *testing.T) {
 
 }
 
+// TODO Expand this test so we try prepared statements
 // TestGetValuesTransactionRunner inserts values into a test database table and makes sure that getValuesTransactionRunner properly
 // returns those values
 func TestGetValuesTransactionRunner(t *testing.T) {

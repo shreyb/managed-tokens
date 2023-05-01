@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,17 @@ var (
 		INNER JOIN services ON services.id = setup_errors.service_id
 	;
 	`
+	getSetupErrorsCountsByServiceStatement = `
+	SELECT
+		services.name,
+		setup_errors.count
+	FROM
+		setup_errors
+		INNER JOIN services ON services.id = setup_errors.service_id
+	WHERE
+		services.name = ?
+	;
+	`
 	getPushErrorsCountsStatement = `
 	SELECT
 		services.name,
@@ -29,6 +41,19 @@ var (
 		push_errors
 		INNER JOIN services ON services.id = push_errors.service_id
 		INNER JOIN nodes on nodes.id = push_errors.node_id
+	;
+	`
+	getPushErrorsCountsByServiceStatement = `
+	SELECT
+		services.name,
+		nodes.name,
+		push_errors.count
+	FROM
+		push_errors
+		INNER JOIN services ON services.id = push_errors.service_id
+		INNER JOIN nodes on nodes.id = push_errors.node_id
+	WHERE
+		services.name = ?
 	;
 	`
 	getAllServicesFromTableStatement = `
@@ -124,6 +149,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 
 	if len(data) == 0 {
 		log.Debug("No setup error data in database")
+		return nil, sql.ErrNoRows
 	}
 
 	// Unpack data
@@ -145,6 +171,42 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 		dataConverted = append(dataConverted, &setupErrorCount{serviceVal, int(countVal)})
 	}
 	return dataConverted, nil
+}
+
+// GetSetupErrorsInfoByService queries the database for the setup errors for a specific service
+func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context, service string) (SetupErrorCount, error) {
+	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
+	if err != nil {
+		log.Error("Could not get setup errors information from notifications database")
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No setup error data in database")
+		return nil, sql.ErrNoRows
+	}
+
+	if len(data) != 1 {
+		msg := "setup error data should only have 1 row"
+		log.Errorf("%s: %v", msg, data)
+		return nil, errDatabaseDataWrongStructure
+	}
+
+	resultRow := data[0]
+	if len(resultRow) != 2 {
+		msg := "setup error data has wrong structure"
+		log.Errorf("%s: %v", msg, resultRow)
+		return nil, errDatabaseDataWrongStructure
+	}
+	// Type check each element
+	serviceVal, serviceTypeOk := resultRow[0].(string)
+	countVal, countTypeOk := resultRow[1].(int64)
+	if !(serviceTypeOk && countTypeOk) {
+		msg := "setup errors query result has wrong type.  Expected (int, string)"
+		log.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
+		return nil, errDatabaseDataWrongType
+	}
+	return &setupErrorCount{serviceVal, int(countVal)}, nil
 }
 
 type PushErrorCount interface {
@@ -175,7 +237,42 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 
 	if len(data) == 0 {
 		log.Debug("No push error data in database")
-		return dataConverted, nil
+		return dataConverted, sql.ErrNoRows
+	}
+
+	// Unpack data
+	for _, resultRow := range data {
+		if len(resultRow) != 3 {
+			msg := "push error data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return dataConverted, errDatabaseDataWrongStructure
+		}
+		// Type check each element
+		serviceVal, serviceTypeOk := resultRow[0].(string)
+		nodeVal, nodeTypeOk := resultRow[1].(string)
+		countVal, countTypeOk := resultRow[2].(int64)
+		if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
+			msg := "push errors query result has wrong type.  Expected (string, string, int)"
+			log.Errorf("%s: got (%T, %T, %T)", msg, serviceVal, nodeVal, countVal)
+			return dataConverted, errDatabaseDataWrongType
+		}
+		dataConverted = append(dataConverted, &pushErrorCount{serviceVal, nodeVal, int(countVal)})
+	}
+	return dataConverted, nil
+}
+
+// GetPushErrorsInfoByService queries the database for the setup errors for a specific service
+func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, service string) ([]PushErrorCount, error) {
+	dataConverted := make([]PushErrorCount, 0)
+	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsByServiceStatement, service)
+	if err != nil {
+		log.Error("Could not get push errors information from notifications database")
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No push error data in database")
+		return nil, sql.ErrNoRows
 	}
 
 	// Unpack data
