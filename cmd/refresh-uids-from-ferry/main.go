@@ -80,7 +80,7 @@ func init() {
 	initFlags() // Parse our flags
 	if viper.GetBool("version") {
 		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		return
+		os.Exit(0)
 	}
 
 	if err := initConfig(); err != nil {
