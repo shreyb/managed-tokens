@@ -11,6 +11,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/shreyb/managed-tokens/internal/db"
 )
 
 // For Admin notifications, we expect caller to instantiate admin email object, admin slackMessage object, and pass them to SendAdminNotifications.
@@ -41,11 +43,50 @@ type AdminDataFinal struct {
 	PushErrorsTable string
 }
 
+// TODO Document this
+type AdminNotificationManager struct {
+	ReceiveChan         chan Notification
+	Database            *db.ManagedTokensDatabase
+	NotificationMinimum int
+}
+
+// TODO Document this
+type AdminNotificationManagerOption func(*AdminNotificationManager) error
+
+// TODO:  Modify this to work like NewEmailManager.  This should accept functional opts that alter an exported struct (AdminNotificationManager?)
 // NewAdminNotificationManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
 // via email (or otherwise)
-func NewAdminNotificationManager(ctx context.Context) chan Notification {
-	c := make(chan Notification)         // Channel to send notifications to this Manager
+func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
+	a := &AdminNotificationManager{
+		ReceiveChan: make(chan Notification), // Channel to send notifications to this Manager
+	}
+
+	for _, opt := range opts {
+		if err := opt(a); err != nil {
+			log.Errorf("Error running functional option")
+		}
+	}
+
+	// Get our previous error information for this service
+	allServiceCounts := make(map[string]*serviceErrorCounts)
+	trackErrorCounts := true
+	services, err := a.Database.GetAllServices(ctx)
+	if err != nil {
+		log.Error("Error getting services from database.  Assuming that we need to send all notifications")
+		trackErrorCounts = false
+	}
+
+	if trackErrorCounts {
+		for _, service := range services {
+			ec, trackErrorCountsByService := setErrorCountsByService(ctx, a.Database, service)
+			allServiceCounts[service] = ec
+			if !trackErrorCountsByService {
+				trackErrorCounts = false
+			}
+		}
+	}
+
 	adminChan := make(chan Notification) // Channel to send notifications to aggregator
 	adminErrors.writerCount.Add(1)
 	go adminErrorAdder(adminChan) // Start admin errors aggregator
@@ -66,18 +107,32 @@ func NewAdminNotificationManager(ctx context.Context) chan Notification {
 				}
 				return
 
-			case n, chanOpen := <-c:
+			case n, chanOpen := <-a.ReceiveChan:
 				// Channel is closed --> send notifications
 				if !chanOpen {
+					for service, ec := range allServiceCounts {
+						if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
+							log.WithFields(log.Fields{
+								"caller":  "NewEmailManager",
+								"service": n.GetService(),
+							}).Error("Error saving new error counts in database.  Please investigate")
+						}
+					}
 					return
 				} else {
 					// Send notification to admin message aggregator
-					adminChan <- n
+					shouldSend := true
+					if trackErrorCounts {
+						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
+					}
+					if shouldSend {
+						adminChan <- n
+					}
 				}
 			}
 		}
 	}()
-	return c
+	return a
 }
 
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminMsgSlice. It expects a valid template file
