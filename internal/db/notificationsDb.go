@@ -168,6 +168,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 			log.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
 			return dataConverted, errDatabaseDataWrongType
 		}
+		log.Debugf("Got SetupError row: %s, %d", serviceVal, countVal)
 		dataConverted = append(dataConverted, &setupErrorCount{serviceVal, int(countVal)})
 	}
 	return dataConverted, nil
@@ -206,6 +207,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 		log.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
 		return nil, errDatabaseDataWrongType
 	}
+	log.Debugf("Got SetupError row: %s, %d", serviceVal, countVal)
 	return &setupErrorCount{serviceVal, int(countVal)}, nil
 }
 
@@ -256,6 +258,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 			log.Errorf("%s: got (%T, %T, %T)", msg, serviceVal, nodeVal, countVal)
 			return dataConverted, errDatabaseDataWrongType
 		}
+		log.Debugf("Got PushErrorCount row: %s, %s, %d", serviceVal, nodeVal, countVal)
 		dataConverted = append(dataConverted, &pushErrorCount{serviceVal, nodeVal, int(countVal)})
 	}
 	return dataConverted, nil
@@ -291,6 +294,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 			log.Errorf("%s: got (%T, %T, %T)", msg, serviceVal, nodeVal, countVal)
 			return dataConverted, errDatabaseDataWrongType
 		}
+		log.Debugf("Got PushErrorCount row: %s, %s, %d", serviceVal, nodeVal, countVal)
 		dataConverted = append(dataConverted, &pushErrorCount{serviceVal, nodeVal, int(countVal)})
 	}
 	return dataConverted, nil
@@ -404,6 +408,7 @@ func (m *ManagedTokensDatabase) getNamedDimensionStringValues(ctx context.Contex
 			log.Errorf("%s: got %T", msg, val)
 			return dataConverted, errDatabaseDataWrongType
 		} else {
+			log.Debugf("Got dimension row: %s", val)
 			dataConverted = append(dataConverted, val)
 		}
 	}

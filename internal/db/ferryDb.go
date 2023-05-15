@@ -100,6 +100,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 			log.Errorf("%s: got (%T, %T)", msg, usernameVal, uidVal)
 			return dataConverted, errDatabaseDataWrongType
 		}
+		log.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
 		dataConverted = append(dataConverted, &ferryUidDatum{usernameVal, int(uidVal)})
 	}
 	return dataConverted, nil

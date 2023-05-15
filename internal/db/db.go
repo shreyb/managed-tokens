@@ -136,13 +136,6 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	}
 
 	for rows.Next() {
-		// rowVals := make([]reflect.Type, 0, len(colTypes))
-		// for _, colType := range colTypes {
-		// 	rowVals = append(rowVals, (colType.ScanType()))
-		// }
-		// rowValues := make([]*any, len(cols))
-		// for
-		// err := rows.Scan(rowValues...)
 		resultRow := make([]any, len(cols))
 		resultRowPtrs := make([]any, len(cols))
 		for idx := range resultRow {
@@ -158,7 +151,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 			return data, err
 		}
 		data = append(data, resultRow)
-		log.Debugf("Got row values: %s", resultRow...)
+		log.Debugf("Got row values from database: %s", resultRow...)
 	}
 	err = rows.Err()
 	if err != nil {
