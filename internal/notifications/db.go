@@ -11,7 +11,7 @@ import (
 )
 
 // TODO Document this
-func setErrorCountsByService(ctx context.Context, database *db.ManagedTokensDatabase, service string) (*serviceErrorCounts, bool) {
+func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
 		return nil, false

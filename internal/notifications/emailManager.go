@@ -42,7 +42,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	}
 
 	// Get our previous error information for this service
-	ec, trackErrorCounts := setErrorCountsByService(ctx, em.Database, em.Service)
+	ec, trackErrorCounts := setErrorCountsByService(ctx, em.Service, em.Database)
 
 	// Set up the various admin channels needed
 	adminChan := make(chan Notification)

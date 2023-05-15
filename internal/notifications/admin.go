@@ -79,7 +79,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 
 	if trackErrorCounts {
 		for _, service := range services {
-			ec, trackErrorCountsByService := setErrorCountsByService(ctx, a.Database, service)
+			ec, trackErrorCountsByService := setErrorCountsByService(ctx, service, a.Database)
 			allServiceCounts[service] = ec
 			if !trackErrorCountsByService {
 				trackErrorCounts = false
