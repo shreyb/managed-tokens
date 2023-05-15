@@ -21,7 +21,7 @@ import (
 )
 
 // setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors
-func setupAdminNotifications(ctx context.Context) (adminNotifications []notifications.SendMessager, notificationsChan notifications.EmailManager) {
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (adminNotifications []notifications.SendMessager, notificationsChan chan notifications.Notification) {
 	// Send admin notifications at end of run
 	var prefix string
 	if viper.GetBool("test") {
@@ -43,7 +43,16 @@ func setupAdminNotifications(ctx context.Context) (adminNotifications []notifica
 		viper.GetString(prefix + "slack_alerts_url"),
 	)
 	adminNotifications = append(adminNotifications, email, slackMessage)
-	notificationsChan = notifications.NewAdminNotificationManager(ctx) // Listen for messages from run
+	// TODO Change next method to use DB
+	setDB := func(a *notifications.AdminNotificationManager) error {
+		a.Database = database
+		return nil
+	}
+	setNotificationMinimum := func(a *notifications.AdminNotificationManager) error {
+		a.NotificationMinimum = viper.GetInt("notificationMinimum")
+		return nil
+	}
+	notificationsChan = notifications.NewAdminNotificationManager(ctx, setDB, setNotificationMinimum).ReceiveChan // Listen for messages from run
 	return adminNotifications, notificationsChan
 }
 
@@ -172,7 +181,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // authFunc.  It spins up a worker to get data from FERRY, and then puts that data into
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
-	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan notifications.EmailManager) {
+	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan notifications.Notification) {
 	var ferryRequestContext context.Context
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
 		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)

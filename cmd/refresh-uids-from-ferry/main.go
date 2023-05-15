@@ -245,16 +245,36 @@ func main() {
 
 func run(ctx context.Context) error {
 	// Order of operations:
-	// 0. Set up admin notification emails
 	// 1. Open database to record FERRY data
-	// 2. a. Choose authentication method to FERRY
-	// 2. b. Query FERRY for data
-	// 3. Insert data into database
-	// 4. Verify that INSERTed data matches response data from FERRY
-	// 5. Push metrics and send necessary notifications
+	// 2. Set up admin notification emails
+	// 3. a. Choose authentication method to FERRY
+	// 4. b. Query FERRY for data
+	// 5. Insert data into database
+	// 6. Verify that INSERTed data matches response data from FERRY
+	// 7. Push metrics and send necessary notifications
 	var dbLocation string
 
-	adminNotifications, notificationsChan := setupAdminNotifications(ctx)
+	// Open connection to the SQLite database where UID info will be stored
+	if viper.IsSet("dbLocation") {
+		dbLocation = viper.GetString("dbLocation")
+	} else {
+		dbLocation = "/var/lib/managed-tokens/uid.db"
+	}
+	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+
+	database, err := db.OpenOrCreateDatabase(dbLocation)
+	if err != nil {
+		msg := "Could not open or create ManagedTokensDatabase"
+		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
+		// In the case of this executable, that's a fatal error and we should stop execution.
+		dbAdminNotificationsManager := notifications.NewAdminNotificationManager(ctx)
+		dbAdminNotificationsManager.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
+		log.WithField("executable", currentExecutable).Error(msg)
+		return err
+	}
+	defer database.Close()
+
+	adminNotifications, notificationsChan := setupAdminNotifications(ctx, database)
 	// Send admin notifications at end of run
 	// We need to pass the pointer in here since we need to pick up the
 	// changes made to adminNotifications, as explained here:
@@ -298,24 +318,6 @@ func run(ctx context.Context) error {
 	if viper.GetBool("verbose") {
 		ctx = utils.ContextWithVerbose(ctx)
 	}
-
-	// Open connection to the SQLite database where UID info will be stored
-	if viper.IsSet("dbLocation") {
-		dbLocation = viper.GetString("dbLocation")
-	} else {
-		dbLocation = "/var/lib/managed-tokens/uid.db"
-	}
-	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
-
-	database, err := db.OpenOrCreateDatabase(dbLocation)
-	if err != nil {
-		msg := "Could not open or create FERRYUIDDatabase"
-		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-		log.WithField("executable", currentExecutable).Error(msg)
-		return err
-	}
-	defer database.Close()
-
 	// Start up worker to aggregate all FERRY data
 	ferryData := make([]db.FerryUIDDatum, 0)
 	ferryDataChan := make(chan db.FerryUIDDatum) // Channel to send FERRY data from GetFERRYData worker to AggregateFERRYData worker
