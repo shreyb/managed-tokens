@@ -43,16 +43,13 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 		viper.GetString(prefix + "slack_alerts_url"),
 	)
 	adminNotifications = append(adminNotifications, email, slackMessage)
-	// TODO Change next method to use DB
+
+	// Functional options for AdminNotificationManager
 	setDB := func(a *notifications.AdminNotificationManager) error {
 		a.Database = database
 		return nil
 	}
-	setNotificationMinimum := func(a *notifications.AdminNotificationManager) error {
-		a.NotificationMinimum = viper.GetInt("notificationMinimum")
-		return nil
-	}
-	notificationsChan = notifications.NewAdminNotificationManager(ctx, setDB, setNotificationMinimum).ReceiveChan // Listen for messages from run
+	notificationsChan = notifications.NewAdminNotificationManager(ctx, setDB).ReceiveChan // Listen for messages from run
 	return adminNotifications, notificationsChan
 }
 
