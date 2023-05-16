@@ -74,11 +74,13 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 			case n, chanOpen := <-em.ReceiveChan:
 				// Channel is closed --> save errors to database and send notifications
 				if !chanOpen {
-					if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
-						log.WithFields(log.Fields{
-							"caller":  "NewEmailManager",
-							"service": em.Service,
-						}).Error("Error saving new error counts in database.  Please investigate")
+					if trackErrorCounts {
+						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
+							log.WithFields(log.Fields{
+								"caller":  "NewEmailManager",
+								"service": em.Service,
+							}).Error("Error saving new error counts in database.  Please investigate")
+						}
 					}
 					if len(serviceErrorsTable) > 0 {
 						tableString := aggregateServicePushErrors(serviceErrorsTable)
@@ -127,36 +129,4 @@ func prepareServiceEmail(ctx context.Context, errorTable string, e *email) (stri
 		ErrorTable: errorTable,
 	}
 	return e.prepareEmailWithTemplate()
-}
-
-// TODO Document this.  Bool indicates if we should send a message or not
-func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *serviceErrorCounts, notificationMinimum int) (sendNotification bool) {
-	adjustCount := func(count int) (newCount int, shouldSendNotification bool) {
-		// If our count is less than the minimum, increment the count and don't send a message
-		if count < notificationMinimum {
-			// We're under our threshhold for sending notifications, so sendNotification remains false
-			newCount = count + 1
-		} else {
-			// Else, reset the counter to 0, allow for notification to be staged for sending
-			count = 0
-			sendNotification = true
-		}
-		return newCount, shouldSendNotification
-	}
-
-	if nValue, ok := n.(*pushError); ok {
-		// Evaluate the pushError count and change it if needed
-		if pushErrorCountVal, pushErrorCountOk := ec.pushErrors[nValue.node]; pushErrorCountOk {
-			ec.pushErrors[nValue.node], sendNotification = adjustCount(pushErrorCountVal)
-		} else {
-			// First time we have an error for this service/node combo. Start the counter, do not send notification
-			ec.pushErrors[nValue.node] = 1
-		}
-		return
-	}
-	// For setupErrors, if we're tracking the count, examine the current count and change it as needed
-	if _, ok := n.(*setupError); ok {
-		ec.setupErrors, sendNotification = adjustCount(ec.setupErrors)
-	}
-	return
 }

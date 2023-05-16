@@ -110,12 +110,14 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 			case n, chanOpen := <-a.ReceiveChan:
 				// Channel is closed --> send notifications
 				if !chanOpen {
-					for service, ec := range allServiceCounts {
-						if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
-							log.WithFields(log.Fields{
-								"caller":  "NewEmailManager",
-								"service": n.GetService(),
-							}).Error("Error saving new error counts in database.  Please investigate")
+					if trackErrorCounts {
+						for service, ec := range allServiceCounts {
+							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
+								log.WithFields(log.Fields{
+									"caller":  "NewEmailManager",
+									"service": n.GetService(),
+								}).Error("Error saving new error counts in database.  Please investigate")
+							}
 						}
 					}
 					return
