@@ -76,6 +76,10 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 		log.Error("Error getting services from database.  Assuming that we need to send all notifications")
 		trackErrorCounts = false
 	}
+	if len(services) == 0 {
+		log.Debug("No services stored in database.  Not counting errors, and will send all notifications")
+		trackErrorCounts = false
+	}
 
 	if trackErrorCounts {
 		for _, service := range services {
