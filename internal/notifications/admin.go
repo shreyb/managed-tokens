@@ -48,12 +48,12 @@ type AdminNotificationManager struct {
 	ReceiveChan         chan Notification
 	Database            *db.ManagedTokensDatabase
 	NotificationMinimum int
+	TrackErrorCounts    bool
 }
 
 // TODO Document this
 type AdminNotificationManagerOption func(*AdminNotificationManager) error
 
-// TODO:  Modify this to work like NewEmailManager.  This should accept functional opts that alter an exported struct (AdminNotificationManager?)
 // NewAdminNotificationManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
 // via email (or otherwise)
@@ -71,6 +71,9 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	// Get our previous error information for this service
 	allServiceCounts := make(map[string]*serviceErrorCounts)
 	trackErrorCounts := true
+	if !a.TrackErrorCounts {
+		trackErrorCounts = false
+	}
 	services, err := a.Database.GetAllServices(ctx)
 	if err != nil {
 		log.Error("Error getting services from database.  Assuming that we need to send all notifications")

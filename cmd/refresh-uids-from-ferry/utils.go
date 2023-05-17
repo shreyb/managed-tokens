@@ -49,7 +49,11 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 		a.Database = database
 		return nil
 	}
-	notificationsChan = notifications.NewAdminNotificationManager(ctx, setDB).ReceiveChan // Listen for messages from run
+	dontTrackErrorCounts := func(a *notifications.AdminNotificationManager) error {
+		a.TrackErrorCounts = false
+		return nil
+	}
+	notificationsChan = notifications.NewAdminNotificationManager(ctx, setDB, dontTrackErrorCounts).ReceiveChan // Listen for messages from run
 	return adminNotifications, notificationsChan
 }
 
