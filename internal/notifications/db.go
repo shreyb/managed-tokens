@@ -12,13 +12,13 @@ import (
 
 // TODO Document this
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
+	var ec *serviceErrorCounts
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
 		return nil, false
 	}
 
-	ec := &serviceErrorCounts{}
-	tChan := make(chan error)
+	tChan := make(chan error, 2)
 	var tWg sync.WaitGroup
 
 	// Check for setupError counts
@@ -30,26 +30,38 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 		defer func() {
 			tChan <- err
 		}()
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.WithField("service", service).Error("Could not get setupError information. Please inspect database")
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				log.WithField("service", service).Debug("No setupError information for service.  Assuming there are no prior errors")
+				err = nil
+			} else {
+				log.WithField("service", service).Error("Could not get setupError information. Please inspect database")
+			}
 			return
 		}
 		ec.setupErrors = setupErrorData.Count()
+
 	}()
 
 	// Check for pushErrorCounts
 	tWg.Add(1)
 	go func() {
 		defer tWg.Done()
-		ec.pushErrors = make(map[string]int)
+		var err error
 		pushErrorData, err := database.GetPushErrorsInfoByService(ctx, service)
 		defer func() {
 			tChan <- err
 		}()
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.WithField("service", service).Error("Could not get pushError information.  Please inspect database")
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				log.WithField("service", service).Debug("No pushError information for service.  Assuming there are no prior errors")
+				err = nil
+			} else {
+				log.WithField("service", service).Error("Could not get pushError information.  Please inspect database")
+			}
 			return
 		}
+		ec.pushErrors = make(map[string]int)
 		for _, datum := range pushErrorData {
 			ec.pushErrors[datum.Node()] = datum.Count()
 		}
