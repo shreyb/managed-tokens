@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+func TestSetErrorCountsByService(t *testing.T) {
+	// Create fake managed tokens db, populate it with various info, make sure our *serviceErrorCounts look good
+}
+
+func TestSaveErrorCountsInDatabase(t *testing.T) {
+	// Create fake managed tokens db, populate it with various info, set a few different errorCounts, make sure correct info is saved by running Get methods
+}
+
 func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 	type testCase struct {
 		helptext string
