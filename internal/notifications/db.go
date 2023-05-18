@@ -110,14 +110,13 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 // TODO Document this.  Bool indicates if we should send a message or not
 func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *serviceErrorCounts, notificationMinimum int) (sendNotification bool) {
 	adjustCount := func(count int) (newCount int, shouldSendNotification bool) {
-		// If our count is less than the minimum, increment the count and don't send a message
-		if count < notificationMinimum {
+		// Increment count
+		newCount = count + 1
+		if newCount >= notificationMinimum {
+			// Reset the counter to 0, allow for notification to be staged for sending
+			newCount = 0
+			shouldSendNotification = true
 			// We're under our threshhold for sending notifications, so sendNotification remains false
-			newCount = count + 1
-		} else {
-			// Else, reset the counter to 0, allow for notification to be staged for sending
-			count = 0
-			sendNotification = true
 		}
 		return newCount, shouldSendNotification
 	}
