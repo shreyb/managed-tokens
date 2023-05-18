@@ -50,7 +50,7 @@ func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
 	} else {
 		m.db, err = sql.Open("sqlite3", filename)
 		if err != nil {
-			msg := "Could not open the UID database file"
+			msg := "Could not open the managed tokens database file"
 			log.WithField("filename", filename).Errorf("%s: %s", msg, err)
 			return nil, &databaseOpenError{filename, err}
 		}
