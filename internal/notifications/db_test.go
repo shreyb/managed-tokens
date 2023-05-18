@@ -1,11 +1,302 @@
 package notifications
 
 import (
+	"context"
+	"fmt"
+	"math/rand"
+	"os"
+	"path"
 	"reflect"
 	"testing"
+
+	"github.com/shreyb/managed-tokens/internal/db"
 )
 
+func TestSetErrorCountsByServiceNilDBCase(t *testing.T) {
+	ctx := context.Background()
+	result, trackErrors := setErrorCountsByService(ctx, "fakeService", nil)
+	if result != nil {
+		t.Errorf("Expected nil serviceErrorCounts.  Got %v", result)
+	}
+	if trackErrors {
+		t.Error("Expected trackErrors to be false.  Got true.")
+	}
+}
+
 func TestSetErrorCountsByService(t *testing.T) {
+	type dbData struct {
+		services         []string
+		nodes            []string
+		priorSetupErrors []db.SetupErrorCount
+		priorPushErrors  []db.PushErrorCount
+	}
+
+	type testCase struct {
+		helptext string
+		dbData
+		service                    string
+		expectedServiceErrorCounts *serviceErrorCounts
+		expectedShouldTrackErrors  bool
+	}
+
+	testCases := []testCase{
+		{
+			helptext:                   "No prior data",
+			dbData:                     dbData{},
+			service:                    "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{0, nil},
+			expectedShouldTrackErrors:  true,
+		},
+		{
+			helptext: "Only single-service setup errors, 0 case",
+			dbData: dbData{
+				services: []string{"service1"},
+				priorSetupErrors: []db.SetupErrorCount{
+					&setupErrorCount{
+						"service1",
+						0,
+					},
+				},
+			},
+			service:                    "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{0, nil},
+			expectedShouldTrackErrors:  true,
+		},
+		{
+			helptext: "Only single-service setup errors, nonzero case",
+			dbData: dbData{
+				services: []string{"service1"},
+				priorSetupErrors: []db.SetupErrorCount{
+					&setupErrorCount{
+						"service1",
+						42,
+					},
+				},
+			},
+			service:                    "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{42, nil},
+			expectedShouldTrackErrors:  true,
+		},
+		{
+			helptext: "Multiple service setup errors, pick the right one",
+			dbData: dbData{
+				services: []string{"service1", "service2"},
+				priorSetupErrors: []db.SetupErrorCount{
+					&setupErrorCount{
+						"service1",
+						42,
+					},
+					&setupErrorCount{
+						"service2",
+						84,
+					},
+				},
+			},
+			service:                    "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{42, nil},
+			expectedShouldTrackErrors:  true,
+		},
+		{
+			helptext: "Single-service push errors, single node, 0 case",
+			dbData: dbData{
+				services: []string{"service1"},
+				nodes:    []string{"node1"},
+				priorPushErrors: []db.PushErrorCount{
+					&pushErrorCount{
+						"service1",
+						"node1",
+						0,
+					},
+				},
+			},
+			service: "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{
+				0,
+				map[string]int{
+					"node1": 0,
+				},
+			},
+			expectedShouldTrackErrors: true,
+		},
+		{
+			helptext: "Single-service push errors, single node, non-zero case",
+			dbData: dbData{
+				services: []string{"service1"},
+				nodes:    []string{"node1"},
+				priorPushErrors: []db.PushErrorCount{
+					&pushErrorCount{
+						"service1",
+						"node1",
+						42,
+					},
+				},
+			},
+			service: "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{
+				0,
+				map[string]int{
+					"node1": 42,
+				},
+			},
+			expectedShouldTrackErrors: true,
+		},
+		{
+			helptext: "Single-service push errors, multiple nodes",
+			dbData: dbData{
+				services: []string{"service1"},
+				nodes:    []string{"node1", "node2"},
+				priorPushErrors: []db.PushErrorCount{
+					&pushErrorCount{
+						"service1",
+						"node1",
+						42,
+					},
+					&pushErrorCount{
+						"service1",
+						"node2",
+						84,
+					},
+				},
+			},
+			service: "service1",
+			expectedServiceErrorCounts: &serviceErrorCounts{
+				0,
+				map[string]int{
+					"node1": 42,
+					"node2": 84,
+				},
+			},
+			expectedShouldTrackErrors: true,
+		},
+		{
+			helptext: "Multiple-service push errors, multiple nodes, select the right service",
+			dbData: dbData{
+				services: []string{"service1", "service2"},
+				nodes:    []string{"node1", "node2", "node3"},
+				priorPushErrors: []db.PushErrorCount{
+					&pushErrorCount{
+						"service1",
+						"node1",
+						42,
+					},
+					&pushErrorCount{
+						"service1",
+						"node2",
+						84,
+					},
+					&pushErrorCount{
+						"service2",
+						"node1",
+						54,
+					},
+					&pushErrorCount{
+						"service2",
+						"node3",
+						86,
+					},
+				},
+			},
+			service: "service2",
+			expectedServiceErrorCounts: &serviceErrorCounts{
+				0,
+				map[string]int{
+					"node1": 54,
+					"node3": 86,
+				},
+			},
+			expectedShouldTrackErrors: true,
+		},
+		{
+			helptext: "Multiple-service setup and push errors, multiple nodes, select the right service",
+			dbData: dbData{
+				services: []string{"service1", "service2"},
+				nodes:    []string{"node1", "node2", "node3"},
+				priorSetupErrors: []db.SetupErrorCount{
+					&setupErrorCount{
+						"service1",
+						34,
+					},
+					&setupErrorCount{
+						"service2",
+						85,
+					},
+				},
+				priorPushErrors: []db.PushErrorCount{
+					&pushErrorCount{
+						"service1",
+						"node1",
+						42,
+					},
+					&pushErrorCount{
+						"service1",
+						"node2",
+						84,
+					},
+					&pushErrorCount{
+						"service2",
+						"node1",
+						54,
+					},
+					&pushErrorCount{
+						"service2",
+						"node3",
+						86,
+					},
+				},
+			},
+			service: "service2",
+			expectedServiceErrorCounts: &serviceErrorCounts{
+				85,
+				map[string]int{
+					"node1": 54,
+					"node3": 86,
+				},
+			},
+			expectedShouldTrackErrors: true,
+		},
+	}
+
+	for _, test := range testCases {
+		func() {
+			ctx := context.Background()
+			dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+			defer os.Remove(dbLocation)
+
+			m, err := db.OpenOrCreateDatabase(dbLocation)
+			if err != nil {
+				t.Errorf("Could not create test database: %s", err)
+				return
+			}
+			defer m.Close()
+
+			if err := m.UpdateServices(ctx, test.services); err != nil {
+				t.Errorf("Could not update services in test database: %s", err)
+				return
+			}
+			if err := m.UpdateNodes(ctx, test.nodes); err != nil {
+				t.Errorf("Could not update nodes in test database: %s", err)
+				return
+			}
+			if err := m.UpdateSetupErrorsTable(ctx, test.priorSetupErrors); err != nil {
+				t.Errorf("Could not update setup errors table in test database: %s", err)
+				return
+			}
+			if err := m.UpdatePushErrorsTable(ctx, test.priorPushErrors); err != nil {
+				t.Errorf("Could not update push errors table in test database: %s", err)
+				return
+			}
+
+			counts, shouldTrackErrors := setErrorCountsByService(ctx, test.service, m)
+			if !reflect.DeepEqual(counts, test.expectedServiceErrorCounts) {
+				t.Errorf("Got different serviceErrorCounts than expected for test %s.  Expected %v, got %v", test.helptext, test.expectedServiceErrorCounts, counts)
+			}
+			if shouldTrackErrors != test.expectedShouldTrackErrors {
+				t.Errorf("Got different decision about tracking errors than expected for test %s.  Expected %t, got %t", test.helptext, test.expectedShouldTrackErrors, shouldTrackErrors)
+			}
+		}()
+
+	}
+
 	// Create fake managed tokens db, populate it with various info, make sure our *serviceErrorCounts look good
 }
 
