@@ -252,8 +252,29 @@ func run(ctx context.Context) error {
 	// 5. Insert data into database
 	// 6. Verify that INSERTed data matches response data from FERRY
 	// 7. Push metrics and send necessary notifications
-	var dbLocation string
 
+	// We need to pass the pointer in here since we need to pick up the
+	// changes made to adminNotifications, as explained here:
+	// https://stackoverflow.com/a/52070387
+	// and mocked out here:
+	// https://go.dev/play/p/rww0ORt94pU
+	sendAdminNotifications := func(notificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+		close(notificationsChan)
+		err := notifications.SendAdminNotifications(
+			ctx,
+			currentExecutable,
+			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
+			(*adminNotificationsPtr)...,
+		)
+		if err != nil {
+			// We don't want to halt execution at this point
+			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+		}
+		return err
+	}
+
+	var dbLocation string
 	// Open connection to the SQLite database where UID info will be stored
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
@@ -265,35 +286,25 @@ func run(ctx context.Context) error {
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
+		log.WithField("executable", currentExecutable).Error(msg)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
-		dbAdminNotificationsManager := notifications.NewAdminNotificationManager(ctx)
-		dbAdminNotificationsManager.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
-		log.WithField("executable", currentExecutable).Error(msg)
-		return err
+		adminNotifications, notificationsChan := setupAdminNotifications(ctx, nil)
+		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
+
+		if err2 := sendAdminNotifications(notificationsChan, &adminNotifications); err2 != nil {
+			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+			err := fmt.Errorf("error sending admin notifications regarding %w: %w", err, err2)
+			return err
+		}
+		return fmt.Errorf("%s: %w", msg, err)
 	}
 	defer database.Close()
 
-	adminNotifications, notificationsChan := setupAdminNotifications(ctx, database)
 	// Send admin notifications at end of run
-	// We need to pass the pointer in here since we need to pick up the
-	// changes made to adminNotifications, as explained here:
-	// https://stackoverflow.com/a/52070387
-	// and mocked out here:
-	// https://go.dev/play/p/rww0ORt94pU
-	defer func(adminNotificationsPtr *[]notifications.SendMessager) {
-		close(notificationsChan)
-		if err := notifications.SendAdminNotifications(
-			ctx,
-			currentExecutable,
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			(*adminNotificationsPtr)...,
-		); err != nil {
-			// We don't want to halt execution at this point
-			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
-		}
-	}(&adminNotifications)
+	adminNotifications, notificationsChan := setupAdminNotifications(ctx, database)
+	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+	defer sendAdminNotifications(notificationsChan, &adminNotifications)
 
 	// Setup complete
 	if prometheusUp {
@@ -435,7 +446,7 @@ func run(ctx context.Context) error {
 		return errors.New(msg)
 	}
 	log.Debug("Verified INSERT")
-	log.Info("Successfully refreshed uid DB.")
+	log.Info("Successfully refreshed Managed Tokens DB.")
 	ferryRefreshTime.SetToCurrentTime()
 	return nil
 }
