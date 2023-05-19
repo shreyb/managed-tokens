@@ -58,6 +58,8 @@ type AdminNotificationManagerOption func(*AdminNotificationManager) error
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
 // via email (or otherwise)
 func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
+	services := make([]string, 0)
+	trackErrorCounts := true
 	a := &AdminNotificationManager{
 		ReceiveChan: make(chan Notification), // Channel to send notifications to this Manager
 	}
@@ -70,14 +72,18 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 
 	// Get our previous error information for this service
 	allServiceCounts := make(map[string]*serviceErrorCounts)
-	trackErrorCounts := true
 	if !a.TrackErrorCounts {
 		trackErrorCounts = false
 	}
-	services, err := a.Database.GetAllServices(ctx)
-	if err != nil {
-		log.Error("Error getting services from database.  Assuming that we need to send all notifications")
+	if a.Database == nil {
 		trackErrorCounts = false
+	} else {
+		var err error
+		services, err = a.Database.GetAllServices(ctx)
+		if err != nil {
+			log.Error("Error getting services from database.  Assuming that we need to send all notifications")
+			trackErrorCounts = false
+		}
 	}
 	if len(services) == 0 {
 		log.Debug("No services stored in database.  Not counting errors, and will send all notifications")
