@@ -10,6 +10,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type serviceErrorCounts struct {
+	setupErrors int
+	pushErrors  map[string]int
+	// setupErrorsPtr is a pointer that is intended to point to setupErrors.  Because Go doesn't have a distinction between 0-values
+	// and unset (nil) values for type int, setupErrorsPtr is to be set ONLY if setupErrors is initialized.  This is definitely hacky,
+	// but that way we can check to see if setupErrors was actually set to 0, for example, or was just defaulted to 0 by the initialization
+	setupErrorsPtr *int
+}
+
 // TODO Document this
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
 	// Only track errors if we have a valid ManagedTokensDatabase
@@ -40,7 +49,7 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 			return
 		}
 		ec.setupErrors = setupErrorData.Count()
-
+		ec.setupErrorsPtr = &(ec.setupErrors)
 	}()
 
 	// Check for pushErrorCounts
@@ -100,12 +109,15 @@ func (p *pushErrorCount) Count() int      { return p.count }
 
 // TODO Document this
 func saveErrorCountsInDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
-	// Setup Errors
-	s := &setupErrorCount{service, ec.setupErrors}
-	if err := database.UpdateSetupErrorsTable(ctx, []db.SetupErrorCount{s}); err != nil {
-		log.WithField("service", service).Error("Could not save new setupError counts in database")
-		return err
+	// Setup Errors.  Only do this bit if setupErrors was actually set - not if it's 0, for example, from initialization
+	if ec.setupErrorsPtr != nil {
+		s := &setupErrorCount{service, ec.setupErrors}
+		if err := database.UpdateSetupErrorsTable(ctx, []db.SetupErrorCount{s}); err != nil {
+			log.WithField("service", service).Error("Could not save new setupError counts in database")
+			return err
+		}
 	}
+
 	// Push Errors
 	pushErrorsCountSlice := make([]db.PushErrorCount, 0, len(ec.pushErrors))
 	for node, count := range ec.pushErrors {
