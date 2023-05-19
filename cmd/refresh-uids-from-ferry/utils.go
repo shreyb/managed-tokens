@@ -45,15 +45,22 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 	adminNotifications = append(adminNotifications, email, slackMessage)
 
 	// Functional options for AdminNotificationManager
-	setDB := func(a *notifications.AdminNotificationManager) error {
-		a.Database = database
-		return nil
-	}
+	funcOpts := make([]notifications.AdminNotificationManagerOption, 0)
 	dontTrackErrorCounts := func(a *notifications.AdminNotificationManager) error {
 		a.TrackErrorCounts = false
 		return nil
 	}
-	notificationsChan = notifications.NewAdminNotificationManager(ctx, setDB, dontTrackErrorCounts).ReceiveChan // Listen for messages from run
+	funcOpts = append(funcOpts, dontTrackErrorCounts)
+
+	if database != nil {
+		setDB := func(a *notifications.AdminNotificationManager) error {
+			a.Database = database
+			return nil
+		}
+		funcOpts = append(funcOpts, setDB)
+	}
+
+	notificationsChan = notifications.NewAdminNotificationManager(ctx, funcOpts...).ReceiveChan // Listen for messages from run
 	return adminNotifications, notificationsChan
 }
 
