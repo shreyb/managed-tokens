@@ -12,12 +12,12 @@ import (
 
 // TODO Document this
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
-	var ec *serviceErrorCounts
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
 		return nil, false
 	}
 
+	ec := &serviceErrorCounts{}
 	tChan := make(chan error, 2)
 	var tWg sync.WaitGroup
 
