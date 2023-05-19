@@ -10,6 +10,8 @@ import (
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
 // TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase
@@ -231,7 +233,7 @@ func checkSchema(m *ManagedTokensDatabase) error {
 			}
 		}
 	}
-	if !slicesHaveSameElements(schemaRows, migrationsSql) {
+	if !testutils.SlicesHaveSameElements(schemaRows, migrationsSql) {
 		return fmt.Errorf(
 			"Schema for database does not match expected schema.  Expected %s, got %s.",
 			migrationsSql,
@@ -239,28 +241,6 @@ func checkSchema(m *ManagedTokensDatabase) error {
 		)
 	}
 	return nil
-}
-
-// slicesHaveSameElements compares two slices of comparable type to make sure that they have the same elements.  The ordering of those elements
-// does not matter
-func slicesHaveSameElements[C comparable](a, b []C) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for _, aElt := range a {
-		var found bool
-		for _, bElt := range b {
-			if aElt == bElt {
-				found = true
-				break
-			}
-		}
-		if !found {
-			fmt.Println(aElt)
-			return false
-		}
-	}
-	return true
 }
 
 // standardizeSpaces is a simple utility function to reprint any string with only a single space character separating.  This

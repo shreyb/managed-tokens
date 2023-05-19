@@ -9,7 +9,8 @@ import (
 	"os"
 	"path"
 	"testing"
-	// _ "github.com/mattn/go-sqlite3"
+
+	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
 // TestInsertUidsIntoTableFromFERRY checks that we can insert FERRY data into the ManagedTokensDatabase correctly
@@ -69,7 +70,7 @@ func TestInsertUidsIntoTableFromFERRY(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, &ferryUidDatum{dataUsername, dataUid})
 				}
-				if !slicesHaveSameElements(
+				if !testutils.SlicesHaveSameElements(
 					ferryUIDDatumInterfaceSlicetoStructSlice(test.fakeData),
 					ferryUIDDatumInterfaceSlicetoStructSlice(retrievedData),
 				) {
@@ -129,7 +130,7 @@ func TestConfirmUIDsInTable(t *testing.T) {
 			t.Error("Could not retrieve fake data from test database")
 		}
 
-		if !slicesHaveSameElements(
+		if !testutils.SlicesHaveSameElements(
 			ferryUIDDatumInterfaceSlicetoStructSlice(retrievedData),
 			test.fakeData,
 		) {
