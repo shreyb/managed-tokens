@@ -18,6 +18,7 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
 
+	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -306,6 +307,54 @@ func run(ctx context.Context) error {
 	var setupWg sync.WaitGroup
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
 
+	sendAdminNotifications := func(notificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+		close(notificationsChan)
+		err := notifications.SendAdminNotifications(
+			ctx,
+			currentExecutable,
+			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
+			(*adminNotificationsPtr)...,
+		)
+		if err != nil {
+			// We don't want to halt execution at this point
+			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+		}
+		return err
+	}
+
+	var dbLocation string
+	// Open connection to the SQLite database where notification info will be stored
+	if viper.IsSet("dbLocation") {
+		dbLocation = viper.GetString("dbLocation")
+	} else {
+		dbLocation = "/var/lib/managed-tokens/uid.db"
+	}
+	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+
+	database, err := db.OpenOrCreateDatabase(dbLocation)
+	if err != nil {
+		msg := "Could not open or create ManagedTokensDatabase"
+		log.WithField("executable", currentExecutable).Error(msg)
+		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
+		// In the case of this executable, that's a fatal error and we should stop execution.
+		adminNotifications, notificationsChan := setupAdminNotifications(ctx, nil)
+		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
+
+		if err2 := sendAdminNotifications(notificationsChan, &adminNotifications); err2 != nil {
+			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+			err := fmt.Errorf("error sending admin notifications regarding %w: %w", err, err2)
+			return err
+		}
+		return fmt.Errorf("%s: %w", msg, err)
+	}
+	defer database.Close()
+
+	// Send admin notifications at end of run
+	adminNotifications, notificationsChan := setupAdminNotifications(ctx, database)
+	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+	defer sendAdminNotifications(notificationsChan, &adminNotifications)
+
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
 		// Run cleanup actions
@@ -323,28 +372,6 @@ func run(ctx context.Context) error {
 			}
 		}
 	}()
-
-	// Set up admin notifications
-	adminNotifications := setupAdminNotifications()
-	// Make sure notifications are always sent at the end of the run
-	// We need to pass the pointer in here since we need to pick up the
-	// changes made to adminNotifications, as explained here:
-	// https://stackoverflow.com/a/52070387
-	// and mocked out here:
-	// https://go.dev/play/p/rww0ORt94pU
-	defer func(adminNotificationsPtr *[]notifications.SendMessager) {
-		// Wait for all notifications to finish filtering through before moving onto cleanup
-		handleNotificationsFinalization()
-		if err := notifications.SendAdminNotifications(
-			ctx,
-			"token-push",
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			(*adminNotificationsPtr)...,
-		); err != nil {
-			log.Error("Error sending admin notifications")
-		}
-	}(&adminNotifications)
 
 	// Create temporary dir for all kerberos caches to live in
 	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
@@ -375,6 +402,8 @@ func run(ctx context.Context) error {
 		}
 	}()
 
+	// TODO:  Register all services in database here
+	// TODO:  Register all nodes in database here
 	// Set up our service config collector
 	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
 	collectServiceConfigs := make(chan *worker.Config, len(services))
@@ -419,7 +448,7 @@ func run(ctx context.Context) error {
 					return
 				}
 				collectServiceConfigs <- c
-				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
+				registerServiceNotificationsChan(ctx, s, database, &notificationsManagersWg)
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()

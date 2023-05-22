@@ -119,6 +119,7 @@ func setKeytabOverride(serviceConfigPath string) func(sc *worker.Config) error {
 	}
 }
 
+// TODO This needs to change since we'll already have an open DB
 // setDesiredUIByOverrideOrLookup sets the worker.Config's DesiredUID field by checking the configuration for the "account"
 // field.  It then checks the configuration to see if there is a configured override for the UID.  If it not overridden,
 // the default behavior is to query the managed tokens database that should be populated by the refresh-uids-from-ferry executable.

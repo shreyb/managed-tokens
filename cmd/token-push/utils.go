@@ -8,6 +8,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
@@ -17,7 +18,8 @@ import (
 var once sync.Once
 
 // Prep admin notifications
-func setupAdminNotifications() (adminNotifications []notifications.SendMessager) {
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) ([]notifications.SendMessager, chan notifications.Notification) {
+	var adminNotifications []notifications.SendMessager
 	var prefix string
 	if viper.GetBool("test") {
 		prefix = "notifications_test."
@@ -36,7 +38,25 @@ func setupAdminNotifications() (adminNotifications []notifications.SendMessager)
 	)
 	slackMessage := notifications.NewSlackMessage(viper.GetString(prefix + "slack_alerts_url"))
 	adminNotifications = append(adminNotifications, email, slackMessage)
-	return adminNotifications
+
+	// Functional options for AdminNotificationManager
+	funcOpts := make([]notifications.AdminNotificationManagerOption, 0)
+	setNotificationMinimum := func(a *notifications.AdminNotificationManager) error {
+		a.NotificationMinimum = viper.GetInt("notificationMinimum")
+		return nil
+	}
+	funcOpts = append(funcOpts, setNotificationMinimum)
+
+	if database != nil {
+		setDB := func(a *notifications.AdminNotificationManager) error {
+			a.Database = database
+			return nil
+		}
+		funcOpts = append(funcOpts, setDB)
+	}
+
+	adminNotificationReceiveChan := notifications.NewAdminNotificationManager(ctx, funcOpts...).ReceiveChan
+	return adminNotifications, adminNotificationReceiveChan
 }
 
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs

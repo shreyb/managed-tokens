@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 )
@@ -19,10 +20,12 @@ var workerNotificationWg sync.WaitGroup                                  // Wait
 var notificationsManagersWg sync.WaitGroup                               // WaitGroup for the notifications.{Service|Admin}EmailManagers to finish their operations
 var notificationSorter sync.Once                                         // sync.Once to make sure that we only start directNotificationstoManager once
 
-// registerServiceNotificationsChan starts up a new notifications.EmailManager for a service and registers that EmailManager to the service name.
-// This registration is stored in the serviceNotificationsChanMap.  It also increments a waitgroup so the caller can keep track of how many
+// TODO Go through here and change calls as makes sense.  No need to pass around an entire EmailManager if not needed
+
+// registerServiceNotificationsChan starts up a new notifications.EmailManager for a service and registers that EmailManager to the
+// service name.  This registration is stored in the serviceNotificationsChanMap.  It also increments a waitgroup so the caller can keep track of how many
 // EmailManagers have been opened.
-func registerServiceNotificationsChan(ctx context.Context, s service.Service, wg *sync.WaitGroup) {
+func registerServiceNotificationsChan(ctx context.Context, s service.Service, database *db.ManagedTokensDatabase, wg *sync.WaitGroup) {
 	var serviceName string
 	if val, ok := s.(*ExperimentOverriddenService); ok {
 		serviceName = val.ConfigName()
@@ -39,7 +42,24 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, wg
 		viper.GetString("templates.serviceerrors"),
 	)
 	wg.Add(1)
-	m := notifications.NewServiceEmailManager(ctx, wg, serviceName, e)
+
+	// Functional options for AdminNotificationManager
+	funcOpts := make([]notifications.EmailManagerOption, 0)
+	setNotificationMinimum := func(a *notifications.AdminNotificationManager) error {
+		a.NotificationMinimum = viper.GetInt("notificationMinimum")
+		return nil
+	}
+	funcOpts = append(funcOpts, setNotificationMinimum)
+
+	if database != nil {
+		setDB := func(a *notifications.AdminNotificationManager) error {
+			a.Database = database
+			return nil
+		}
+		funcOpts = append(funcOpts, setDB)
+	}
+
+	m := notifications.NewServiceEmailManager(ctx, wg, serviceName, e, funcOpts...)
 	serviceNotificationChanMap.Store(serviceName, m)
 }
 
@@ -83,11 +103,11 @@ func directNotificationsToManagers(ctx context.Context) {
 			if !chanOpen {
 				return
 			}
-			if ch, ok := serviceNotificationChanMap.Load(n.GetService()); ok {
-				if chVal, ok := ch.(notifications.EmailManager); ok {
-					chVal <- n
+			if em, ok := serviceNotificationChanMap.Load(n.GetService()); ok {
+				if emVal, ok := em.(notifications.EmailManager); ok {
+					emVal.ReceiveChan <- n
 				} else {
-					log.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notification.Notification", chVal)
+					log.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notification.Notification", emVal)
 				}
 			} else {
 				log.Errorf("No notification channel exists for service %s", n.GetService())
@@ -100,10 +120,10 @@ func directNotificationsToManagers(ctx context.Context) {
 func closeRegisteredNotificationsChans() {
 	serviceNotificationChanMap.Range(
 		func(key, value any) bool {
-			if ch, ok := value.(notifications.EmailManager); ok {
-				close(ch)
+			if em, ok := value.(notifications.EmailManager); ok {
+				close(em.ReceiveChan)
 			} else {
-				log.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notifications.Notification", ch)
+				log.Errorf("Registered service email manager is of wrong type %T.  Expected notifications.EmailManager", em)
 			}
 
 			return true
