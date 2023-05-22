@@ -14,18 +14,36 @@ import (
 	"github.com/shreyb/managed-tokens/internal/service"
 )
 
+// General outline of how this works:
+// 1.  registerServiceNotificationsChan is called with each service config setup.  This starts a notification.ServiceEmailManager, tracked by
+// serviceEmailManagersWg.  It also registers the service name and corresponding EmailManager in the serviceNotificationChanMap
+// 2.  When a worker starts up, it will register itself by calling startListenerOnWorkerNotificationChans.  The first time this is called,
+// it will start up a  directNotificationsToManagers.  Each time, the workerNotificationWg is incremented
+// 3.  As a notification comes in, the startListenerOnWorkerNotificationsChans listener will forward it on the notificationsFromWorkersChan to
+// the directNotificationsToManagers aggregator.  The latter will check the serviceNotificationsChanMap to figure out which
+// notifications.ServiceEmailManager's notifications channel to forward the message to.
+//
+// When all operations are done, handleNotificationsFinalization should be called.  This function:
+// 1.  Waits for all the workers to finish sending notifications to their listeners (controlled by workerNotificationWg)
+// 2.  Closes the notificationsFromWorkersChan to signal the internal routing functions to expect no more notifications to come through
+// 3.  (2) closes all the registered EmailManager notifications channels in the serviceNotificationsChanMap.  This triggers those EmailManagers
+// to compile their data and send emails to service stakeholders if needed
+// 4.  Waits for all registered EmailManagers to finish their work (controlled by serviceEmailManagersWg)
+
 var serviceNotificationChanMap sync.Map                                  // Map of service to its notifications channel
-var notificationsFromWorkersChan = make(chan notifications.Notification) // Global notifications chan that aggregates all notifications from workers
-var workerNotificationWg sync.WaitGroup                                  // Waitgroup for the workers sending notifications
-var notificationsManagersWg sync.WaitGroup                               // WaitGroup for the notifications.{Service|Admin}EmailManagers to finish their operations
+var serviceEmailManagersWg sync.WaitGroup                                // WaitGroup to keep track of active EmailManagers for the configured services
 var notificationSorter sync.Once                                         // sync.Once to make sure that we only start directNotificationstoManager once
+var workerNotificationWg sync.WaitGroup                                  // Waitgroup for the workers sending notifications.  Incremented and decremented every time startListenerOnWorkerNotificationChans is called/returned from
+var notificationsFromWorkersChan = make(chan notifications.Notification) // Global notifications chan that aggregates all notifications from workers
 
 // TODO Go through here and change calls as makes sense.  No need to pass around an entire EmailManager if not needed
+
+// External functions meant to be called to register, route, and clean up notifications management
 
 // registerServiceNotificationsChan starts up a new notifications.EmailManager for a service and registers that EmailManager to the
 // service name.  This registration is stored in the serviceNotificationsChanMap.  It also increments a waitgroup so the caller can keep track of how many
 // EmailManagers have been opened.
-func registerServiceNotificationsChan(ctx context.Context, s service.Service, database *db.ManagedTokensDatabase, wg *sync.WaitGroup) {
+func registerServiceNotificationsChan(ctx context.Context, s service.Service, database *db.ManagedTokensDatabase) {
 	var serviceName string
 	if val, ok := s.(*ExperimentOverriddenService); ok {
 		serviceName = val.ConfigName()
@@ -41,25 +59,25 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, da
 		viper.GetInt("email.smtpport"),
 		viper.GetString("templates.serviceerrors"),
 	)
-	wg.Add(1)
+	serviceEmailManagersWg.Add(1)
 
 	// Functional options for AdminNotificationManager
 	funcOpts := make([]notifications.EmailManagerOption, 0)
-	setNotificationMinimum := func(a *notifications.AdminNotificationManager) error {
-		a.NotificationMinimum = viper.GetInt("notificationMinimum")
+	setNotificationMinimum := func(em *notifications.EmailManager) error {
+		em.NotificationMinimum = viper.GetInt("notificationMinimum")
 		return nil
 	}
 	funcOpts = append(funcOpts, setNotificationMinimum)
 
 	if database != nil {
-		setDB := func(a *notifications.AdminNotificationManager) error {
-			a.Database = database
+		setDB := func(em *notifications.EmailManager) error {
+			em.Database = database
 			return nil
 		}
 		funcOpts = append(funcOpts, setDB)
 	}
 
-	m := notifications.NewServiceEmailManager(ctx, wg, serviceName, e, funcOpts...)
+	m := notifications.NewServiceEmailManager(ctx, &serviceEmailManagersWg, serviceName, e, funcOpts...)
 	serviceNotificationChanMap.Store(serviceName, m)
 }
 
@@ -86,6 +104,15 @@ func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan noti
 		}
 	}()
 }
+
+// handleNotificationsFinalization Handle cleanup and sending of notifications when we're all done
+func handleNotificationsFinalization() {
+	workerNotificationWg.Wait()         // First let all workers finish sending notifications through their various Notifications channels
+	close(notificationsFromWorkersChan) // Close the aggregation channel for all worker notifications
+	serviceEmailManagersWg.Wait()       // Wait for all notifications.EmailManager instances to finish their work
+}
+
+// Internal routing funcs
 
 // directNotificationsToManagers sorts notifications from notificationsFromWorkersChan and sends them to the appropriate registered
 // notifications.EmailManager.  It is meant to be called only once.
@@ -130,11 +157,4 @@ func closeRegisteredNotificationsChans() {
 		},
 	)
 	log.WithField("executable", currentExecutable).Debug("Closed all notifications channels")
-}
-
-// handleNotificationsFinalization Handle cleanup and sending of notifications when we're all done
-func handleNotificationsFinalization() {
-	workerNotificationWg.Wait()         // First let all workers finish sending notifications through their various Notifications channels
-	close(notificationsFromWorkersChan) // Close the aggregation channel for all worker notifications
-	notificationsManagersWg.Wait()      // Wait for all notifications.{Service|Admin}EmailManager instances to finish their work
 }

@@ -304,11 +304,12 @@ func run(ctx context.Context) error {
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
-	var setupWg sync.WaitGroup
+	var setupWg sync.WaitGroup                  // WaitGroup to keep track of concurrent setup actions
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
 
-	sendAdminNotifications := func(notificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
-		close(notificationsChan)
+	sendAdminNotifications := func(adminNotificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+		handleNotificationsFinalization()
+		close(adminNotificationsChan)
 		err := notifications.SendAdminNotifications(
 			ctx,
 			currentExecutable,
@@ -332,28 +333,20 @@ func run(ctx context.Context) error {
 	}
 	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
 
-	database, err := db.OpenOrCreateDatabase(dbLocation)
-	if err != nil {
+	database, databaseErr := db.OpenOrCreateDatabase(dbLocation)
+	if databaseErr != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
 		log.WithField("executable", currentExecutable).Error(msg)
-		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
-		// In the case of this executable, that's a fatal error and we should stop execution.
-		adminNotifications, notificationsChan := setupAdminNotifications(ctx, nil)
-		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-
-		if err2 := sendAdminNotifications(notificationsChan, &adminNotifications); err2 != nil {
-			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
-			err := fmt.Errorf("error sending admin notifications regarding %w: %w", err, err2)
-			return err
-		}
-		return fmt.Errorf("%s: %w", msg, err)
 	}
 	defer database.Close()
 
 	// Send admin notifications at end of run
-	adminNotifications, notificationsChan := setupAdminNotifications(ctx, database)
+	adminNotifications, adminNotificationsChan := setupAdminNotifications(ctx, database)
+	if databaseErr != nil {
+		adminNotificationsChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+	}
 	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-	defer sendAdminNotifications(notificationsChan, &adminNotifications)
+	defer sendAdminNotifications(adminNotificationsChan, &adminNotifications)
 
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
@@ -402,8 +395,6 @@ func run(ctx context.Context) error {
 		}
 	}()
 
-	// TODO:  Register all services in database here
-	// TODO:  Register all nodes in database here
 	// Set up our service config collector
 	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
 	collectServiceConfigs := make(chan *worker.Config, len(services))
@@ -412,8 +403,9 @@ func run(ctx context.Context) error {
 		defer setupWg.Done()
 		defer close(initializeSuccessfulServices)
 		for serviceConfig := range collectServiceConfigs {
-			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
-			initializeSuccessfulServices <- getServiceName(serviceConfig.Service)
+			serviceName := getServiceName(serviceConfig.Service)
+			serviceConfigs[serviceName] = serviceConfig
+			initializeSuccessfulServices <- serviceName
 		}
 	}()
 
@@ -448,12 +440,26 @@ func run(ctx context.Context) error {
 					return
 				}
 				collectServiceConfigs <- c
-				registerServiceNotificationsChan(ctx, s, database, &notificationsManagersWg)
+				registerServiceNotificationsChan(ctx, s, database)
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()
 	}()
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
+
+	// Add our configured services and nodes to managed tokens database
+	servicesToAddToDatabase := make([]string, len(serviceConfigs))
+	nodesToAddToDatabase := make([]string, 0)
+	for serviceName, serviceConfig := range serviceConfigs {
+		servicesToAddToDatabase = append(servicesToAddToDatabase, serviceName)
+		nodesToAddToDatabase = append(nodesToAddToDatabase, serviceConfig.Nodes...)
+	}
+	if err := database.UpdateServices(ctx, servicesToAddToDatabase); err != nil {
+		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured services.  Future database-based operations may fail")
+	}
+	if err := database.UpdateNodes(ctx, nodesToAddToDatabase); err != nil {
+		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured nodes.  Future database-based operations may fail")
+	}
 
 	// Setup done.  Push prometheus metrics
 	log.WithField("executable", currentExecutable).Debug("Setup complete")
