@@ -58,10 +58,11 @@ type AdminNotificationManagerOption func(*AdminNotificationManager) error
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
 // via email (or otherwise)
 func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
+	var trackErrorCounts bool = true
 	services := make([]string, 0)
-	trackErrorCounts := true
 	a := &AdminNotificationManager{
-		ReceiveChan: make(chan Notification), // Channel to send notifications to this Manager
+		ReceiveChan:      make(chan Notification), // Channel to send notifications to this Manager
+		TrackErrorCounts: trackErrorCounts,
 	}
 
 	for _, opt := range opts {

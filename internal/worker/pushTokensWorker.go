@@ -185,7 +185,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					return
 				}
 
-				// Send the tempfile to the destination node
+				// Send the tempfile to the destination node.  If we fail here, don't count this as an error
 				pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 				defer pushCancel()
 				if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, destinationFilename); err != nil {
