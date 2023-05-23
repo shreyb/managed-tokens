@@ -97,6 +97,10 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 					return
 				}
 				// Channel is open: direct the message as needed
+				log.WithFields(log.Fields{
+					"service": n.GetService(),
+					"message": n.GetMessage(),
+				}).Debug("Received notification message")
 				shouldSend := true
 				if trackErrorCounts {
 					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, ec, em.NotificationMinimum)
