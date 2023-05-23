@@ -10,13 +10,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type setupErrorsForCount struct {
+	value   int
+	changed bool
+}
+
 type serviceErrorCounts struct {
-	setupErrors int
-	pushErrors  map[string]int
-	// setupErrorsPtr is a pointer that is intended to point to setupErrors.  Because Go doesn't have a distinction between 0-values
-	// and unset (nil) values for type int, setupErrorsPtr is to be set ONLY if setupErrors is initialized.  This is definitely hacky,
-	// but that way we can check to see if setupErrors was actually set to 0, for example, or was just defaulted to 0 by the initialization
-	setupErrorsPtr *int
+	setupErrorsForCount
+	pushErrors map[string]int
 }
 
 // TODO Document this
@@ -48,8 +49,8 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 			}
 			return
 		}
-		ec.setupErrors = setupErrorData.Count()
-		ec.setupErrorsPtr = &(ec.setupErrors)
+		ec.setupErrorsForCount.value = setupErrorData.Count()
+		ec.setupErrorsForCount.changed = true
 	}()
 
 	// Check for pushErrorCounts
@@ -57,6 +58,7 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 	go func() {
 		defer tWg.Done()
 		var err error
+		ec.pushErrors = make(map[string]int)
 		pushErrorData, err := database.GetPushErrorsInfoByService(ctx, service)
 		defer func() {
 			tChan <- err
@@ -70,7 +72,6 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 			}
 			return
 		}
-		ec.pushErrors = make(map[string]int)
 		for _, datum := range pushErrorData {
 			ec.pushErrors[datum.Node()] = datum.Count()
 		}
@@ -110,8 +111,8 @@ func (p *pushErrorCount) Count() int      { return p.count }
 // TODO Document this
 func saveErrorCountsInDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
 	// Setup Errors.  Only do this bit if setupErrors was actually set - not if it's 0, for example, from initialization
-	if ec.setupErrorsPtr != nil {
-		s := &setupErrorCount{service, ec.setupErrors}
+	if ec.setupErrorsForCount.changed {
+		s := &setupErrorCount{service, ec.setupErrorsForCount.value}
 		if err := database.UpdateSetupErrorsTable(ctx, []db.SetupErrorCount{s}); err != nil {
 			log.WithField("service", service).Error("Could not save new setupError counts in database")
 			return err
@@ -148,16 +149,29 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 	if nValue, ok := n.(*pushError); ok {
 		// Evaluate the pushError count and change it if needed
 		if pushErrorCountVal, pushErrorCountOk := ec.pushErrors[nValue.node]; pushErrorCountOk {
-			ec.pushErrors[nValue.node], sendNotification = adjustCount(pushErrorCountVal)
+			ec.pushErrors[nValue.GetNode()], sendNotification = adjustCount(pushErrorCountVal)
 		} else {
 			// First time we have an error for this service/node combo. Start the counter, do not send notification
 			ec.pushErrors[nValue.node] = 1
 		}
+		log.WithFields(log.Fields{
+			"service":          nValue.GetService(),
+			"node":             nValue.GetNode(),
+			"count":            ec.pushErrors[nValue.GetNode()],
+			"sendNotification": sendNotification,
+		}).Debug("Adjusted count for pushError")
 		return
 	}
 	// For setupErrors, if we're tracking the count, examine the current count and change it as needed
 	if _, ok := n.(*setupError); ok {
-		ec.setupErrors, sendNotification = adjustCount(ec.setupErrors)
+		// ec.setupErrors, sendNotification = adjustCount(ec.setupErrors)
+		ec.setupErrorsForCount.value, sendNotification = adjustCount(ec.setupErrorsForCount.value)
+		ec.setupErrorsForCount.changed = true
+		log.WithFields(log.Fields{
+			"service":          n.GetService(),
+			"count":            ec.setupErrorsForCount.value,
+			"sendNotification": sendNotification,
+		}).Debug("Adjusted count for setupError")
 	}
 	return
 }

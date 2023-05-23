@@ -42,16 +42,12 @@ func TestSetErrorCountsByService(t *testing.T) {
 		expectedShouldTrackErrors  bool
 	}
 
-	setupZero := 0
-	setupFortyTwo := 42
-	setupEightyFive := 85
-
 	testCases := []testCase{
 		{
 			helptext:                   "No prior data",
 			dbData:                     dbData{},
 			service:                    "service1",
-			expectedServiceErrorCounts: &serviceErrorCounts{0, nil, nil},
+			expectedServiceErrorCounts: &serviceErrorCounts{},
 			expectedShouldTrackErrors:  true,
 		},
 		{
@@ -66,7 +62,7 @@ func TestSetErrorCountsByService(t *testing.T) {
 				},
 			},
 			service:                    "service1",
-			expectedServiceErrorCounts: &serviceErrorCounts{setupZero, nil, &setupZero},
+			expectedServiceErrorCounts: &serviceErrorCounts{setupErrorsForCount{0, true}, nil},
 			expectedShouldTrackErrors:  true,
 		},
 		{
@@ -81,7 +77,7 @@ func TestSetErrorCountsByService(t *testing.T) {
 				},
 			},
 			service:                    "service1",
-			expectedServiceErrorCounts: &serviceErrorCounts{setupFortyTwo, nil, &setupFortyTwo},
+			expectedServiceErrorCounts: &serviceErrorCounts{setupErrorsForCount{42, true}, nil},
 			expectedShouldTrackErrors:  true,
 		},
 		{
@@ -100,7 +96,7 @@ func TestSetErrorCountsByService(t *testing.T) {
 				},
 			},
 			service:                    "service1",
-			expectedServiceErrorCounts: &serviceErrorCounts{setupFortyTwo, nil, &setupFortyTwo},
+			expectedServiceErrorCounts: &serviceErrorCounts{setupErrorsForCount{42, true}, nil},
 			expectedShouldTrackErrors:  true,
 		},
 		{
@@ -118,11 +114,10 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service: "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{
-				0,
+				setupErrorsForCount{},
 				map[string]int{
 					"node1": 0,
 				},
-				nil,
 			},
 			expectedShouldTrackErrors: true,
 		},
@@ -141,11 +136,10 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service: "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{
-				0,
+				setupErrorsForCount{},
 				map[string]int{
 					"node1": 42,
 				},
-				nil,
 			},
 			expectedShouldTrackErrors: true,
 		},
@@ -169,12 +163,11 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service: "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{
-				0,
+				setupErrorsForCount{},
 				map[string]int{
 					"node1": 42,
 					"node2": 84,
 				},
-				nil,
 			},
 			expectedShouldTrackErrors: true,
 		},
@@ -208,12 +201,11 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service: "service2",
 			expectedServiceErrorCounts: &serviceErrorCounts{
-				0,
+				setupErrorsForCount{},
 				map[string]int{
 					"node1": 54,
 					"node3": 86,
 				},
-				nil,
 			},
 			expectedShouldTrackErrors: true,
 		},
@@ -257,12 +249,11 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service: "service2",
 			expectedServiceErrorCounts: &serviceErrorCounts{
-				setupEightyFive,
+				setupErrorsForCount{85, true},
 				map[string]int{
 					"node1": 54,
 					"node3": 86,
 				},
-				&setupEightyFive,
 			},
 			expectedShouldTrackErrors: true,
 		},
@@ -282,7 +273,7 @@ func TestSetErrorCountsByService(t *testing.T) {
 			defer m.Close()
 
 			counts, shouldTrackErrors := setErrorCountsByService(ctx, test.service, m)
-			if !reflect.DeepEqual(counts, test.expectedServiceErrorCounts) {
+			if !reflect.DeepEqual(counts.setupErrorsForCount, test.expectedServiceErrorCounts.setupErrorsForCount) && !reflect.DeepEqual(counts.pushErrors, test.expectedServiceErrorCounts.pushErrors) {
 				t.Errorf("Got different serviceErrorCounts than expected for test %s.  Expected %v, got %v", test.helptext, test.expectedServiceErrorCounts, counts)
 			}
 			if shouldTrackErrors != test.expectedShouldTrackErrors {
@@ -315,13 +306,9 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 	noop := func(ec *serviceErrorCounts) *serviceErrorCounts { return ec }
 
 	adjustSetupErrorsByOne := func(ec *serviceErrorCounts) *serviceErrorCounts {
-		ec.setupErrors++
+		ec.setupErrorsForCount.value++
 		return ec
 	}
-
-	setupZero := 0
-	setupFortyTwo := 42
-	setupEightyFive := 85
 
 	adjustPushErrorsByOneForNode := func(node string) func(*serviceErrorCounts) *serviceErrorCounts {
 		return func(ec *serviceErrorCounts) *serviceErrorCounts {
@@ -336,11 +323,10 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 			dbData:   dbData{},
 			service:  "service1",
 			previousErrorCounts: &serviceErrorCounts{
-				setupErrors:    setupZero,
-				pushErrors:     nil,
-				setupErrorsPtr: &setupZero,
+				setupErrorsForCount: setupErrorsForCount{},
+				pushErrors:          nil,
 			},
-			adjustment:             func(ec *serviceErrorCounts) *serviceErrorCounts { return ec },
+			adjustment:             noop,
 			expectedSetupErrorData: nil,
 			expectedPushErrorData:  nil,
 		},
@@ -356,7 +342,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 				},
 			},
 			service:             "service1",
-			previousErrorCounts: &serviceErrorCounts{setupZero, nil, &setupZero},
+			previousErrorCounts: &serviceErrorCounts{setupErrorsForCount{0, true}, nil},
 			adjustment:          noop,
 			expectedSetupErrorData: []setupErrorCount{
 				{"service1", 0},
@@ -375,7 +361,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 				},
 			},
 			service:             "service1",
-			previousErrorCounts: &serviceErrorCounts{setupFortyTwo, nil, &setupFortyTwo},
+			previousErrorCounts: &serviceErrorCounts{setupErrorsForCount{42, true}, nil},
 			adjustment:          noop,
 			expectedSetupErrorData: []setupErrorCount{
 				{"service1", 42},
@@ -394,7 +380,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 				},
 			},
 			service:             "service1",
-			previousErrorCounts: &serviceErrorCounts{setupZero, nil, &setupZero},
+			previousErrorCounts: &serviceErrorCounts{setupErrorsForCount{0, true}, nil},
 			adjustment:          adjustSetupErrorsByOne,
 			expectedSetupErrorData: []setupErrorCount{
 				{"service1", 1},
@@ -413,7 +399,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 				},
 			},
 			service:             "service1",
-			previousErrorCounts: &serviceErrorCounts{setupFortyTwo, nil, &setupFortyTwo},
+			previousErrorCounts: &serviceErrorCounts{setupErrorsForCount{42, true}, nil},
 			adjustment:          adjustSetupErrorsByOne,
 			expectedSetupErrorData: []setupErrorCount{
 				{"service1", 43},
@@ -436,7 +422,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 				},
 			},
 			service:             "service1",
-			previousErrorCounts: &serviceErrorCounts{setupFortyTwo, nil, &setupFortyTwo},
+			previousErrorCounts: &serviceErrorCounts{setupErrorsForCount{42, true}, nil},
 			adjustment:          adjustSetupErrorsByOne,
 			expectedSetupErrorData: []setupErrorCount{
 				{"service1", 43},
@@ -484,12 +470,11 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 			},
 			service: "service2",
 			previousErrorCounts: &serviceErrorCounts{
-				setupErrors: setupEightyFive,
+				setupErrorsForCount: setupErrorsForCount{85, true},
 				pushErrors: map[string]int{
 					"node1": 54,
 					"node3": 86,
 				},
-				setupErrorsPtr: &setupEightyFive,
 			},
 			adjustment: adjustSetupErrorsByOne,
 			expectedSetupErrorData: []setupErrorCount{
@@ -694,12 +679,11 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 			},
 			service: "service2",
 			previousErrorCounts: &serviceErrorCounts{
-				setupErrors: setupEightyFive,
+				setupErrorsForCount: setupErrorsForCount{85, true},
 				pushErrors: map[string]int{
 					"node1": 54,
 					"node3": 86,
 				},
-				setupErrorsPtr: &setupEightyFive,
 			},
 			adjustment: adjustPushErrorsByOneForNode("node1"),
 			expectedSetupErrorData: []setupErrorCount{
@@ -783,14 +767,14 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"service1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 0,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{0, false},
+				pushErrors:          map[string]int{},
 			},
 			notificationMinimum: 3,
 			expectedShouldSend:  false,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 1,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{1, true},
+				pushErrors:          map[string]int{},
 			},
 		},
 		{
@@ -800,14 +784,14 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"service1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 1,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{1, true},
+				pushErrors:          map[string]int{},
 			},
 			notificationMinimum: 3,
 			expectedShouldSend:  false,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 2,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{2, true},
+				pushErrors:          map[string]int{},
 			},
 		},
 		{
@@ -817,14 +801,14 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"service1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 2,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{2, true},
+				pushErrors:          map[string]int{},
 			},
 			notificationMinimum: 3,
 			expectedShouldSend:  true,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 0,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{0, true},
+				pushErrors:          map[string]int{},
 			},
 		},
 		{
@@ -834,7 +818,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"service1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 1,
+				setupErrorsForCount: setupErrorsForCount{1, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 					"node2": 0,
@@ -844,7 +828,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 			notificationMinimum: 3,
 			expectedShouldSend:  false,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 2,
+				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 					"node2": 0,
@@ -859,7 +843,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"service1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 2,
+				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 					"node2": 0,
@@ -869,7 +853,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 			notificationMinimum: 3,
 			expectedShouldSend:  true,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 0,
+				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 					"node2": 0,
@@ -885,13 +869,13 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"node1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 0,
-				pushErrors:  map[string]int{},
+				setupErrorsForCount: setupErrorsForCount{0, true},
+				pushErrors:          map[string]int{},
 			},
 			notificationMinimum: 3,
 			expectedShouldSend:  false,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 0,
+				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
 					"node1": 1,
 				},
@@ -905,7 +889,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"node1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 0,
+				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
 					"node1": 1,
 				},
@@ -913,7 +897,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 			notificationMinimum: 3,
 			expectedShouldSend:  false,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 0,
+				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 				},
@@ -927,7 +911,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"node1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 2,
+				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
 					"node1": 1,
 					"node2": 0,
@@ -937,7 +921,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 			notificationMinimum: 3,
 			expectedShouldSend:  false,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 2,
+				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 					"node2": 0,
@@ -953,7 +937,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				"node1",
 			},
 			errorCounts: &serviceErrorCounts{
-				setupErrors: 2,
+				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
 					"node1": 2,
 					"node2": 0,
@@ -963,7 +947,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 			notificationMinimum: 3,
 			expectedShouldSend:  true,
 			expectedErrorCounts: &serviceErrorCounts{
-				setupErrors: 2,
+				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
 					"node1": 0,
 					"node2": 0,
