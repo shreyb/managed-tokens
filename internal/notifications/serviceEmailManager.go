@@ -27,6 +27,7 @@ type ServiceEmailManagerOption func(*ServiceEmailManager) error
 // then the EmailManager will send all notifications
 func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email, opts ...ServiceEmailManagerOption) *ServiceEmailManager {
 	em := &ServiceEmailManager{
+		Service:     service,
 		ReceiveChan: make(chan Notification),
 	}
 
