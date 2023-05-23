@@ -426,7 +426,7 @@ func run(ctx context.Context) error {
 					setCondorCollectorHost(serviceConfigPath),
 					setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
 					setKeytabOverride(serviceConfigPath),
-					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
+					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
 					setDefaultRoleFileDestinationTemplate(serviceConfigPath),
