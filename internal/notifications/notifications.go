@@ -52,3 +52,4 @@ func NewPushError(message, service, node string) *pushError {
 }
 func (p *pushError) GetMessage() string { return p.message }
 func (p *pushError) GetService() string { return p.service }
+func (p *pushError) GetNode() string    { return p.node }
