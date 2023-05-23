@@ -43,14 +43,7 @@ var notificationsFromWorkersChan = make(chan notifications.Notification) // Glob
 // notifications channel to the service name.  This registration is stored in the serviceNotificationChanMap.  It also increments a waitgroup
 // so the caller can keep track of how many ServiceEmailManagers have been opened.
 func registerServiceNotificationsChan(ctx context.Context, s service.Service, database *db.ManagedTokensDatabase) {
-	var serviceName string
-
-	// Figure out proper service name.
-	if val, ok := s.(*ExperimentOverriddenService); ok {
-		serviceName = val.ConfigName()
-	} else {
-		serviceName = s.Name()
-	}
+	serviceName := getServiceName(s)
 
 	timestamp := time.Now().Format(time.RFC822)
 	e := notifications.NewEmail(
