@@ -11,7 +11,7 @@ import (
 )
 
 // EmailManager is simply a channel on which Notification objects can be sent and received
-type EmailManager struct {
+type ServiceEmailManager struct {
 	ReceiveChan         chan Notification
 	Service             string
 	Email               *email
@@ -19,14 +19,14 @@ type EmailManager struct {
 	NotificationMinimum int
 }
 
-type EmailManagerOption func(*EmailManager) error
+type ServiceEmailManagerOption func(*ServiceEmailManager) error
 
 // NewServiceEmailManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification, and when EmailManager is closed, will send emails.  Set up the ManagedTokensDatabase and
 // the NotificationMinimum via EmailManagerOptions passed in.  If a ManagedTokensDatabase is not passed in via an EmailManagerOption,
 // then the EmailManager will send all notifications
-func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email, opts ...EmailManagerOption) *EmailManager {
-	em := &EmailManager{
+func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email, opts ...ServiceEmailManagerOption) *ServiceEmailManager {
+	em := &ServiceEmailManager{
 		ReceiveChan: make(chan Notification),
 	}
 
