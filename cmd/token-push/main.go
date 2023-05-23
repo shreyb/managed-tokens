@@ -280,6 +280,35 @@ func initServices() {
 	}
 }
 
+func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
+	var dbLocation string
+	// Open connection to the SQLite database where notification info will be stored
+	if viper.IsSet("dbLocation") {
+		dbLocation = viper.GetString("dbLocation")
+	} else {
+		dbLocation = "/var/lib/managed-tokens/uid.db"
+	}
+	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+
+	database, err := db.OpenOrCreateDatabase(dbLocation)
+	if err != nil {
+		msg := "Could not open or create ManagedTokensDatabase"
+		log.WithField("executable", currentExecutable).Error(msg)
+		return nil, err
+	}
+
+	servicesToAddToDatabase := make([]string, 0, len(services))
+	for _, s := range services {
+		servicesToAddToDatabase = append(servicesToAddToDatabase, getServiceName(s))
+	}
+
+	if err := database.UpdateServices(context.Background(), servicesToAddToDatabase); err != nil {
+		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured services.  Future database-based operations may fail")
+	}
+
+	return database, nil
+}
+
 func main() {
 	// Global context
 	var globalTimeout time.Duration
@@ -324,20 +353,23 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	var dbLocation string
-	// Open connection to the SQLite database where notification info will be stored
-	if viper.IsSet("dbLocation") {
-		dbLocation = viper.GetString("dbLocation")
-	} else {
-		dbLocation = "/var/lib/managed-tokens/uid.db"
-	}
-	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+	// TODO:  Still issue where each file transfer is counted.  We want to treat /tmp/vt_* and /tmp/vt_*-service as one attempt for notifications purposes
 
-	database, databaseErr := db.OpenOrCreateDatabase(dbLocation)
-	if databaseErr != nil {
-		msg := "Could not open or create ManagedTokensDatabase"
-		log.WithField("executable", currentExecutable).Error(msg)
-	}
+	// var dbLocation string
+	// // Open connection to the SQLite database where notification info will be stored
+	// if viper.IsSet("dbLocation") {
+	// 	dbLocation = viper.GetString("dbLocation")
+	// } else {
+	// 	dbLocation = "/var/lib/managed-tokens/uid.db"
+	// }
+	// log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+
+	// database, databaseErr := db.OpenOrCreateDatabase(dbLocation)
+	// if databaseErr != nil {
+	// 	msg := "Could not open or create ManagedTokensDatabase"
+	// 	log.WithField("executable", currentExecutable).Error(msg)
+	// }
+	database, databaseErr := openDatabaseAndLoadServices()
 	defer database.Close()
 
 	// Send admin notifications at end of run
@@ -446,15 +478,10 @@ func run(ctx context.Context) error {
 	}()
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
-	// Add our configured services and nodes to managed tokens database
-	servicesToAddToDatabase := make([]string, len(serviceConfigs))
+	// Add our configured nodes to managed tokens database
 	nodesToAddToDatabase := make([]string, 0)
-	for serviceName, serviceConfig := range serviceConfigs {
-		servicesToAddToDatabase = append(servicesToAddToDatabase, serviceName)
+	for _, serviceConfig := range serviceConfigs {
 		nodesToAddToDatabase = append(nodesToAddToDatabase, serviceConfig.Nodes...)
-	}
-	if err := database.UpdateServices(ctx, servicesToAddToDatabase); err != nil {
-		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured services.  Future database-based operations may fail")
 	}
 	if err := database.UpdateNodes(ctx, nodesToAddToDatabase); err != nil {
 		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured nodes.  Future database-based operations may fail")
