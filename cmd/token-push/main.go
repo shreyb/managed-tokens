@@ -396,7 +396,6 @@ func run(ctx context.Context) error {
 	}()
 
 	// Set up our service config collector
-	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
 	collectServiceConfigs := make(chan *worker.Config, len(services))
 	setupWg.Add(1)
 	go func() {
