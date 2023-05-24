@@ -7,16 +7,18 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/prometheus/client_golang/prometheus"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/shreyb/managed-tokens/internal/fileCopier"
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
-	log "github.com/sirupsen/logrus"
 )
 
 var tokenPushTime = prometheus.NewGaugeVec(
@@ -37,6 +39,7 @@ const pushDefaultTimeoutStr string = "30s"
 type pushTokenSuccess struct {
 	service.Service
 	success bool
+	mux     sync.Mutex
 }
 
 func init() {
@@ -67,8 +70,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 
 	for sc := range chans.GetServiceConfigChan() {
-		successNodes := make(map[string]struct{})
-		failNodes := make(map[string]struct{})
+		var successNodes, failNodes sync.Map
 
 		pushSuccess := &pushTokenSuccess{
 			Service: sc.Service,
@@ -106,43 +108,80 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}
 
 			// Send to nodes
+			var nodeWg sync.WaitGroup
 			for _, destinationNode := range sc.Nodes {
-				for _, destinationFilename := range destinationFilenames {
-					pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
-					defer pushCancel()
-					log.WithFields(log.Fields{
-						"experiment": sc.Service.Experiment(),
-						"role":       sc.Service.Role(),
-						"node":       destinationNode,
-					}).Debug("Attempting to push tokens to destination node")
-					if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
-						var notificationErrorString string
-						if pushContext.Err() != nil {
-							if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
-								notificationErrorString = pushContext.Err().Error() + " (timeout error)"
-							} else {
-								notificationErrorString = pushContext.Err().Error()
+				nodeWg.Add(1)
+				go func(destinationNode string) {
+					defer nodeWg.Done()
+					var filenameWg sync.WaitGroup
+
+					// Channel for each goroutine launched below to send notifications on for later aggregation
+					nChan := make(chan notifications.Notification, len(destinationFilenames))
+					for _, destinationFilename := range destinationFilenames {
+						filenameWg.Add(1)
+						go func(destinationFilename string) {
+							defer filenameWg.Done()
+							pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+							defer pushCancel()
+							log.WithFields(log.Fields{
+								"experiment": sc.Service.Experiment(),
+								"role":       sc.Service.Role(),
+								"node":       destinationNode,
+							}).Debug("Attempting to push tokens to destination node")
+							if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
+								var notificationErrorString string
+								if pushContext.Err() != nil {
+									if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
+										notificationErrorString = pushContext.Err().Error() + " (timeout error)"
+									} else {
+										notificationErrorString = pushContext.Err().Error()
+									}
+									log.WithFields(log.Fields{
+										"experiment": sc.Service.Experiment(),
+										"role":       sc.Service.Role(),
+									}).Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
+								} else {
+									notificationErrorString = err.Error()
+									log.WithFields(log.Fields{
+										"experiment": sc.Service.Experiment(),
+										"role":       sc.Service.Role(),
+									}).Error("Error pushing vault tokens to destination node")
+								}
+								pushSuccess.mux.Unlock()
+								pushSuccess.success = false
+								pushSuccess.mux.Lock()
+								failNodes.LoadOrStore(destinationNode, struct{}{})
+								nChan <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
 							}
-							log.WithFields(log.Fields{
-								"experiment": sc.Service.Experiment(),
-								"role":       sc.Service.Role(),
-							}).Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
-						} else {
-							notificationErrorString = err.Error()
-							log.WithFields(log.Fields{
-								"experiment": sc.Service.Experiment(),
-								"role":       sc.Service.Role(),
-							}).Error("Error pushing vault tokens to destination node")
-						}
-						pushSuccess.success = false
-						failNodes[destinationNode] = struct{}{}
-						chans.GetNotificationsChan() <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
+						}(destinationFilename)
 					}
-				}
-				if pushSuccess.success {
-					tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
-					successNodes[destinationNode] = struct{}{}
-				}
+
+					// Since we're pushing the same file to two different locations,
+					// only report one failure to push a file to a node.
+					notificationsForwardDone := make(chan struct{})
+					go func() {
+						defer close(notificationsForwardDone)
+						var once sync.Once
+						sendNotificationFunc := func(n notifications.Notification) func() {
+							return func() {
+								chans.GetNotificationsChan() <- n
+							}
+						}
+						for n := range nChan {
+							once.Do(sendNotificationFunc(n))
+						}
+					}()
+					filenameWg.Wait()          // Wait until all push operations for this node are complete
+					close(nChan)               // Close aggregation chan
+					<-notificationsForwardDone // Wait until we've forwarded the message on
+
+					// Set tokenPushTime metric
+					if pushSuccess.success {
+						tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
+						successNodes.LoadOrStore(destinationNode, struct{}{})
+					}
+				}(destinationNode)
+				nodeWg.Wait()
 
 				// Push the default role file.  We handle this separately from the tokens because it's a non-essential file to push,
 				// so we don't want to have notifications going out ONLY saying that this push fails, if that's the case
@@ -204,14 +243,24 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}
 		}()
 
-		successesSlice := make([]string, 0, len(successNodes))
-		failuresSlice := make([]string, 0, len(failNodes))
-		for successNode := range successNodes {
-			successesSlice = append(successesSlice, successNode)
-		}
-		for failNode := range failNodes {
-			failuresSlice = append(failuresSlice, failNode)
-		}
+		successesSlice := make([]string, 0)
+		failuresSlice := make([]string, 0)
+		successNodes.Range(func(key, value any) bool {
+			if keyVal, ok := key.(string); ok {
+				successesSlice = append(successesSlice, keyVal)
+			} else {
+				log.Errorf("Error storing node in successesSlice:  corrupt data in successNodes sync.Map of type %T: %v", key, key)
+			}
+			return true
+		})
+		failNodes.Range(func(key, value any) bool {
+			if keyVal, ok := key.(string); ok {
+				failuresSlice = append(failuresSlice, keyVal)
+			} else {
+				log.Errorf("Error storing node in failesSlice:  corrupt data in failNodes sync.Map of type %T: %v", key, key)
+			}
+			return true
+		})
 		log.WithField("service", sc.Service.Name()).Infof("Successful nodes: %s", strings.Join(successesSlice, ", "))
 		log.WithField("service", sc.Service.Name()).Infof("Failed nodes: %s", strings.Join(failuresSlice, ", "))
 	}
