@@ -753,10 +753,10 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 	type testCase struct {
 		helptext string
 		Notification
-		errorCounts         *serviceErrorCounts
-		notificationMinimum int
-		expectedShouldSend  bool
-		expectedErrorCounts *serviceErrorCounts
+		errorCounts             *serviceErrorCounts
+		errorCountToSendMessage int
+		expectedShouldSend      bool
+		expectedErrorCounts     *serviceErrorCounts
 	}
 
 	testCases := []testCase{
@@ -770,8 +770,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				setupErrorsForCount: setupErrorsForCount{0, false},
 				pushErrors:          map[string]int{},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  false,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      false,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{1, true},
 				pushErrors:          map[string]int{},
@@ -787,8 +787,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				setupErrorsForCount: setupErrorsForCount{1, true},
 				pushErrors:          map[string]int{},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  false,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      false,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors:          map[string]int{},
@@ -804,8 +804,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors:          map[string]int{},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  true,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      true,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors:          map[string]int{},
@@ -825,8 +825,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 					"node3": 2,
 				},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  false,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      false,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
@@ -850,8 +850,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 					"node3": 2,
 				},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  true,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      true,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
@@ -872,8 +872,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors:          map[string]int{},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  false,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      false,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
@@ -894,8 +894,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 					"node1": 1,
 				},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  false,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      false,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{0, true},
 				pushErrors: map[string]int{
@@ -918,8 +918,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 					"node3": 2,
 				},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  false,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      false,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
@@ -944,8 +944,8 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 					"node3": 2,
 				},
 			},
-			notificationMinimum: 3,
-			expectedShouldSend:  true,
+			errorCountToSendMessage: 3,
+			expectedShouldSend:      true,
 			expectedErrorCounts: &serviceErrorCounts{
 				setupErrorsForCount: setupErrorsForCount{2, true},
 				pushErrors: map[string]int{
@@ -958,7 +958,7 @@ func TestAdjustErrorCountsByServiceAndDirectNotification(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		result := adjustErrorCountsByServiceAndDirectNotification(test.Notification, test.errorCounts, test.notificationMinimum)
+		result := adjustErrorCountsByServiceAndDirectNotification(test.Notification, test.errorCounts, test.errorCountToSendMessage)
 		if result != test.expectedShouldSend {
 			t.Errorf("Got wrong decision on whether/not to send notification for test %s. Expected %t, got %t", test.helptext, test.expectedShouldSend, result)
 		}

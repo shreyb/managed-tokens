@@ -4,7 +4,7 @@ condorCollectorHost: collectorhost.domain
 condorScheddConstraint: "my_constraint"
 kerberosPrincipalPattern: principal_pattern
 dbLocation: "/var/lib/managed-tokens/managed-tokens.db"
-notificationMinimum: 3
+errorCountToSendMessage: 3
 defaultRoleFileDestinationTemplate: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any field in the worker.Config object is supported here
 
 # Performance/timeouts

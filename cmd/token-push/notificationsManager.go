@@ -59,7 +59,7 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, da
 	// Functional options for ServiceEmailManager
 	funcOpts := make([]notifications.ServiceEmailManagerOption, 0)
 	setNotificationMinimum := func(em *notifications.ServiceEmailManager) error {
-		em.NotificationMinimum = viper.GetInt("notificationMinimum")
+		em.NotificationMinimum = viper.GetInt("errorCountToSendMessage")
 		return nil
 	}
 	funcOpts = append(funcOpts, setNotificationMinimum)
