@@ -42,6 +42,12 @@ type pushTokenSuccess struct {
 	mux     sync.Mutex
 }
 
+func (p *pushTokenSuccess) changeSuccessValue(changeTo bool) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	p.success = changeTo
+}
+
 func init() {
 	metrics.MetricsRegistry.MustRegister(tokenPushTime)
 }
@@ -147,9 +153,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 										"role":       sc.Service.Role(),
 									}).Error("Error pushing vault tokens to destination node")
 								}
-								pushSuccess.mux.Unlock()
-								pushSuccess.success = false
-								pushSuccess.mux.Lock()
+								pushSuccess.changeSuccessValue(false)
 								failNodes.LoadOrStore(destinationNode, struct{}{})
 								nChan <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
 							}
