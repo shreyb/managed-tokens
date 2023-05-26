@@ -143,7 +143,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 	dataConverted := make([]SetupErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsStatement)
 	if err != nil {
-		log.Error("Could not get setup errors information from notifications database")
+		log.Error("Could not get setup errors information from ManagedTokensDatabase")
 		return dataConverted, err
 	}
 
@@ -178,7 +178,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context, service string) (SetupErrorCount, error) {
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
 	if err != nil {
-		log.Error("Could not get setup errors information from notifications database")
+		log.Error("Could not get setup errors information from ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -233,7 +233,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 	dataConverted := make([]PushErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsStatement)
 	if err != nil {
-		log.Error("Could not get push errors information from notifications database")
+		log.Error("Could not get push errors information from ManagedTokensDatabase")
 		return dataConverted, err
 	}
 
@@ -269,7 +269,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 	dataConverted := make([]PushErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsByServiceStatement, service)
 	if err != nil {
-		log.Error("Could not get push errors information from notifications database")
+		log.Error("Could not get push errors information from ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -314,10 +314,10 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
-		log.Error("Could not update services in notifications database")
+		log.Error("Could not update services in ManagedTokensDatabase")
 		return err
 	}
-	log.Debug("Updated services in notifications database")
+	log.Debug("Updated services in ManagedTokensDatabase")
 	return nil
 }
 
@@ -335,10 +335,10 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
-		log.Error("Could not update nodes in notifications database")
+		log.Error("Could not update nodes in ManagedTokensDatabase")
 		return err
 	}
-	log.Debug("Updated nodes in notifications database")
+	log.Debug("Updated nodes in ManagedTokensDatabase")
 	return nil
 
 }
@@ -354,10 +354,10 @@ func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setu
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
-		log.Error("Could not update setup errors in notifications database")
+		log.Error("Could not update setup errors in ManagedTokensDatabase")
 		return err
 	}
-	log.Debug("Updated setup errors in notifications database")
+	log.Debug("Updated setup errors in ManagedTokensDatabase")
 	return nil
 
 }
@@ -374,10 +374,10 @@ func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushE
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
-		log.Error("Could not update push errors in notifications database")
+		log.Error("Could not update push errors in ManagedTokensDatabase")
 		return err
 	}
-	log.Debug("Updated push errors in notifications database")
+	log.Debug("Updated push errors in ManagedTokensDatabase")
 	return nil
 }
 

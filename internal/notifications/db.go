@@ -117,6 +117,7 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 			log.WithField("service", service).Error("Could not save new setupError counts in database")
 			return err
 		}
+		log.WithField("service", service).Debug("Updated setupError counts in database")
 	}
 
 	// Push Errors
@@ -129,6 +130,7 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 		log.WithField("service", service).Error("Could not save new pushError counts in database")
 		return err
 	}
+	log.WithField("service", service).Debug("Updated pushError counts in database")
 	return nil
 }
 

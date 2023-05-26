@@ -48,8 +48,6 @@ func (f *ferryUidDatum) Username() string { return f.username }
 func (f *ferryUidDatum) Uid() int         { return f.uid }
 func (f *ferryUidDatum) String() string   { return fmt.Sprintf("%s, %d", f.username, f.uid) }
 
-// FERRYUIDDatabse-specific functions
-
 // InsertUidsIntoTableFromFERRY takes a slice of FERRYUIDDatum and inserts the data it represents into the FERRYUIDDatabase.
 // If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
 // with the information in the FERRYUIDDatum
