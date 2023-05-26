@@ -49,6 +49,7 @@ type AdminNotificationManager struct {
 	Database            *db.ManagedTokensDatabase
 	NotificationMinimum int
 	TrackErrorCounts    bool
+	DatabaseReadOnly    bool
 }
 
 // TODO Document this
@@ -63,6 +64,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	a := &AdminNotificationManager{
 		ReceiveChan:      make(chan Notification), // Channel to send notifications to this Manager
 		TrackErrorCounts: trackErrorCounts,
+		DatabaseReadOnly: true,
 	}
 
 	for _, opt := range opts {
@@ -124,7 +126,8 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 			case n, chanOpen := <-a.ReceiveChan:
 				// Channel is closed --> send notifications
 				if !chanOpen {
-					if trackErrorCounts {
+					// Only save error counts if we expect no other NotificationsManagers (like ServiceEmailManager) to write to the database
+					if trackErrorCounts && !a.DatabaseReadOnly {
 						for service, ec := range allServiceCounts {
 							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
 								log.WithFields(log.Fields{

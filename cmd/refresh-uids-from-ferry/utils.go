@@ -57,7 +57,11 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 			a.Database = database
 			return nil
 		}
-		funcOpts = append(funcOpts, setDB)
+		writeableDatabase := func(a *notifications.AdminNotificationManager) error {
+			a.DatabaseReadOnly = false
+			return nil
+		}
+		funcOpts = append(funcOpts, setDB, writeableDatabase)
 	}
 
 	notificationsChan = notifications.NewAdminNotificationManager(ctx, funcOpts...).ReceiveChan // Listen for messages from run
