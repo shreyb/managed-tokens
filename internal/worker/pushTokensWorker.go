@@ -136,18 +136,21 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 							}).Debug("Attempting to push tokens to destination node")
 							if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
 								var notificationErrorString string
+								if sc.IsNodeUnpingable(destinationNode) {
+									notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
+								}
 								if pushContext.Err() != nil {
 									if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
-										notificationErrorString = pushContext.Err().Error() + " (timeout error)"
+										notificationErrorString = notificationErrorString + pushContext.Err().Error() + " (timeout error)"
 									} else {
-										notificationErrorString = pushContext.Err().Error()
+										notificationErrorString = notificationErrorString + pushContext.Err().Error()
 									}
 									log.WithFields(log.Fields{
 										"experiment": sc.Service.Experiment(),
 										"role":       sc.Service.Role(),
 									}).Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
 								} else {
-									notificationErrorString = err.Error()
+									notificationErrorString = notificationErrorString + err.Error()
 									log.WithFields(log.Fields{
 										"experiment": sc.Service.Experiment(),
 										"role":       sc.Service.Role(),

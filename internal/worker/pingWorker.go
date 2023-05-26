@@ -82,6 +82,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 						"node":    status.PingNoder.String(),
 					}).Error(msg)
 					failedNodes = append(failedNodes, status.PingNoder)
+					sc.RegisterUnpingableNode(status.PingNoder.String())
 				} else {
 					log.WithFields(log.Fields{
 						"service": sc.Service.Name(),

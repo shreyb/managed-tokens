@@ -6,11 +6,18 @@
 package worker
 
 import (
+	"sync"
+
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/service"
 )
+
+// TODO Document this
+type unPingableNodes struct {
+	nodes sync.Map
+}
 
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 type Config struct {
@@ -35,6 +42,8 @@ type Config struct {
 	// the bool value to make sure it's true
 	Extras map[string]any
 	environment.CommandEnvironment
+	// TODO Document this
+	unPingableNodes
 }
 
 // NewConfig takes the config information from the global file and creates an *Config object
@@ -76,4 +85,15 @@ func NewConfig(service service.Service, options ...func(*Config) error) (*Config
 // In general, this should be used in lieu of Config.Service.Name() for notifications passing
 func (c *Config) ServiceNameFromExperimentAndRole() string {
 	return c.Service.Experiment() + "_" + c.Service.Role()
+}
+
+// TODO Document this
+func (c *Config) RegisterUnpingableNode(node string) {
+	c.unPingableNodes.nodes.Store(node, struct{}{})
+}
+
+// TODO Document this
+func (c *Config) IsNodeUnpingable(node string) bool {
+	_, ok := c.unPingableNodes.nodes.Load(node)
+	return ok
 }

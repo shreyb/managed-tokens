@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
 type badFunctionalOptError struct {
@@ -67,5 +68,91 @@ func TestNewConfig(t *testing.T) {
 				t.Errorf("Errors do not match.  Expected %s, got %s", tc.expectedError.Error(), err.Error())
 			}
 		})
+	}
+}
+
+func TestRegisterUnpingableNode(t *testing.T) {
+	type testCase struct {
+		helptext       string
+		priorNodes     []string
+		nodeToRegister string
+		expectedNodes  []string
+	}
+
+	testCases := []testCase{
+		{
+			"No prior nodes",
+			[]string{},
+			"node1",
+			[]string{"node1"},
+		},
+		{
+			"Prior nodes - add one more",
+			[]string{"node1", "node2"},
+			"node3",
+			[]string{"node1", "node2", "node3"},
+		},
+	}
+
+	for _, test := range testCases {
+		config := Config{}
+		for _, priorNode := range test.priorNodes {
+			config.unPingableNodes.nodes.Store(priorNode, struct{}{})
+		}
+
+		config.RegisterUnpingableNode(test.nodeToRegister)
+
+		finalNodes := make([]string, 0)
+		config.unPingableNodes.nodes.Range(func(key, value any) bool {
+			if keyVal, ok := key.(string); ok {
+				finalNodes = append(finalNodes, keyVal)
+			}
+			return true
+		})
+
+		if !testutils.SlicesHaveSameElements(test.expectedNodes, finalNodes) {
+			t.Errorf("Expected registered unpingable nodes is different than results.  Expected %v, got %v", test.expectedNodes, finalNodes)
+		}
+	}
+}
+
+func TestIsNodeUnpingable(t *testing.T) {
+	type testCase struct {
+		helptext       string
+		priorNodes     []string
+		nodeToCheck    string
+		expectedResult bool
+	}
+
+	testCases := []testCase{
+		{
+			"No prior nodes",
+			[]string{},
+			"node1",
+			false,
+		},
+		{
+			"Prior nodes - check should pass",
+			[]string{"node1", "node2"},
+			"node1",
+			true,
+		},
+		{
+			"Prior nodes - check should fail",
+			[]string{"node1", "node2"},
+			"node3",
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		config := Config{}
+		for _, priorNode := range test.priorNodes {
+			config.unPingableNodes.nodes.Store(priorNode, struct{}{})
+		}
+
+		if result := config.IsNodeUnpingable(test.nodeToCheck); result != test.expectedResult {
+			t.Errorf("Got wrong result for registration check.  Expected %t, got %t", test.expectedResult, result)
+		}
 	}
 }
