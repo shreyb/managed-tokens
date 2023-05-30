@@ -708,6 +708,8 @@ func TestUpdateNodes(t *testing.T) {
 		}
 	}
 }
+
+// TestUpdateSetupErrorsTable checks that running UpdateSetupErrorsTable properly updates the setup_errors table in the ManagedTokenDatabase
 func TestUpdateSetupErrorsTable(t *testing.T) {
 	type testCase struct {
 		description  string
@@ -843,6 +845,8 @@ func TestUpdateSetupErrorsTable(t *testing.T) {
 		}
 	}
 }
+
+// TestUpdatePushErrorsTable checks that running UpdatePushErrorsTable properly updates the push_errors table in the ManagedTokenDatabase
 func TestUpdatePushErrorsTable(t *testing.T) {
 	type testCase struct {
 		description  string

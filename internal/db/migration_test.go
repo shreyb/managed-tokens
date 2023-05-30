@@ -12,6 +12,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// TestCantOpen makes sure that an invalid DB file location fails to get opened
 func TestCantOpen(t *testing.T) {
 	goodDbLocation := path.Join(os.DevNull, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	defer os.Remove(goodDbLocation)
@@ -23,6 +24,9 @@ func TestCantOpen(t *testing.T) {
 		t.Error("File should have not been able to be opened")
 	}
 }
+
+// TestInitialize checks that if we give valid and invalid filenames, that initialize() displays the correct behavior or
+// returns the correct error
 func TestInitialize(t *testing.T) {
 	type testCase struct {
 		description string

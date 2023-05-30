@@ -124,12 +124,14 @@ func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, erro
 	return dataConverted, nil
 }
 
+// SetupErrorCount is an interface that wraps the Service and Count methods.  It is meant to be used both by this package and importing packages to
+// retrieve service and count information about setupErrors.
 type SetupErrorCount interface {
 	Service() string
 	Count() int
 }
 
-// Implements both SetupErrorCount and insertData
+// setupErrorCount is an internal-facing type that implements both SetupErrorCount and insertData
 type setupErrorCount struct {
 	service string
 	count   int
@@ -139,6 +141,8 @@ func (s *setupErrorCount) Service() string { return s.service }
 func (s *setupErrorCount) Count() int      { return s.count }
 func (s *setupErrorCount) values() []any   { return []any{s.service, s.count, s.count} }
 
+// GetSetupErrorsInfo queries the ManagedTokensDatabase for setup error counts.  It returns the data in the form of a slice of SetupErrorCounts
+// that the caller can unpack using the interface methods Service() and Count()
 func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]SetupErrorCount, error) {
 	dataConverted := make([]SetupErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsStatement)
@@ -174,7 +178,8 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 	return dataConverted, nil
 }
 
-// GetSetupErrorsInfoByService queries the database for the setup errors for a specific service
+// GetSetupErrorsInfoByService queries the database for the setup errors for a specific service.  It returns the data as a SetupErrorCount that
+// calling functions can unpack using the Service() or Count() functions.
 func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context, service string) (SetupErrorCount, error) {
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
 	if err != nil {
@@ -211,13 +216,15 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 	return &setupErrorCount{serviceVal, int(countVal)}, nil
 }
 
+// PushErrorCount is an interface that wraps the Service, Node, and Count methods.  It is meant to be used both by this package and
+// importing packages to retrieve service, node, and count information about pushErrors.
 type PushErrorCount interface {
 	Service() string
 	Node() string
 	Count() int
 }
 
-// Implements both PushErrorCount and insertData
+// pushErrorCount is an internal-facing type that implements both PushErrorCount and insertData
 type pushErrorCount struct {
 	service string
 	node    string
@@ -229,6 +236,8 @@ func (p *pushErrorCount) Node() string    { return p.node }
 func (p *pushErrorCount) Count() int      { return p.count }
 func (p *pushErrorCount) values() []any   { return []any{p.service, p.node, p.count, p.count} }
 
+// GetPushErrorsInfo queries the ManagedTokensDatabase for push error counts.  It returns the data in the form of a slice of PushErrorCounts
+// that the caller can unpack using the interface methods Service(), Node(), and Count()
 func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushErrorCount, error) {
 	dataConverted := make([]PushErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsStatement)
@@ -264,7 +273,8 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 	return dataConverted, nil
 }
 
-// GetPushErrorsInfoByService queries the database for the setup errors for a specific service
+// GetPushErrorsInfoByService queries the database for the push errors for a specific service.  It returns the data as a slice of PushErrorCounts
+// that the caller can unpack using the Service(), Node(), and Count() interface methods.
 func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, service string) ([]PushErrorCount, error) {
 	dataConverted := make([]PushErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsByServiceStatement, service)
@@ -300,9 +310,10 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 	return dataConverted, nil
 }
 
-type serviceDatum struct{ value string }
+// serviceDatum is an internal type that implements the insertValues interface.  It holds the name of a service as its value.
+type serviceDatum string
 
-func (s *serviceDatum) values() []any { return []any{s.value} }
+func (s *serviceDatum) values() []any { return []any{s} }
 
 // UpdateServices updates the services table in the NotificationsDatabase.  It takes a slice
 // of strings for the service names, and inserts them if they don't already exist in the
@@ -310,7 +321,8 @@ func (s *serviceDatum) values() []any { return []any{s.value} }
 func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames []string) error {
 	serviceDatumSlice := make([]insertValues, 0, len(serviceNames))
 	for _, s := range serviceNames {
-		serviceDatumSlice = append(serviceDatumSlice, &serviceDatum{s})
+		sDatum := serviceDatum(s)
+		serviceDatumSlice = append(serviceDatumSlice, &sDatum)
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
@@ -321,17 +333,19 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 	return nil
 }
 
-type nodeDatum struct{ value string }
+// nodeDatum is an internal type that implements the insertValues interface.  It holds the name of a node as its value.
+type nodeDatum string
 
-func (n *nodeDatum) values() []any { return []any{n.value} }
+func (n *nodeDatum) values() []any { return []any{n} }
 
 // UpdateNodes updates the nodes table in the NotificationsDatabase.  It takes a slice
 // of strings for the node names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string) error {
 	nodesDatumSlice := make([]insertValues, 0, len(nodes))
-	for _, s := range nodes {
-		nodesDatumSlice = append(nodesDatumSlice, &nodeDatum{s})
+	for _, n := range nodes {
+		nDatum := nodeDatum(n)
+		nodesDatumSlice = append(nodesDatumSlice, &nDatum)
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
@@ -343,6 +357,8 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 
 }
 
+// UpdateSetupErrorsTable updates the setup errors table of the ManagedTokens database.  The information to be modified
+// in the database should be given as a slice of SetupErrorCount (setupErrorsByService)
 func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setupErrorsByService []SetupErrorCount) error {
 	setupErrorDatumSlice := make([]insertValues, 0, len(setupErrorsByService))
 	for _, datum := range setupErrorsByService {
@@ -362,6 +378,8 @@ func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setu
 
 }
 
+// UpdatePushErrorsTable updates the push errors table of the ManagedTokens database.  The information to be modified
+// in the database should be given as a slice of PushErrorCount (pushErrorsByServiceAndNode)
 func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode []PushErrorCount) error {
 	pushErrorDatumSlice := make([]insertValues, 0, len(pushErrorsByServiceAndNode))
 	for _, datum := range pushErrorsByServiceAndNode {
@@ -414,131 +432,3 @@ func (m *ManagedTokensDatabase) getNamedDimensionStringValues(ctx context.Contex
 	}
 	return dataConverted, nil
 }
-
-// Pragma:  PRAGMA foreign_keys = ON;
-// Schema:
-// sqlite> .schema
-// CREATE TABLE services (
-// id INTEGER NOT NULL PRIMARY KEY,
-// name STRING NOT NULL
-// );
-// CREATE TABLE nodes (
-// id INTEGER NOT NULL PRIMARY KEY,
-// name STRING NOT NULL
-// );
-// CREATE TABLE push_errors (
-// service_id INTEGER,
-// node_id INTEGER,
-// count INTEGER,
-// FOREIGN KEY (service_id)
-//   REFERENCES services (id)
-//     ON DELETE CASCADE
-//     ON UPDATE NO ACTION,
-// FOREIGN KEY (node_id)
-//   REFERENCES nodes (id)
-//     ON DELETE CASCADE
-//     ON UPDATE NO ACTION
-// );
-// CREATE TABLE setup_errors (
-// service_id INTEGER,
-// count INTEGER,
-// FOREIGN KEY (service_id)
-//   REFERENCES services (id)
-//     ON DELETE CASCADE
-//     ON UPDATE NO ACTION
-// );
-
-// // OpenOrCreateNotificationsDatabase opens a sqlite3 database for reading or writing, and returns a *NotificationsDatabase object.  If the database already
-// // exists at the filename provided, it will open that database as long as the ApplicationId matches
-// func OpenOrCreateNotificationsDatabase(filename string) (*NotificationsDatabase, error) {
-// 	var err error
-// 	n := NotificationsDatabase{filename: filename}
-// 	err = openOrCreateDatabase(&n)
-// 	if err != nil {
-// 		log.WithField("filename", n.filename).Error("Could not create or open NotificationsDatabase")
-// 	}
-// 	return &n, err
-// }
-
-// // Filename returns the path to the file holding the database
-// func (n *NotificationsDatabase) Filename() string {
-// 	return n.filename
-// }
-
-// // Database returns the underlying SQL database of the NotificationsDatabase
-// func (n *NotificationsDatabase) Database() *sql.DB {
-// 	return n.db
-// }
-
-// // Open opens the database located at NotificationsDatabase.filename and stores the opened *sql.DB object in the NotificationsDatabase
-// func (n *NotificationsDatabase) Open() error {
-// 	var err error
-// 	n.db, err = sql.Open("sqlite3", n.filename)
-// 	if err != nil {
-// 		msg := "Could not open the database file"
-// 		log.WithField("filename", n.filename).Errorf("%s: %s", msg, err)
-// 		return &databaseOpenError{msg}
-// 	}
-// 	// Enforce foreign key constraints
-// 	if _, err := n.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return err
-// 	}
-// 	return nil
-// }
-
-// // Close closes the NotificationsDatabase
-// func (n *NotificationsDatabase) Close() error {
-// 	return n.db.Close()
-// }
-
-// // initialize prepares a new NotificationsDatabase for use and returns a pointer to the underlying sql.DB
-// func (n *NotificationsDatabase) initialize() error {
-// 	var err error
-// 	if err = n.Open(); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return err
-// 	}
-
-// 	// Set our application ID
-// 	if _, err := n.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return err
-// }
-
-// 	// Create the tables in the database
-// 	if err := n.createServicesTable(); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return &databaseCreateError{err.Error()}
-// 	}
-// 	if err := n.createNodesTable(); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return &databaseCreateError{err.Error()}
-// 	}
-// 	if err := n.createSetupErrorsTable(); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return &databaseCreateError{err.Error()}
-// 	}
-// 	if err := n.createPushErrorsTable(); err != nil {
-// 		log.WithField("filename", n.filename).Error(err)
-// 		return &databaseCreateError{err.Error()}
-// 	}
-
-// 	return nil
-// }
-
-// // NotificationsDatabaseCountDatum is a piece of data that can be used to hold information about
-// // notifications counts for a given service and optionally a node
-// type NotificationsDatabaseCountDatum interface {
-// 	ServiceName() string
-// 	NodeName() string
-// 	Count() uint16
-// 	String() string
-// }
-
-// // // NotificationsDatabase is a database in which information about how many notifications have been sent about a particular failure have
-// // // been generated
-// // type NotificationsDatabase struct {
-// // 	filename string
-// // 	db       *sql.DB
-// // }

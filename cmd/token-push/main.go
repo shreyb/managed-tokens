@@ -280,6 +280,9 @@ func initServices() {
 	}
 }
 
+// openDatabaseAndLoadServices opens a db.ManagedTokensDatabase and loads the configured services into
+// the database.  If any of these operations fail, it returns a nil *db.ManagedTokensDatabase and an error.
+// Otherwise, it returns the pointer to the db.ManagedTokensDatabase
 func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 	var dbLocation string
 	// Open connection to the SQLite database where notification info will be stored
@@ -353,30 +356,16 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	// TODO:  Still issue where each file transfer is counted.  We want to treat /tmp/vt_* and /tmp/vt_*-service as one attempt for notifications purposes
-
-	// var dbLocation string
-	// // Open connection to the SQLite database where notification info will be stored
-	// if viper.IsSet("dbLocation") {
-	// 	dbLocation = viper.GetString("dbLocation")
-	// } else {
-	// 	dbLocation = "/var/lib/managed-tokens/uid.db"
-	// }
-	// log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
-
-	// database, databaseErr := db.OpenOrCreateDatabase(dbLocation)
-	// if databaseErr != nil {
-	// 	msg := "Could not open or create ManagedTokensDatabase"
-	// 	log.WithField("executable", currentExecutable).Error(msg)
-	// }
 	database, databaseErr := openDatabaseAndLoadServices()
-	defer database.Close()
 
-	// Send admin notifications at end of run
+	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
 	adminNotifications, adminNotificationsChan := setupAdminNotifications(ctx, database)
 	if databaseErr != nil {
 		adminNotificationsChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+	} else {
+		defer database.Close()
 	}
+
 	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
 	defer sendAdminNotifications(adminNotificationsChan, &adminNotifications)
 

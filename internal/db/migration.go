@@ -10,12 +10,14 @@ import (
 
 // Much thanks to K. Retzke - a lot of the boilerplate DB code is adapted from his fifemail application
 
-// Create table statements
+// migration describes the SQL statements needed to migrate from the immediately previous DB schema to the desired schema.  The description should
+// be a helpful indicator of which version the schema is at, like "version 2".
 type migration struct {
 	description string
 	sqlText     string
 }
 
+// Create table statements
 var migrations = []migration{
 	{
 		description: "Initial Version",
@@ -64,9 +66,10 @@ FOREIGN KEY (node_id)
 	},
 }
 
-// Set up the database
+// initialize  runs the initial steps needed to bring a database to the proper schema
 func (m *ManagedTokensDatabase) initialize() error {
 	var err error
+	// Set up the database
 	if m.db, err = sql.Open("sqlite3", m.filename); err != nil {
 		log.WithField("filename", m.filename).Error(err)
 		return &databaseOpenError{
@@ -89,6 +92,7 @@ func (m *ManagedTokensDatabase) initialize() error {
 	return nil
 }
 
+// migrate runs the various migrations to bring a database from a certain schema to the desired schema.
 func (m *ManagedTokensDatabase) migrate(from, to int) error {
 	if to > len(migrations) {
 		msg := "trying to migrate to a database version that does not exist"
@@ -162,56 +166,3 @@ func (d *databaseMigrateError) Error() string {
 	return msg
 }
 func (d *databaseMigrateError) Unwrap() error { return d.err }
-
-// // Funcs to create tables
-// // createUidsTable creates a database table in the FERRYUIDDatabase that holds the username to UID mapping
-// func (m *ManagedTokensDatabase) createUidsTable() error {
-// 	if _, err := m.db.Exec(createUIDTableStatement); err != nil {
-// 		log.Error(err)
-// 		return err
-// 	}
-// 	log.Debug("Created uid table in ManagedTokensDatabase")
-// 	return nil
-// }
-
-// // createServicesTable creates a database table in the NotificationsDatabse that stores all the configured services across runs
-// func (m *ManagedTokensDatabase) createServicesTable() error {
-// 	if _, err := m.db.Exec(createServicesTableStatement); err != nil {
-// 		log.Error(err)
-// 		return err
-// 	}
-// 	log.Debug("Created services table in ManagedTokensDatabase")
-// 	return nil
-// }
-
-// // createNodesTable creates a database table in the ManagedTokensDatabase that holds the interactive nodes across runs
-// func (m *ManagedTokensDatabase) createNodesTable() error {
-// 	if _, err := m.db.Exec(createNodesTableStatement); err != nil {
-// 		log.Error(err)
-// 		return err
-// 	}
-// 	log.Debug("Created nodes table in ManagedTokensDatabase")
-// 	return nil
-// }
-
-// // createSetupErrorsTable creates a database table in the ManagedTokensDatabase that holds the number of runs for which a given service
-// // has encountered a SetupError
-// func (m *ManagedTokensDatabase) createSetupErrorsTable() error {
-// 	if _, err := m.db.Exec(createSetupErrorsTableStatement); err != nil {
-// 		log.Error(err)
-// 		return err
-// 	}
-// 	log.Debug("Created setup errors table in ManagedTokensDatabase")
-// 	return nil
-// }
-
-// // createPushErrorsTable creates a database table in the ManagedTokensDatabase that holds the number of runs for which a given service
-// // has encountered a PushError
-// func (m *ManagedTokensDatabase) createPushErrorsTable() error {
-// 	if _, err := m.db.Exec(createPushErrorsTableStatement); err != nil {
-// 		log.Error(err)
-// 		return err
-// 	}
-// 	log.Debug("Created push errors table in ManagedTokensDatabase")
-// 	return nil
-// }
