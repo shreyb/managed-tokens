@@ -104,10 +104,20 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 				shouldSend := true
 				if trackErrorCounts {
 					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, ec, em.NotificationMinimum)
+					if !shouldSend {
+						log.WithField("service", n.GetService()).Debug("Error count less than error limit.  Not sending notification")
+					}
 				}
 				if shouldSend {
+					msg := "Error counts either not tracked or exceeded error limit.  Sending notification"
 					if nValue, ok := n.(*pushError); ok {
-						serviceErrorsTable[nValue.node] = n.GetMessage() // TODO This must remain in place
+						serviceErrorsTable[nValue.node] = n.GetMessage()
+						log.WithFields(log.Fields{
+							"service": nValue.service,
+							"node":    nValue.node,
+						}).Debug(msg)
+					} else {
+						log.WithField("service", n.GetService()).Debug(msg)
 					}
 					adminChan <- n
 				}

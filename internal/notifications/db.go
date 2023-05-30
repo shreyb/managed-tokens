@@ -181,7 +181,7 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 		log.WithFields(log.Fields{
 			"service":          nValue.GetService(),
 			"node":             nValue.GetNode(),
-			"count":            ec.pushErrors[nValue.GetNode()],
+			"count":            ec.pushErrors[nValue.GetNode()].value,
 			"sendNotification": sendNotification,
 		}).Debug("Adjusted count for pushError")
 		return
