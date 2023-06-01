@@ -20,7 +20,7 @@ import (
 // packageErrors is a concurrent-safe struct that holds information about all the errors encountered while running package funcs and methods
 // It also includes a sync.Mutex and a sync.WaitGroup to coordinate data access
 type packageErrors struct {
-	errorsMap   sync.Map
+	errorsMap   *sync.Map // map[service string]*adminData
 	writerCount sync.WaitGroup
 	mu          sync.Mutex
 }
@@ -292,35 +292,55 @@ func addErrorToAdminErrors(n Notification) {
 	adminErrors.mu.Lock()
 	defer adminErrors.mu.Unlock()
 
+	// The first time addErrorToAdminErrors is called, initialize the errorsMap so we don't get a nil pointer dereference panic
+	// later on when we try to check the sync.Map for values
+	if adminErrors.errorsMap == nil {
+		m := sync.Map{}
+		adminErrors.errorsMap = &m
+	}
+
 	switch nValue := n.(type) {
 	case *setupError:
 		if actual, loaded := adminErrors.errorsMap.LoadOrStore(
 			nValue.service,
-			adminData{
+			&adminData{
 				SetupErrors: []string{nValue.message},
 			},
 		); loaded {
-			if adminData, ok := actual.(adminData); !ok {
+			// Service already has *adminData stored
+			if accumulatedAdminData, ok := actual.(*adminData); !ok {
 				log.Panic("Invalid data stored in admin errors map.")
 			} else {
-				adminData.SetupErrors = append(adminData.SetupErrors, nValue.message)
-				adminErrors.errorsMap.Store(nValue.service, adminData)
+				// Just append the newest setup error to the slice
+				accumulatedAdminData.SetupErrors = append(accumulatedAdminData.SetupErrors, nValue.message)
 			}
 		}
+	// This case is a bit more complicated, since the pushErrors are stored in a sync.Map
 	case *pushError:
-		var newSyncMap sync.Map
-		newSyncMap.Store(nValue.node, nValue.message)
-		if actual, loaded := adminErrors.errorsMap.LoadOrStore(
+		actual, loaded := adminErrors.errorsMap.LoadOrStore(
+			// Roughly an initialization of the PushErrors sync.Map
 			nValue.service,
-			adminData{
-				PushErrors: newSyncMap,
+			&adminData{
+				PushErrors: sync.Map{},
 			},
-		); loaded {
-			if adminData, ok := actual.(adminData); !ok {
+		)
+		if loaded {
+			if adminData, ok := actual.(*adminData); !ok {
 				log.Panic("Invalid data stored in admin errors map.")
 			} else {
 				adminData.PushErrors.Store(nValue.node, nValue.message)
-				adminErrors.errorsMap.Store(n.GetService(), adminData)
+			}
+		} else {
+			// At this point, since we didn't wrap the LoadOrStore call in an if-contraction (if <expression>; loaded {})
+			// we know that if loaded == false, then adminErrors.errorsMap[nValue.service] = &adminData{PushErrors: sync.Map{}}
+			// from above.  So all we need to do is load the pointer value, type-check it, and store our message.
+			//
+			// We need to do it this way because otherwise, we'd have to instantiate a sync.Map with the values stored, and then
+			// copy it into adminErrors, which copies the underlying mutex.  That could lead to concurrency issues later.
+			if accumulatedAdminData, ok := adminErrors.errorsMap.Load(nValue.service); ok {
+				if accumulatedAdminDataVal, ok := accumulatedAdminData.(*adminData); ok {
+					accumulatedAdminDataVal.PushErrors.Store(nValue.node, nValue.message)
+				}
 			}
 		}
 	}
@@ -355,7 +375,7 @@ type adminDataUnsync struct {
 }
 
 func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
-	adminErrorsMap := make(map[string]adminData)
+	adminErrorsMap := make(map[string]*adminData)
 	adminErrorsMapUnsync := make(map[string]adminDataUnsync)
 	// 1.  Write adminErrors from sync.Map to Map called adminErrorsMap
 	adminErrors.errorsMap.Range(func(service, aData any) bool {
@@ -363,7 +383,7 @@ func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
 		if !ok {
 			log.Panic("Improper key in admin notifications map.")
 		}
-		a, ok := aData.(adminData)
+		a, ok := aData.(*adminData)
 		if !ok {
 			log.Panic("Invalid admin data stored for notification")
 		}
@@ -402,5 +422,5 @@ func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
 
 // isEmpty checks to see if a variable of type adminData has any data
 func (a *adminData) isEmpty() bool {
-	return ((len(a.SetupErrors) == 0) && (syncMapLength(a.PushErrors) == 0))
+	return ((len(a.SetupErrors) == 0) && (syncMapLength(&a.PushErrors) == 0))
 }

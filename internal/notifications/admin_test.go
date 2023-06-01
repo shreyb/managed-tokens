@@ -51,7 +51,7 @@ func TestAddSetupErrorToAdminErrors(t *testing.T) {
 					t.Error("Test error not loaded")
 				}
 				found := false
-				if admData, ok := val.(adminData); ok {
+				if admData, ok := val.(*adminData); ok {
 					for _, setupErr := range admData.SetupErrors {
 						if setupErr == test.notificationMsg {
 							found = true
@@ -126,7 +126,7 @@ func TestAddPushErrorToAdminErrors(t *testing.T) {
 				if !ok {
 					t.Error("Test error not stored in adminErrors")
 				}
-				if admData, ok := val.(adminData); ok {
+				if admData, ok := val.(*adminData); ok {
 					pushErrorsDatum, ok := admData.PushErrors.Load(test.node)
 					if !ok {
 						t.Error("Test error not stored in adminErrors.pushErrors")
@@ -322,22 +322,22 @@ func TestPrepareAbridgedAdminSlice(t *testing.T) {
 func TestIsEmpty(t *testing.T) {
 	type testCase struct {
 		description    string
-		loaderFunc     func() adminData
+		loaderFunc     func() *adminData
 		expectedResult bool
 	}
 
 	testCases := []testCase{
 		{
 			"Empty adminData",
-			func() adminData {
-				return adminData{}
+			func() *adminData {
+				return &adminData{}
 			},
 			true,
 		},
 		{
 			"adminData has empty non-nil setupErrors",
-			func() adminData {
-				return adminData{
+			func() *adminData {
+				return &adminData{
 					SetupErrors: []string{},
 				}
 			},
@@ -345,8 +345,8 @@ func TestIsEmpty(t *testing.T) {
 		},
 		{
 			"adminData has populated SetupErrors",
-			func() adminData {
-				return adminData{
+			func() *adminData {
+				return &adminData{
 					SetupErrors: []string{"Test error"},
 				}
 			},
@@ -354,38 +354,33 @@ func TestIsEmpty(t *testing.T) {
 		},
 		{
 			"adminData has nil PushErrors",
-			func() adminData {
-				var m sync.Map
-				return adminData{
-					PushErrors: m,
+			func() *adminData {
+				return &adminData{
+					PushErrors: sync.Map{},
 				}
 			},
 			true,
 		},
 		{
 			"adminData has populated PushErrors",
-			func() adminData {
-				var m sync.Map
+			func() *adminData {
+				var a adminData
 				for i := 1; i <= 10; i++ {
-					m.Store(i, struct{}{})
+					a.PushErrors.Store(i, struct{}{})
 				}
-				return adminData{
-					PushErrors: m,
-				}
+				return &a
 			},
 			false,
 		},
 		{
 			"adminData has populated SetupErrors and PushErrors",
-			func() adminData {
-				var m sync.Map
+			func() *adminData {
+				var a adminData
 				for i := 1; i <= 10; i++ {
-					m.Store(i, struct{}{})
+					a.PushErrors.Store(i, struct{}{})
 				}
-				return adminData{
-					SetupErrors: []string{"This is an error"},
-					PushErrors:  m,
-				}
+				a.SetupErrors = []string{"This is an error"}
+				return &a
 			},
 			false,
 		},

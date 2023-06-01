@@ -15,7 +15,7 @@ func TestSyncMapLength(t *testing.T) {
 		m.Store(i, struct{}{})
 	}
 
-	if testLength := syncMapLength(m); testLength != length {
+	if testLength := syncMapLength(&m); testLength != length {
 		t.Errorf(
 			"Got wrong sync.Map length.  Expected %d, got %d",
 			length,
