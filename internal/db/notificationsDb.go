@@ -100,9 +100,8 @@ var (
 )
 
 // External-facing functions to modify db
-// TODO Make sure all funcs are documented
 
-// GetAllServices queries the NotificationsDatabase for the registered services
+// GetAllServices queries the ManagedTokensDatabase for the registered services
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, error) {
 	dataConverted, err := m.getNamedDimensionStringValues(ctx, getAllServicesFromTableStatement)
@@ -113,7 +112,7 @@ func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, e
 	return dataConverted, nil
 }
 
-// GetAllNodes queries the NotificationsDatabase for the registered nodes
+// GetAllNodes queries the ManagedTokensDatabase for the registered nodes
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, error) {
 	dataConverted, err := m.getNamedDimensionStringValues(ctx, getAllNodesFromTableStatement)
@@ -178,7 +177,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 	return dataConverted, nil
 }
 
-// GetSetupErrorsInfoByService queries the database for the setup errors for a specific service.  It returns the data as a SetupErrorCount that
+// GetSetupErrorsInfoByService queries the ManagedTokensDatabase for the setup errors for a specific service.  It returns the data as a SetupErrorCount that
 // calling functions can unpack using the Service() or Count() functions.
 func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context, service string) (SetupErrorCount, error) {
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
@@ -315,7 +314,7 @@ type serviceDatum string
 
 func (s *serviceDatum) values() []any { return []any{s} }
 
-// UpdateServices updates the services table in the NotificationsDatabase.  It takes a slice
+// UpdateServices updates the services table in the ManagedTokensDatabase.  It takes a slice
 // of strings for the service names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames []string) error {
@@ -338,7 +337,7 @@ type nodeDatum string
 
 func (n *nodeDatum) values() []any { return []any{n} }
 
-// UpdateNodes updates the nodes table in the NotificationsDatabase.  It takes a slice
+// UpdateNodes updates the nodes table in the ManagedTokensDatabase.  It takes a slice
 // of strings for the node names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string) error {
