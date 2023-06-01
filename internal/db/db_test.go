@@ -14,6 +14,8 @@ import (
 	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
+// TODO Parametrize theses tests with t.Run() calls.  Also, remove databases using t.TempDir()
+
 // TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase
 func TestOpenOrCreateDatabase(t *testing.T) {
 	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))

@@ -9,6 +9,7 @@ import (
 )
 
 // Functional options for use in setting up kerberos/JWT Auth
+// TODO:  Move these into worker.Config file so we define the functional options there?
 
 // setkrb5ccname sets the KRB5CCNAME directory environment variable in the worker.Config's
 // environment

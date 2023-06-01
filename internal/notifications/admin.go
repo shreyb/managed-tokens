@@ -20,14 +20,15 @@ import (
 // packageErrors is a concurrent-safe struct that holds information about all the errors encountered while running package funcs and methods
 // It also includes a sync.Mutex and a sync.WaitGroup to coordinate data access
 type packageErrors struct {
-	errorsMap   *sync.Map // map[service string]*adminData
-	writerCount sync.WaitGroup
+	errorsMap   *sync.Map      // Holds all the errors accumulated for the current invocation.  Roughly a map[service string]*adminData
+	writerCount sync.WaitGroup // WaitGroup to be incremented anytime a function wants to write to a packageErrors
 	mu          sync.Mutex
 }
 
 var (
-	// adminErrors holds all the errors to be translated and sent to admins running the various utilities
-	adminErrors packageErrors // Store all admin errors here
+	// adminErrors holds all the errors to be translated and sent to admins running the various utilities.
+	// Callers should increment the writerCount waitgroup upon starting up, and decrement when they return.
+	adminErrors packageErrors
 )
 
 // adminData stores the information needed to generate the admin message
@@ -43,21 +44,43 @@ type AdminDataFinal struct {
 	PushErrorsTable string
 }
 
-// TODO Document this
+// AdminNotificationManager holds information needed to receive and handle notifications meant to be sent to the administrators of the managed
+// tokens utilities.
 type AdminNotificationManager struct {
-	ReceiveChan         chan Notification
-	Database            *db.ManagedTokensDatabase
+	ReceiveChan chan Notification // ReceiveChan is the channel on which callers should send Notifications to be forwarded to administrators
+	// Database is the underlying *db.ManagedTokensDatabase that will be queried by the AdminNotificationManager to determine whether
+	// or not to send a particular Notification received on the ReceiveChan to administrators
+	Database *db.ManagedTokensDatabase
+	// NotificationMinimum is the minimum number of prior similar Notifications required for an AdminNotificationManager to determine that it should
+	// send a Notification to administrators
 	NotificationMinimum int
-	TrackErrorCounts    bool
-	DatabaseReadOnly    bool
+	// TrackErrorCounts determines whether or not the AdminNotificationManager should consult the Database or not.  If set to false, all received
+	// Notifications will be sent to administrators
+	TrackErrorCounts bool
+	// DatabaseReadOnly determines whether the AdminNotificationManager should write its error counts to the db.ManagedTokensDatabase after finishing
+	// all processing.  This should only be set to false if there are no other possible database writers (like ServiceEmailManager), to avoid double-counting
+	// of errors
+	DatabaseReadOnly bool
 }
 
-// TODO Document this
+// AdminNotificationManagerOption is a functional option that should be used as an argument to NewAdminNotificationManager to set various fields
+// of the AdminNotificationManager
+// For example:
+//
+//	 f := func(a *AdminNotificationManager) error {
+//		  a.NotificationMinimum = 42
+//	   return nil
+//	 }
+//	 g := func(a *AdminNotificationManager) error {
+//		  a.DatabaseReadOnly = false
+//	   return nil
+//	 }
+//	 manager := NewAdminNotificationManager(context.Background, f, g)
 type AdminNotificationManagerOption func(*AdminNotificationManager) error
 
 // NewAdminNotificationManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
-// via email (or otherwise)
+// via email (or otherwise).  Functional options should be specified to set the fields (see AdminNotificationManagerOption documentation)
 func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
 	var trackErrorCounts bool = true
 	services := make([]string, 0)
@@ -104,8 +127,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	}
 
 	adminChan := make(chan Notification) // Channel to send notifications to aggregator
-	adminErrors.writerCount.Add(1)
-	go adminErrorAdder(adminChan) // Start admin errors aggregator
+	startAdminErrorAdder(adminChan)      // Start admin errors aggregator
 
 	go func() {
 		defer close(adminChan)
@@ -154,8 +176,8 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	return a
 }
 
-// SendAdminNotifications sends admin messages via email and Slack that have been collected in adminMsgSlice. It expects a valid template file
-// configured at nConfig.ConfigInfo["admin_template"].
+// SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file
+// configured at adminTemplatePath
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
 	var wg sync.WaitGroup
 	var existsSendError bool
@@ -280,11 +302,17 @@ func prepareAbridgedAdminSlices() (setupErrorsCombined []string, pushErrorsCombi
 	return setupErrorsCombined, pushErrorsCombined
 }
 
-func adminErrorAdder(adminChan <-chan Notification) {
-	defer adminErrors.writerCount.Done()
-	for n := range adminChan {
-		addErrorToAdminErrors(n)
-	}
+// startAdminErrorAdder is the function that most callers should use to send errors to the admin message handlers.  It allows the caller
+// to specify a channel, adminChan, to send Notifications on.  These Notifications are forwarded to the admin message handlers and
+// sorted appropriately.  Callers should
+func startAdminErrorAdder(adminChan <-chan Notification) {
+	adminErrors.writerCount.Add(1)
+	go func() {
+		defer adminErrors.writerCount.Done()
+		for n := range adminChan {
+			addErrorToAdminErrors(n)
+		}
+	}()
 }
 
 // addErrorToAdminErrors takes the passed in Notification, type-checks it, and adds it to the appropriate field of adminErrors
@@ -300,6 +328,7 @@ func addErrorToAdminErrors(n Notification) {
 	}
 
 	switch nValue := n.(type) {
+	// For *setupErrors, store or append the setupError text to the appropriate field
 	case *setupError:
 		if actual, loaded := adminErrors.errorsMap.LoadOrStore(
 			nValue.service,
@@ -346,8 +375,9 @@ func addErrorToAdminErrors(n Notification) {
 	}
 }
 
-// prepareAdminErrorsForMessage transforms the accumulated adminErrors variable from type adminData to AdminDataFinal
+// prepareAdminErrorsForMessage transforms the accumulated adminErrors variable from type *adminData to AdminDataFinal
 func prepareAdminErrorsForFullMessage() map[string]AdminDataFinal {
+	// Get our adminErrors from type map[string]*adminData to a map[string]AdminDataUnsync so it's easier to work with
 	adminErrorsIntermediateMap := adminErrorsToAdminDataUnsync()
 	adminErrorsMapFinal := make(map[string]AdminDataFinal)
 
@@ -362,18 +392,19 @@ func prepareAdminErrorsForFullMessage() map[string]AdminDataFinal {
 			),
 		}
 		adminErrorsMapFinal[service] = a
-
 	}
 	return adminErrorsMapFinal
-
 }
 
-// adminDataUnsync is an intermediate data structure between adminData and AdminDataFinal that translates the adminData.PushErrors sync.Map to a regular map[string]string
+// adminDataUnsync is an intermediate data structure between *adminData and AdminDataFinal that translates the adminData.PushErrors sync.Map
+// to a regular map[string]string
 type adminDataUnsync struct {
 	SetupErrors []string
 	PushErrors  map[string]string
 }
 
+// adminErrorsToAdminDataUnsync translates the accumulated adminErrors.errorsMap into a map[string]adminDataUnsync so that
+// we have easier access to the structure of the data
 func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
 	adminErrorsMap := make(map[string]*adminData)
 	adminErrorsMapUnsync := make(map[string]adminDataUnsync)

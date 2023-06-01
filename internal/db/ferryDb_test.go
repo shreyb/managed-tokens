@@ -13,6 +13,8 @@ import (
 	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
+// TODO Parametrize theses tests with t.Run() calls.  Also, remove databases using t.TempDir()
+
 // TestInsertUidsIntoTableFromFERRY checks that we can insert FERRY data into the ManagedTokensDatabase correctly
 func TestInsertUidsIntoTableFromFERRY(t *testing.T) {
 	type testCase struct {

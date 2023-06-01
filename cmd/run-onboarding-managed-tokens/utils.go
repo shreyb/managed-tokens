@@ -26,6 +26,29 @@ func onboardingUsage() {
 }
 
 // Functional options for initialization of serviceConfigs
+// TODO:  Split these so that we can define the functional options in the worker package, then handle the logic of actually figuring out the values here and plug
+// them in.  For example, for setCondorCreddHost:
+
+// func SetCondorCreddHost(condorCreddHost string) *worker.Config {
+// 	return func(c *worker.Config) {
+// 		c.CommandEnvironment.CondorCreddHost = condorCreddHost
+// 	}
+// }
+//
+// And then here,
+//
+// func getCondorCreddHostFromConfiguration(serviceConfigPath string) string {
+// 		addString := "_condor_CREDD_HOST="
+// 		overrideVar := serviceConfigPath + ".condorCreddHostOverride"
+// 		if viper.IsSet(overrideVar) {
+// 			addString = addString + viper.GetString(overrideVar)
+// 		} else {
+// 			addString = addString + viper.GetString("condorCreddHost")
+// 		}
+// 		return addString
+// }
+
+// This is a bit more code, but it's a bit clearer and more organized
 
 // setCondorCredHost sets the _condor_CREDD_HOST environment variable in the worker.Config's environment
 func setCondorCreddHost(serviceConfigPath string) func(c *worker.Config) error {

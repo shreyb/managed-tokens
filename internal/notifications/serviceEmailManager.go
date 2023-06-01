@@ -42,8 +42,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 
 	// Set up the various admin channels needed
 	adminChan := make(chan Notification)
-	adminErrors.writerCount.Add(1)
-	go adminErrorAdder(adminChan)
+	startAdminErrorAdder(adminChan)
 
 	// Start listening for new notifications
 	go func() {

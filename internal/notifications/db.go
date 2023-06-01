@@ -10,22 +10,28 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// errorCount is an integer that keeps track of whether its value was changed from when it was initially loaded
 type errorCount struct {
 	value   int
 	changed bool
 }
 
+// set sets the value of the errorCount and tells the errorCount that its value was changed form the initial loading.  This is the
+// preferred way of changing the value of the errorCount
 func (ec *errorCount) set(val int) {
 	ec.value = val
 	ec.changed = true
 }
 
+// serviceErrorCounts keeps track of the number of errors a given service has registered, both prior, and during the current run.
 type serviceErrorCounts struct {
-	setupErrors errorCount
-	pushErrors  map[string]errorCount
+	setupErrors errorCount // setupErrors is simply an errorCount keeping track of how many *setupErrors have been flagged for a particular service
+	// pushErrors is a map that keeps track of how many *pushErrors have been flagged for a particular service and node.
+	// The key to pushErrors should be a string indicating the node we are keeping a count for
+	pushErrors map[string]errorCount
 }
 
-// TODO Document this
+// setErrorCountsByService queries the db.ManagedTokensDatabase to load the prior errorCounts for a given service
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
@@ -95,6 +101,8 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 	return ec, true
 }
 
+// setupErrorCount is a type that encapsulates a service and the number of setupErrors registered for that service.  It implements db.SetupErrorCount
+// and thus can be used to store setupError counts into the ManagedTokensDatabase
 type setupErrorCount struct {
 	service string
 	count   int
@@ -103,6 +111,8 @@ type setupErrorCount struct {
 func (s *setupErrorCount) Service() string { return s.service }
 func (s *setupErrorCount) Count() int      { return s.count }
 
+// pushErrorCount is a type that encapsulates a service, node and the number of pushErrors registered for that service and node.  It implements
+// db.PushErrorCount and thus can be used to store pushError counts into the ManagedTokensDatabase
 type pushErrorCount struct {
 	service string
 	node    string
@@ -113,8 +123,14 @@ func (p *pushErrorCount) Service() string { return p.service }
 func (p *pushErrorCount) Node() string    { return p.node }
 func (p *pushErrorCount) Count() int      { return p.count }
 
-// TODO Document this
+// saveErrorCountsInDatabase stores the serviceErrorCounts into the ManagedTokensDatabase.  It will not store a value that is both zero
+// and unchanged as determined by the underlying errorCount objects in the passed in serviceErrorCounts
 func saveErrorCountsInDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
+	// Save the value to the database for the following cases:
+	// 1.  The value has been changed
+	// 2.  The value is non-zero, but unchanged.  This means there was no error registered for that errorCount, and thus the underlying
+	// issue can be assumed to be fixed.  Reset the value to 0, and store it.
+	// Otherwise, don't save the value (only true if the value is 0, and was not changed).
 	shouldStoreValue := func(e *errorCount) (bool, int) {
 		if e.changed {
 			return true, e.value
@@ -153,7 +169,8 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 	return nil
 }
 
-// TODO Document this.  Bool indicates if we should send a message or not
+// adjustErrorCountsByServiceAndDirectNotification takes a Notification, adjusts the applicable errorCount, and based on the current errorCount value
+// and the configured minimum threshhold for sending messages, will return whether or not that Notification should be flagged to be sent to the stakeholder
 func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *serviceErrorCounts, errorCountToSendMessage int) (sendNotification bool) {
 	adjustCount := func(count int) (newCount int, shouldSendNotification bool) {
 		// Increment count

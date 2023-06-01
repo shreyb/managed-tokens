@@ -12,6 +12,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// TODO Parametrize theses tests with t.Run() calls.  Also, remove databases using t.TempDir()
+
 // TestCantOpen makes sure that an invalid DB file location fails to get opened
 func TestCantOpen(t *testing.T) {
 	goodDbLocation := path.Join(os.DevNull, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
