@@ -342,7 +342,7 @@ func parseDefaultRoleFileTemplateFromConfig(c *Config) (string, error) {
 		return "", errors.New(msg)
 	}
 
-	// Execute tempalte
+	// Execute template
 	defaultRoleFileTemplate := template.Must(template.New("defaultRoleFileTemplate").Parse(templateString))
 	tmplArgs := *c
 	var b strings.Builder
