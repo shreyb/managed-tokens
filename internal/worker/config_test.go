@@ -2,6 +2,7 @@ package worker
 
 import (
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -95,15 +96,15 @@ func TestRegisterUnpingableNode(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		config := Config{}
+		config := Config{unPingableNodes: &unPingableNodes{sync.Map{}}}
 		for _, priorNode := range test.priorNodes {
-			config.unPingableNodes.nodes.Store(priorNode, struct{}{})
+			config.unPingableNodes.Store(priorNode, struct{}{})
 		}
 
 		config.RegisterUnpingableNode(test.nodeToRegister)
 
 		finalNodes := make([]string, 0)
-		config.unPingableNodes.nodes.Range(func(key, value any) bool {
+		config.unPingableNodes.Range(func(key, value any) bool {
 			if keyVal, ok := key.(string); ok {
 				finalNodes = append(finalNodes, keyVal)
 			}
@@ -146,9 +147,9 @@ func TestIsNodeUnpingable(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		config := Config{}
+		config := Config{unPingableNodes: &unPingableNodes{sync.Map{}}}
 		for _, priorNode := range test.priorNodes {
-			config.unPingableNodes.nodes.Store(priorNode, struct{}{})
+			config.unPingableNodes.Store(priorNode, struct{}{})
 		}
 
 		if result := config.IsNodeUnpingable(test.nodeToCheck); result != test.expectedResult {

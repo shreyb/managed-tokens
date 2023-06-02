@@ -14,9 +14,9 @@ import (
 	"github.com/shreyb/managed-tokens/internal/service"
 )
 
-// TODO Document this
+// unPingableNodes holds the set of nodes that do not respond to a ping request
 type unPingableNodes struct {
-	nodes sync.Map
+	sync.Map
 }
 
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
@@ -42,8 +42,7 @@ type Config struct {
 	// the bool value to make sure it's true
 	Extras map[string]any
 	environment.CommandEnvironment
-	// TODO Document this
-	unPingableNodes
+	*unPingableNodes // Pointer to an unPingableNodes object that indicates which configured nodes in Nodes do not respond to a ping request
 }
 
 // NewConfig takes the config information from the global file and creates an *Config object
@@ -72,6 +71,10 @@ func NewConfig(service service.Service, options ...func(*Config) error) (*Config
 			return &c, err
 		}
 	}
+
+	// Initialize our unPingableNodes field so we don't run into a nil pointer dereference panic later on
+	c.unPingableNodes = &unPingableNodes{sync.Map{}}
+
 	log.WithFields(log.Fields{
 		"experiment": c.Service.Experiment(),
 		"role":       c.Service.Role(),
@@ -87,13 +90,13 @@ func (c *Config) ServiceNameFromExperimentAndRole() string {
 	return c.Service.Experiment() + "_" + c.Service.Role()
 }
 
-// TODO Document this
+// RegisterUnpingableNode registers a node in the Config's unPingableNodes field
 func (c *Config) RegisterUnpingableNode(node string) {
-	c.unPingableNodes.nodes.Store(node, struct{}{})
+	c.unPingableNodes.Store(node, struct{}{})
 }
 
-// TODO Document this
+// IsNodeUnpingable checks the Config's unPingableNodes field to see if a node is registered there
 func (c *Config) IsNodeUnpingable(node string) bool {
-	_, ok := c.unPingableNodes.nodes.Load(node)
+	_, ok := c.unPingableNodes.Load(node)
 	return ok
 }
