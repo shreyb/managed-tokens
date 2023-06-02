@@ -33,6 +33,42 @@ type CommandEnvironment struct {
 	HtgettokenOpts string
 }
 
+func (c *CommandEnvironment) SetKrb5CCName(value string, isFile bool) {
+	var fileOrDir string
+	if isFile {
+		fileOrDir = "FILE:"
+	} else {
+		fileOrDir = "DIR:"
+	}
+	prefix := "KRB5CCNAME=" + fileOrDir
+	c.Krb5ccname = prefix + value
+}
+
+// TODO DOcument these
+func (c *CommandEnvironment) SetCondorCreddHost(value string) {
+	prefix := "_condor_CREDD_HOST="
+	c.Krb5ccname = prefix + value
+}
+func (c *CommandEnvironment) SetCondorCollectorHost(value string) {
+	prefix := "_condor_COLLECTOR_HOST="
+	c.CondorCollectorHost = prefix + value
+}
+func (c *CommandEnvironment) SetHtgettokenOpts(value string) {
+	prefix := "HTGETTOKENOPTS="
+	c.HtgettokenOpts = prefix + `\"` + value + `\"`
+}
+
+// TODO Document this
+func (c *CommandEnvironment) Copy() *CommandEnvironment {
+	newEnv := CommandEnvironment{
+		Krb5ccname:          c.Krb5ccname,
+		CondorCreddHost:     c.CondorCreddHost,
+		CondorCollectorHost: c.CondorCollectorHost,
+		HtgettokenOpts:      c.HtgettokenOpts,
+	}
+	return &newEnv
+}
+
 // ToMap translates the CommandEnvironment struct to a map[string]string with the keys named for the fields
 func (c *CommandEnvironment) ToMap() map[string]string {
 	return map[string]string{
