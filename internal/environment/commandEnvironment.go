@@ -6,6 +6,27 @@ import (
 	"strings"
 )
 
+// kerberos CCache types.  See https://web.mit.edu/kerberos/krb5-1.12/doc/basic/ccache_def.html
+type KerberosCCacheType int
+
+const (
+	api     KerberosCCacheType = iota // Unsupported on Linux - only on Windows
+	DIR                               // Indicates the location of a collection of caches
+	FILE                              // Indicates the location of a single cache
+	keyring                           // Unsupported by this library
+)
+
+func (k KerberosCCacheType) String() string {
+	switch k {
+	case DIR:
+		return "DIR:"
+	case FILE:
+		return "FILE:"
+	default:
+		return "unsupported kerberos cache type"
+	}
+}
+
 // TODO:  Maybe clean up CommandEnvironment so that it has a friendlier interface.  We can just
 // have the actual env var name be internal to the type, rather than the user needing to
 // know that.  I.e. You would say c := CommandEnvironment{Krb5ccname: "blahblah"}, and not need
@@ -33,14 +54,9 @@ type CommandEnvironment struct {
 	HtgettokenOpts string
 }
 
-func (c *CommandEnvironment) SetKrb5CCName(value string, isFile bool) {
-	var fileOrDir string
-	if isFile {
-		fileOrDir = "FILE:"
-	} else {
-		fileOrDir = "DIR:"
-	}
-	prefix := "KRB5CCNAME=" + fileOrDir
+func (c *CommandEnvironment) SetKrb5CCName(value string, t KerberosCCacheType) {
+	cacheType := t.String()
+	prefix := "KRB5CCNAME=" + cacheType
 	c.Krb5ccname = prefix + value
 }
 
