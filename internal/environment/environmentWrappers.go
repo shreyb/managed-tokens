@@ -12,7 +12,7 @@ import (
 // KerberosEnvironmentWrappedCommand takes an EnvironmentMapper, extracts the kerberos-related environment variables, and
 // returns an *exec.Cmd that has those variables in its environment
 func KerberosEnvironmentWrappedCommand(ctx context.Context, environ EnvironmentMapper, name string, arg ...string) *exec.Cmd {
-	envMapping := environ.ToEnvs()
+	envMapping := environ.toEnvs()
 	os.Unsetenv(envMapping["Krb5ccname"])
 
 	cmd := exec.CommandContext(ctx, name, arg...)
@@ -28,7 +28,7 @@ func KerberosEnvironmentWrappedCommand(ctx context.Context, environ EnvironmentM
 // EnvironmentWrappedCommand takes an EnvironmentMapper, extracts the environment variables, and returns an *exec.Cmd that has those
 // variables in its environment
 func EnvironmentWrappedCommand(ctx context.Context, environ EnvironmentMapper, name string, arg ...string) *exec.Cmd {
-	for _, val := range environ.ToEnvs() {
+	for _, val := range environ.toEnvs() {
 		os.Unsetenv(val)
 	}
 

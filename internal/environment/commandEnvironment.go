@@ -44,7 +44,7 @@ func (c *CommandEnvironment) ToMap() map[string]string {
 }
 
 // ToEnvs gives the map of the environment variable key for each field in the CommandEnvironment
-func (c *CommandEnvironment) ToEnvs() map[string]string {
+func (c *CommandEnvironment) toEnvs() map[string]string {
 	return map[string]string{
 		"Krb5ccname":          "KRB5CCNAME",
 		"CondorCreddHost":     "_condor_CREDD_HOST",
@@ -70,7 +70,7 @@ func (c *CommandEnvironment) ToValues() map[string]string {
 	mapC := c.ToMap()
 	m := make(map[string]string, len(mapC))
 	for key, envSetting := range mapC {
-		value := strings.TrimPrefix(envSetting, c.ToEnvs()[key]+"=")
+		value := strings.TrimPrefix(envSetting, c.toEnvs()[key]+"=")
 		m[key] = value
 	}
 	return m
@@ -89,6 +89,6 @@ func (c *CommandEnvironment) String() string {
 // EnvironmentMapper is an interface which can be used to get environment variable information for a command
 type EnvironmentMapper interface {
 	ToMap() map[string]string
-	ToEnvs() map[string]string
 	ToValues() map[string]string
+	toEnvs() map[string]string
 }

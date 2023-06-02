@@ -87,7 +87,7 @@ func TestCommandEnvironmentToEnvs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			m := tc.CommandEnvironment.ToEnvs()
+			m := tc.CommandEnvironment.toEnvs()
 			if !reflect.DeepEqual(m, tc.expectedResult) {
 				t.Errorf("Maps do not match.  Expected %s, got %s", tc.expectedResult, m)
 			}

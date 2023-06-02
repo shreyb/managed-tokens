@@ -22,7 +22,7 @@ func (t *testEnviron) ToMap() map[string]string {
 	return m
 }
 
-func (t *testEnviron) ToEnvs() map[string]string {
+func (t *testEnviron) toEnvs() map[string]string {
 	m := make(map[string]string)
 	m["Krb5ccname"] = "KRB5CCNAME"
 	m["key1"] = "KEY1"
@@ -46,7 +46,7 @@ func (b *badTestEnviron) ToMap() map[string]string {
 	return m
 }
 
-func (b *badTestEnviron) ToEnvs() map[string]string {
+func (b *badTestEnviron) toEnvs() map[string]string {
 	m := make(map[string]string)
 	m["key1"] = "KEY1"
 	m["key2"] = "KEY2"
