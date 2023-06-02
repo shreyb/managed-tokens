@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"os"
 	"path"
 	"testing"
 
@@ -32,36 +31,38 @@ func TestGetAllServices(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
+				// INSERT our test data
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec("INSERT INTO services (name) VALUES (?);", datum); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		// INSERT our test data
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec("INSERT INTO services (name) VALUES (?);", datum); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		services, err := m.GetAllServices(ctx)
-		if err != nil {
-			t.Errorf("Failure to obtain services for test %s: %s", test.description, err)
-		}
-		if !testutils.SlicesHaveSameElements(services, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, services)
-		}
+				// The test
+				ctx := context.Background()
+				services, err := m.GetAllServices(ctx)
+				if err != nil {
+					t.Errorf("Failure to obtain services for test %s: %s", test.description, err)
+				}
+				if !testutils.SlicesHaveSameElements(services, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, services)
+				}
+			},
+		)
 	}
-
 }
 
 // TestGetAllNodes checks that GetAllNodes correctly retrieves nodes from the ManagedTokensDatabase
@@ -81,36 +82,38 @@ func TestGetAllNodes(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
+				// INSERT our test data
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		// INSERT our test data
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		nodes, err := m.GetAllNodes(ctx)
-		if err != nil {
-			t.Errorf("Failure to obtain nodes for test %s: %s", test.description, err)
-		}
-		if !testutils.SlicesHaveSameElements(nodes, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, nodes)
-		}
+				// The test
+				ctx := context.Background()
+				nodes, err := m.GetAllNodes(ctx)
+				if err != nil {
+					t.Errorf("Failure to obtain nodes for test %s: %s", test.description, err)
+				}
+				if !testutils.SlicesHaveSameElements(nodes, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, nodes)
+				}
+			},
+		)
 	}
-
 }
 
 // TestGetNamedDimensionStringValues checks that getNamedDimentionStringValues returns the expected result or error depending on
@@ -149,36 +152,38 @@ func TestGetNamedDimensionStringValues(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
+				// INSERT our test data
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		// INSERT our test data
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		data, err := m.getNamedDimensionStringValues(ctx, test.sqlGetStatement)
-		if !errors.Is(err, test.expectedErr) {
-			t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
-		}
-		if err == nil && !testutils.SlicesHaveSameElements(data, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
-		}
+				// The test
+				ctx := context.Background()
+				data, err := m.getNamedDimensionStringValues(ctx, test.sqlGetStatement)
+				if !errors.Is(err, test.expectedErr) {
+					t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
+				}
+				if err == nil && !testutils.SlicesHaveSameElements(data, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
+				}
+			},
+		)
 	}
-
 }
 
 // TestGetSetupErrorsInfo checks that GetSetupErrorsInfo properly retrieves setupError counts from the database
@@ -204,62 +209,66 @@ func TestGetSetupErrorsInfo(t *testing.T) {
 			nil,
 		},
 	}
+
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
-
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
-
-		// INSERT our test data
-		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertSetupErrors := `
-		INSERT INTO setup_errors(service_id, count)
-		SELECT
-			(SELECT id FROM services WHERE services.name = ?) AS service_id,
-			? AS count
-		;
-		`
-
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		data, err := m.GetSetupErrorsInfo(ctx)
-		if err != nil {
-			if !errors.Is(err, test.expectedErr) {
-				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
-			} else {
-				continue
-			}
-			t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
-		}
-
-		retrievedData := make([]setupErrorCount, 0, len(data))
-		for _, datum := range data {
-			val, ok := datum.(*setupErrorCount)
-			if ok {
-				if val != nil {
-					retrievedData = append(retrievedData, *val)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
 				}
-			}
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				defer m.Close()
+
+				// INSERT our test data
+				insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertSetupErrors := `
+				INSERT INTO setup_errors(service_id, count)
+				SELECT
+					(SELECT id FROM services WHERE services.name = ?) AS service_id,
+					? AS count
+				;
+				`
+
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
+
+				// The test
+				ctx := context.Background()
+				data, err := m.GetSetupErrorsInfo(ctx)
+				if err != nil {
+					if !errors.Is(err, test.expectedErr) {
+						t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+					} else {
+						return
+					}
+					t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
+				}
+
+				retrievedData := make([]setupErrorCount, 0, len(data))
+				for _, datum := range data {
+					val, ok := datum.(*setupErrorCount)
+					if ok {
+						if val != nil {
+							retrievedData = append(retrievedData, *val)
+						}
+					}
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
@@ -292,60 +301,64 @@ func TestGetSetupErrorsInfoByService(t *testing.T) {
 			nil,
 		},
 	}
+
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
-
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
-
-		// INSERT our test data
-		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertSetupErrors := `
-		INSERT INTO setup_errors(service_id, count)
-		SELECT
-			(SELECT id FROM services WHERE services.name = ?) AS service_id,
-			? AS count
-		;
-		`
-
-		for _, datum := range test.testData {
-			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		datum, err := m.GetSetupErrorsInfoByService(ctx, test.serviceToQuery)
-		if err != nil {
-			if !errors.Is(err, test.expectedErr) {
-				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
-			} else {
-				continue
-			}
-			t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
-		}
-
-		val, ok := datum.(*setupErrorCount)
-		if ok {
-			if val != nil {
-				if val.count != test.expectedCount {
-					t.Errorf("Got wrong count from test %s.  Expected %d, got %d", test.description, test.expectedCount, val.count)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
 				}
-			}
-		} else {
-			t.Errorf("Got wrong type from test %s.  Expected *setupErrorCount, got %T", test.description, val)
-		}
+				defer m.Close()
+
+				// INSERT our test data
+				insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertSetupErrors := `
+				INSERT INTO setup_errors(service_id, count)
+				SELECT
+					(SELECT id FROM services WHERE services.name = ?) AS service_id,
+					? AS count
+				;
+				`
+
+				for _, datum := range test.testData {
+					if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
+
+				// The test
+				ctx := context.Background()
+				datum, err := m.GetSetupErrorsInfoByService(ctx, test.serviceToQuery)
+				if err != nil {
+					if !errors.Is(err, test.expectedErr) {
+						t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+					} else {
+						return
+					}
+					t.Errorf("Failure to obtain setup errors data for test %s: %s", test.description, err)
+				}
+
+				val, ok := datum.(*setupErrorCount)
+				if ok {
+					if val != nil {
+						if val.count != test.expectedCount {
+							t.Errorf("Got wrong count from test %s.  Expected %d, got %d", test.description, test.expectedCount, val.count)
+						}
+					}
+				} else {
+					t.Errorf("Got wrong type from test %s.  Expected *setupErrorCount, got %T", test.description, val)
+				}
+			},
+		)
 	}
 }
 
@@ -373,67 +386,71 @@ func TestGetPushErrorsInfo(t *testing.T) {
 			nil,
 		},
 	}
+
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
-
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
-
-		// INSERT our test data
-		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertPushErrors := `
-		INSERT INTO push_errors(service_id, node_id, count)
-		SELECT
-			(SELECT id FROM services WHERE services.name = ?) AS service_id,
-			(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
-			? AS count
-		;
-		`
-
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		data, err := m.GetPushErrorsInfo(ctx)
-		if err != nil {
-			if !errors.Is(err, test.expectedErr) {
-				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
-			} else {
-				continue
-			}
-			t.Errorf("Failure to obtain push errors data for test %s: %s", test.description, err)
-		}
-		retrievedData := make([]pushErrorCount, 0, len(data))
-		for _, datum := range data {
-			val, ok := datum.(*pushErrorCount)
-			if ok {
-				if val != nil {
-					retrievedData = append(retrievedData, *val)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
 				}
-			}
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				defer m.Close()
+
+				// INSERT our test data
+				insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertPushErrors := `
+				INSERT INTO push_errors(service_id, node_id, count)
+				SELECT
+					(SELECT id FROM services WHERE services.name = ?) AS service_id,
+					(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
+					? AS count
+				;
+				`
+
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
+
+				// The test
+				ctx := context.Background()
+				data, err := m.GetPushErrorsInfo(ctx)
+				if err != nil {
+					if !errors.Is(err, test.expectedErr) {
+						t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+					} else {
+						return
+					}
+					t.Errorf("Failure to obtain push errors data for test %s: %s", test.description, err)
+				}
+				retrievedData := make([]pushErrorCount, 0, len(data))
+				for _, datum := range data {
+					val, ok := datum.(*pushErrorCount)
+					if ok {
+						if val != nil {
+							retrievedData = append(retrievedData, *val)
+						}
+					}
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
@@ -484,67 +501,71 @@ func TestGetPushErrorsByServiceInfo(t *testing.T) {
 			nil,
 		},
 	}
+
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
-
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
-
-		// INSERT our test data
-		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertPushErrors := `
-		INSERT INTO push_errors(service_id, node_id, count)
-		SELECT
-			(SELECT id FROM services WHERE services.name = ?) AS service_id,
-			(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
-			? AS count
-		;
-		`
-
-		for _, datum := range test.testData {
-			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
-
-		// The test
-		ctx := context.Background()
-		data, err := m.GetPushErrorsInfoByService(ctx, test.serviceToQuery)
-		if err != nil {
-			if !errors.Is(err, test.expectedErr) {
-				t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
-			} else {
-				continue
-			}
-			t.Errorf("Failure to obtain push errors data for test %s: %s", test.description, err)
-		}
-		retrievedData := make([]pushErrorCount, 0, len(data))
-		for _, datum := range data {
-			val, ok := datum.(*pushErrorCount)
-			if ok {
-				if val != nil {
-					retrievedData = append(retrievedData, *val)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
 				}
-			}
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				defer m.Close()
+
+				// INSERT our test data
+				insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertPushErrors := `
+				INSERT INTO push_errors(service_id, node_id, count)
+				SELECT
+					(SELECT id FROM services WHERE services.name = ?) AS service_id,
+					(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
+					? AS count
+				;
+				`
+
+				for _, datum := range test.testData {
+					if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
+
+				// The test
+				ctx := context.Background()
+				data, err := m.GetPushErrorsInfoByService(ctx, test.serviceToQuery)
+				if err != nil {
+					if !errors.Is(err, test.expectedErr) {
+						t.Errorf("Got wrong error from test %s.  Expected %s, got %s", test.description, test.expectedErr, err)
+					} else {
+						return
+					}
+					t.Errorf("Failure to obtain push errors data for test %s: %s", test.description, err)
+				}
+				retrievedData := make([]pushErrorCount, 0, len(data))
+				for _, datum := range data {
+					val, ok := datum.(*pushErrorCount)
+					if ok {
+						if val != nil {
+							retrievedData = append(retrievedData, *val)
+						}
+					}
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
@@ -584,47 +605,50 @@ func TestUpdateServices(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
+				// INSERT our test data
+				for _, datum := range test.originalData {
+					if _, err := m.db.Exec("INSERT INTO services (name) VALUES (?);", datum); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		// INSERT our test data
-		for _, datum := range test.originalData {
-			if _, err := m.db.Exec("INSERT INTO services (name) VALUES (?);", datum); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
+				// The test
+				ctx := context.Background()
+				if err = m.UpdateServices(ctx, test.newData); err != nil {
+					t.Errorf("Could not update services for test %s: %s", test.description, err)
+				}
 
-		// The test
-		ctx := context.Background()
-		if err = m.UpdateServices(ctx, test.newData); err != nil {
-			t.Errorf("Could not update services for test %s: %s", test.description, err)
-		}
+				rows, err := m.db.Query("SELECT name FROM services;")
+				if err != nil {
+					t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
+				}
 
-		rows, err := m.db.Query("SELECT name FROM services;")
-		if err != nil {
-			t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
-		}
-
-		retrievedData := make([]string, 0, len(test.expectedData))
-		for rows.Next() {
-			var datum string
-			if err := rows.Scan(&datum); err != nil {
-				t.Errorf("Error scanning row for test %s: %s", test.description, err)
-			}
-			retrievedData = append(retrievedData, datum)
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				retrievedData := make([]string, 0, len(test.expectedData))
+				for rows.Next() {
+					var datum string
+					if err := rows.Scan(&datum); err != nil {
+						t.Errorf("Error scanning row for test %s: %s", test.description, err)
+					}
+					retrievedData = append(retrievedData, datum)
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
@@ -665,47 +689,50 @@ func TestUpdateNodes(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
+				// INSERT our test data
+				for _, datum := range test.originalData {
+					if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		// INSERT our test data
-		for _, datum := range test.originalData {
-			if _, err := m.db.Exec("INSERT INTO nodes (name) VALUES (?);", datum); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
+				// The test
+				ctx := context.Background()
+				if err = m.UpdateNodes(ctx, test.newData); err != nil {
+					t.Errorf("Could not update nodes for test %s: %s", test.description, err)
+				}
 
-		// The test
-		ctx := context.Background()
-		if err = m.UpdateNodes(ctx, test.newData); err != nil {
-			t.Errorf("Could not update nodes for test %s: %s", test.description, err)
-		}
+				rows, err := m.db.Query("SELECT name FROM nodes;")
+				if err != nil {
+					t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
+				}
 
-		rows, err := m.db.Query("SELECT name FROM nodes;")
-		if err != nil {
-			t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
-		}
-
-		retrievedData := make([]string, 0, len(test.expectedData))
-		for rows.Next() {
-			var datum string
-			if err := rows.Scan(&datum); err != nil {
-				t.Errorf("Error scanning row for test %s: %s", test.description, err)
-			}
-			retrievedData = append(retrievedData, datum)
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				retrievedData := make([]string, 0, len(test.expectedData))
+				for rows.Next() {
+					var datum string
+					if err := rows.Scan(&datum); err != nil {
+						t.Errorf("Error scanning row for test %s: %s", test.description, err)
+					}
+					retrievedData = append(retrievedData, datum)
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
@@ -775,20 +802,21 @@ func TestUpdateSetupErrorsTable(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
-
-		// INSERT our test data
-		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertSetupErrors := `
+				// INSERT our test data
+				insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertSetupErrors := `
 				INSERT INTO setup_errors(service_id, count)
 				SELECT
 					(SELECT id FROM services WHERE services.name = ?) AS service_id,
@@ -796,53 +824,55 @@ func TestUpdateSetupErrorsTable(t *testing.T) {
 				;
 				`
 
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertSetupErrors, datum.service, datum.count); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		newData := make([]SetupErrorCount, 0, len(test.newData))
-		for _, datum := range test.newData {
-			newData = append(newData, &datum)
-		}
-		// The test
-		ctx := context.Background()
-		if err = m.UpdateSetupErrorsTable(ctx, newData); err != nil {
-			t.Errorf("Could not update setup_errors table for test %s: %s", test.description, err)
-		}
+				newData := make([]SetupErrorCount, 0, len(test.newData))
+				for _, datum := range test.newData {
+					newData = append(newData, &datum)
+				}
+				// The test
+				ctx := context.Background()
+				if err = m.UpdateSetupErrorsTable(ctx, newData); err != nil {
+					t.Errorf("Could not update setup_errors table for test %s: %s", test.description, err)
+				}
 
-		checkQuery := `
-		SELECT
-			services.name,
-			setup_errors.count
-		FROM
-			setup_errors
-			INNER JOIN services ON services.id = setup_errors.service_id
-		;
-		`
-		rows, err := m.db.Query(checkQuery)
-		if err != nil {
-			t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
-		}
+				checkQuery := `
+				SELECT
+					services.name,
+					setup_errors.count
+				FROM
+					setup_errors
+					INNER JOIN services ON services.id = setup_errors.service_id
+				;
+				`
+				rows, err := m.db.Query(checkQuery)
+				if err != nil {
+					t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
+				}
 
-		retrievedData := make([]setupErrorCount, 0, len(test.expectedData))
-		for rows.Next() {
-			var serviceName string
-			var count int
-			if err := rows.Scan(&serviceName, &count); err != nil {
-				t.Errorf("Error scanning row for test %s: %s", test.description, err)
-			}
-			retrievedData = append(retrievedData, setupErrorCount{serviceName, count})
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				retrievedData := make([]setupErrorCount, 0, len(test.expectedData))
+				for rows.Next() {
+					var serviceName string
+					var count int
+					if err := rows.Scan(&serviceName, &count); err != nil {
+						t.Errorf("Error scanning row for test %s: %s", test.description, err)
+					}
+					retrievedData = append(retrievedData, setupErrorCount{serviceName, count})
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
@@ -914,81 +944,85 @@ func TestUpdatePushErrorsTable(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+		t.Run(test.description,
+			func(t *testing.T) {
 
-		m, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-			return
-		}
-		defer m.Close()
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+					return
+				}
+				defer m.Close()
 
-		// INSERT our test data
-		insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
-		insertPushErrors := `
-		INSERT INTO push_errors(service_id, node_id, count)
-		SELECT
-			(SELECT id FROM services WHERE services.name = ?) AS service_id,
-			(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
-			? AS count
-		;
-		`
-		for _, datum := range test.expectedData {
-			if _, err := m.db.Exec(insertServices, datum.service); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-			if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
-				t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
-				return
-			}
-		}
+				// INSERT our test data
+				insertServices := "INSERT INTO services(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertNodes := "INSERT INTO nodes(name) VALUES (?) ON CONFLICT(name) DO NOTHING;"
+				insertPushErrors := `
+				INSERT INTO push_errors(service_id, node_id, count)
+				SELECT
+					(SELECT id FROM services WHERE services.name = ?) AS service_id,
+					(SELECT id FROM nodes WHERE nodes.name = ?) AS node_id,
+					? AS count
+				;
+				`
+				for _, datum := range test.expectedData {
+					if _, err := m.db.Exec(insertServices, datum.service); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertNodes, datum.node); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+					if _, err := m.db.Exec(insertPushErrors, datum.service, datum.node, datum.count); err != nil {
+						t.Errorf("Could not insert test data into database for test %s: %s", test.description, err)
+						return
+					}
+				}
 
-		newData := make([]PushErrorCount, 0, len(test.newData))
-		for _, datum := range test.newData {
-			newData = append(newData, &datum)
-		}
-		// The test
-		ctx := context.Background()
-		if err = m.UpdatePushErrorsTable(ctx, newData); err != nil {
-			t.Errorf("Could not update push_errors table for test %s: %s", test.description, err)
-		}
+				newData := make([]PushErrorCount, 0, len(test.newData))
+				for _, datum := range test.newData {
+					newData = append(newData, &datum)
+				}
+				// The test
+				ctx := context.Background()
+				if err = m.UpdatePushErrorsTable(ctx, newData); err != nil {
+					t.Errorf("Could not update push_errors table for test %s: %s", test.description, err)
+				}
 
-		checkQuery := `
-		SELECT
-			services.name,
-			nodes.name,
-			push_errors.count
-		FROM
-			push_errors
-			INNER JOIN services ON services.id = push_errors.service_id
-			INNER JOIN nodes ON nodes.id = push_errors.node_id
-		;
-		`
-		rows, err := m.db.Query(checkQuery)
-		if err != nil {
-			t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
-		}
+				checkQuery := `
+				SELECT
+					services.name,
+					nodes.name,
+					push_errors.count
+				FROM
+					push_errors
+					INNER JOIN services ON services.id = push_errors.service_id
+					INNER JOIN nodes ON nodes.id = push_errors.node_id
+				;
+				`
+				rows, err := m.db.Query(checkQuery)
+				if err != nil {
+					t.Errorf("Could not retrieve rows from database for test %s: %s", test.description, err)
+				}
 
-		retrievedData := make([]pushErrorCount, 0, len(test.expectedData))
-		for rows.Next() {
-			var serviceName string
-			var nodeName string
-			var count int
-			if err := rows.Scan(&serviceName, &nodeName, &count); err != nil {
-				t.Errorf("Error scanning row for test %s: %s", test.description, err)
-			}
-			retrievedData = append(retrievedData, pushErrorCount{serviceName, nodeName, count})
-		}
-		if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
-			t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
-		}
+				retrievedData := make([]pushErrorCount, 0, len(test.expectedData))
+				for rows.Next() {
+					var serviceName string
+					var nodeName string
+					var count int
+					if err := rows.Scan(&serviceName, &nodeName, &count); err != nil {
+						t.Errorf("Error scanning row for test %s: %s", test.description, err)
+					}
+					retrievedData = append(retrievedData, pushErrorCount{serviceName, nodeName, count})
+				}
+				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
+				}
+			},
+		)
 	}
 }

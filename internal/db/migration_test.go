@@ -12,8 +12,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// TODO Parametrize theses tests with t.Run() calls.  Also, remove databases using t.TempDir()
-
 // TestCantOpen makes sure that an invalid DB file location fails to get opened
 func TestCantOpen(t *testing.T) {
 	goodDbLocation := path.Join(os.DevNull, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
@@ -39,7 +37,7 @@ func TestInitialize(t *testing.T) {
 	testCases := []testCase{
 		{
 			"Valid file location",
-			path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000))),
+			path.Join(t.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000))),
 			nil,
 		},
 		{
@@ -50,34 +48,37 @@ func TestInitialize(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		defer os.Remove(test.filename)
-		m := &ManagedTokensDatabase{filename: test.filename}
-		defer m.Close()
+		t.Run(test.description,
+			func(t *testing.T) {
+				m := &ManagedTokensDatabase{filename: test.filename}
+				defer m.Close()
 
-		err := m.initialize()
-		if test.expectedErr == nil {
-			if err != nil {
-				t.Errorf("Expected nil error from initializing in test %s.  Got %s", test.description, err)
-			}
-		} else {
-			var e1 *databaseOpenError
-			var e2 *databaseCreateError
-			var e3 *databaseMigrateError
-			switch {
-			case errors.As(test.expectedErr, &e1):
-				if !errors.As(err, &e1) {
-					t.Errorf("Got wrong error type.  Expected %T, got %T", e1, err)
+				err := m.initialize()
+				if test.expectedErr == nil {
+					if err != nil {
+						t.Errorf("Expected nil error from initializing in test %s.  Got %s", test.description, err)
+					}
+				} else {
+					var e1 *databaseOpenError
+					var e2 *databaseCreateError
+					var e3 *databaseMigrateError
+					switch {
+					case errors.As(test.expectedErr, &e1):
+						if !errors.As(err, &e1) {
+							t.Errorf("Got wrong error type.  Expected %T, got %T", e1, err)
+						}
+					case errors.As(test.expectedErr, &e2):
+						if !errors.As(err, &e2) {
+							t.Errorf("Got wrong error type.  Expected %T, got %T", e2, err)
+						}
+					case errors.As(test.expectedErr, &e3):
+						if !errors.As(err, &e3) {
+							t.Errorf("Got wrong error type.  Expected %T, got %T", e3, err)
+						}
+					}
 				}
-			case errors.As(test.expectedErr, &e2):
-				if !errors.As(err, &e2) {
-					t.Errorf("Got wrong error type.  Expected %T, got %T", e2, err)
-				}
-			case errors.As(test.expectedErr, &e3):
-				if !errors.As(err, &e3) {
-					t.Errorf("Got wrong error type.  Expected %T, got %T", e3, err)
-				}
-			}
-		}
+			},
+		)
 	}
 }
 
@@ -85,15 +86,12 @@ func TestInitialize(t *testing.T) {
 // leave the database alone
 func TestMigrationFromHigherSchemaVersions(t *testing.T) {
 	// Check user version by opening a DB, seeing if we can mock that it's on lower, higher, and correct versions
-	m, err := createAndOpenTestDatabaseWithApplicationId()
+	m, err := createAndOpenTestDatabaseWithApplicationId(t.TempDir())
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	defer func() {
-		m.db.Close()
-		os.Remove(m.filename)
-	}()
+	defer m.db.Close()
 
 	// Higher version than schemaVersion - so the schema should remain empty
 	higherVersion := schemaVersion + 1
@@ -115,15 +113,12 @@ func TestMigrationFromHigherSchemaVersions(t *testing.T) {
 // migrate the database to the current schemaVersion
 func TestMigrationFromLowerSchemaVersion(t *testing.T) {
 	// Check user version by opening a DB, seeing if we can mock that it's on lower, higher, and correct versions
-	m, err := createAndOpenTestDatabaseWithApplicationId()
+	m, err := createAndOpenTestDatabaseWithApplicationId(t.TempDir())
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	defer func() {
-		m.db.Close()
-		os.Remove(m.filename)
-	}()
+	defer m.db.Close()
 	// Lower version than schemaVersion - so our test DB should match the migrations
 	lowerVersion := schemaVersion - 1
 	msg := "error running test where the database version number is lower than the schemaVersion"
@@ -169,29 +164,34 @@ func TestMigrate(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		m, err := createAndOpenTestDatabaseWithApplicationId()
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		defer func() {
-			m.db.Close()
-			os.Remove(m.filename)
-		}()
-
-		err = m.migrate(test.from, test.to)
-		if test.expectedErr == nil {
-			if err != nil {
-				t.Errorf("Expected nil error for test %s.  Got %s", test.description, err)
-			}
-		} else {
-			var e1 *databaseMigrateError
-			if errors.As(test.expectedErr, &e1) {
-				if !errors.As(err, &e1) {
-					t.Errorf("Got wrong type of error for test %s.  Expected %T, got %T", test.description, e1, err)
+		t.Run(test.description,
+			func(t *testing.T) {
+				m, err := createAndOpenTestDatabaseWithApplicationId(tempDir)
+				if err != nil {
+					t.Error(err)
+					return
 				}
-			}
-		}
+				defer func() {
+					m.db.Close()
+					os.Remove(m.filename)
+				}()
+
+				err = m.migrate(test.from, test.to)
+				if test.expectedErr == nil {
+					if err != nil {
+						t.Errorf("Expected nil error for test %s.  Got %s", test.description, err)
+					}
+				} else {
+					var e1 *databaseMigrateError
+					if errors.As(test.expectedErr, &e1) {
+						if !errors.As(err, &e1) {
+							t.Errorf("Got wrong type of error for test %s.  Expected %T, got %T", test.description, e1, err)
+						}
+					}
+				}
+			},
+		)
 	}
 }

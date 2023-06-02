@@ -14,12 +14,10 @@ import (
 	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
-// TODO Parametrize theses tests with t.Run() calls.  Also, remove databases using t.TempDir()
-
 // TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase
 func TestOpenOrCreateDatabase(t *testing.T) {
-	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
+	tempDir := t.TempDir()
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 
 	// Test that we can create a new db at a new location
 	func() {
@@ -44,8 +42,8 @@ func TestOpenOrCreateDatabase(t *testing.T) {
 
 // TestCheckDatabaseBadApplicationId checks that if we open a database with the wrong ApplicationId, we get the correct error type
 func TestCheckDatabaseBadApplicationId(t *testing.T) {
-	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
+	tempDir := t.TempDir()
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	m := &ManagedTokensDatabase{
 		filename: dbLocation,
 	}
@@ -73,17 +71,6 @@ func TestCheckDatabaseBadApplicationId(t *testing.T) {
 // TestGetValuesTransactionRunner inserts values into a test database table and makes sure that getValuesTransactionRunner properly
 // returns those values
 func TestGetValuesTransactionRunner(t *testing.T) {
-	// Create fake DB, check that this func works
-	m, err := createAndOpenTestDatabaseWithApplicationId()
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	defer func() {
-		m.db.Close()
-		os.Remove(m.filename)
-	}()
-
 	// Set up test data
 	type expectedData struct {
 		id       int
@@ -91,20 +78,20 @@ func TestGetValuesTransactionRunner(t *testing.T) {
 	}
 	type testCase struct {
 		description string
-		insertFunc  func(id int, fakeName string) error
+		insertFunc  func(id int, fakeName string, m *ManagedTokensDatabase) error
 		expectedData
 	}
 
 	testCases := []testCase{
 		{
 			"No data inserted",
-			func(id int, fakeName string) error { return nil },
+			func(id int, fakeName string, m *ManagedTokensDatabase) error { return nil },
 			expectedData{},
 		},
 		{
 			"One row of data inserted",
-			func(id int, fakeName string) error {
-				_, err = m.db.Exec("INSERT INTO test_table VALUES (?, ?)", id, fakeName)
+			func(id int, fakeName string, m *ManagedTokensDatabase) error {
+				_, err := m.db.Exec("INSERT INTO test_table VALUES (?, ?)", id, fakeName)
 				return err
 			},
 			expectedData{
@@ -113,48 +100,59 @@ func TestGetValuesTransactionRunner(t *testing.T) {
 			},
 		},
 	}
+
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		if _, err = m.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, fake_name STRING NOT NULL)"); err != nil {
-			t.Error("Could not create table for TestGetValuesTransactionRunner test")
-			return
-		}
-		// Insert our test data
-		if err = test.insertFunc(test.expectedData.id, test.expectedData.fakeName); err != nil {
-			t.Errorf("Failed to run insert func for TestGetValuesTransactionRunner: %s: %s", test.description, err)
-			return
-		}
+		t.Run(test.description,
+			func(t *testing.T) {
+				m, err := createAndOpenTestDatabaseWithApplicationId(tempDir)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer m.db.Close()
+				if _, err = m.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, fake_name STRING NOT NULL)"); err != nil {
+					t.Error("Could not create table for TestGetValuesTransactionRunner test")
+					return
+				}
+				// Insert our test data
+				if err = test.insertFunc(test.expectedData.id, test.expectedData.fakeName, m); err != nil {
+					t.Errorf("Failed to run insert func for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+					return
+				}
 
-		// The actual test
-		ctx := context.Background()
-		testQuery := "SELECT id, fake_name FROM test_table"
-		data, err := getValuesTransactionRunner(ctx, m.db, testQuery)
-		if err != nil {
-			t.Errorf("Could not obtain values from database for TestGetValuesTransactionRunner: %s: %s", test.description, err)
-			return
-		}
-		var noExpectedData expectedData
-		if test.expectedData == noExpectedData {
-			if len(data) != 0 {
-				t.Errorf("Should not have gotten any data back.  Got %v", data)
-			}
-			return
-		}
-		if dataId, ok := data[0][0].(int64); !ok {
-			t.Errorf("Got wrong data type for id value.  Expected int, got %T", dataId)
-		} else {
-			if int(dataId) != test.expectedData.id {
-				t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", test.expectedData.id, dataId)
-			}
-		}
-		if dataFakeName, ok := data[0][1].(string); !ok {
-			t.Errorf("Got wrong data type for fake_name value.  Expected string, got %T", dataFakeName)
-		} else {
-			if dataFakeName != test.expectedData.fakeName {
-				t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", test.expectedData.fakeName, dataFakeName)
-			}
-		}
+				// The actual test
+				ctx := context.Background()
+				testQuery := "SELECT id, fake_name FROM test_table"
+				data, err := getValuesTransactionRunner(ctx, m.db, testQuery)
+				if err != nil {
+					t.Errorf("Could not obtain values from database for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+					return
+				}
+				var noExpectedData expectedData
+				if test.expectedData == noExpectedData {
+					if len(data) != 0 {
+						t.Errorf("Should not have gotten any data back.  Got %v", data)
+					}
+					return
+				}
+				if dataId, ok := data[0][0].(int64); !ok {
+					t.Errorf("Got wrong data type for id value.  Expected int, got %T", dataId)
+				} else {
+					if int(dataId) != test.expectedData.id {
+						t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", test.expectedData.id, dataId)
+					}
+				}
+				if dataFakeName, ok := data[0][1].(string); !ok {
+					t.Errorf("Got wrong data type for fake_name value.  Expected string, got %T", dataFakeName)
+				} else {
+					if dataFakeName != test.expectedData.fakeName {
+						t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", test.expectedData.fakeName, dataFakeName)
+					}
+				}
+			},
+		)
 	}
-
 }
 
 type fakeDatum struct {
@@ -167,7 +165,8 @@ func (f *fakeDatum) values() []any { return []any{f.id, f.fakeName} }
 // TestInsertValuesTransactionRunner checks that insertValuesTransactionRunner properly inserts values into a test database
 func TestInsertValuesTransactionRunner(t *testing.T) {
 	// Create fake DB, try to insert values, check that we get the right values back
-	m, err := createAndOpenTestDatabaseWithApplicationId()
+	tempDir := t.TempDir()
+	m, err := createAndOpenTestDatabaseWithApplicationId(tempDir)
 	if err != nil {
 		t.Error(err)
 		return
@@ -255,8 +254,8 @@ func standardizeSpaces(s string) string {
 
 // createAndOpenTestDatabaseWithApplicationId creates a test ManagedTokensDatabase object at a random location in os.TempDir,
 // sets the application ID, and returns a pointer to the ManagedTokensDatabase, along with any error in creating that object
-func createAndOpenTestDatabaseWithApplicationId() (*ManagedTokensDatabase, error) {
-	dbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+func createAndOpenTestDatabaseWithApplicationId(tempDir string) (*ManagedTokensDatabase, error) {
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	m := &ManagedTokensDatabase{
 		filename: dbLocation,
 	}

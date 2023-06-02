@@ -6,14 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"os"
 	"path"
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/testutils"
 )
-
-// TODO Parametrize theses tests with t.Run() calls.  Also, remove databases using t.TempDir()
 
 // TestInsertUidsIntoTableFromFERRY checks that we can insert FERRY data into the ManagedTokensDatabase correctly
 func TestInsertUidsIntoTableFromFERRY(t *testing.T) {
@@ -42,12 +39,12 @@ func TestInsertUidsIntoTableFromFERRY(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-				defer os.Remove(goodDbLocation)
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 
 				goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
 				if err != nil {
@@ -110,41 +107,42 @@ func TestConfirmUIDsInTable(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for _, test := range testCases {
+		t.Run(test.description,
+			func(t *testing.T) {
+				goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
+				if err != nil {
+					t.Errorf("Could not create new database, %s", err)
+				}
+				defer goodTestDb.Close()
 
-		goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-		defer os.Remove(goodDbLocation)
+				for _, datum := range test.fakeData {
+					if _, err := goodTestDb.db.Exec("INSERT into uids (username, uid) VALUES (?,?)", datum.username, datum.uid); err != nil {
+						t.Errorf("Could not insert test data into database")
+					}
+				}
 
-		goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
-		if err != nil {
-			t.Errorf("Could not create new database, %s", err)
-		}
-		defer goodTestDb.Close()
+				retrievedData, err := goodTestDb.ConfirmUIDsInTable(context.Background())
+				if err != nil {
+					t.Error("Could not retrieve fake data from test database")
+				}
 
-		for _, datum := range test.fakeData {
-			if _, err := goodTestDb.db.Exec("INSERT into uids (username, uid) VALUES (?,?)", datum.username, datum.uid); err != nil {
-				t.Errorf("Could not insert test data into database")
-			}
-		}
-
-		retrievedData, err := goodTestDb.ConfirmUIDsInTable(context.Background())
-		if err != nil {
-			t.Error("Could not retrieve fake data from test database")
-		}
-
-		if !testutils.SlicesHaveSameElements(
-			ferryUIDDatumInterfaceSlicetoStructSlice(retrievedData),
-			test.fakeData,
-		) {
-			t.Errorf("Expected data and retrieved data do not match.  Expected %v, got %v", test.fakeData, retrievedData)
-		}
+				if !testutils.SlicesHaveSameElements(
+					ferryUIDDatumInterfaceSlicetoStructSlice(retrievedData),
+					test.fakeData,
+				) {
+					t.Errorf("Expected data and retrieved data do not match.  Expected %v, got %v", test.fakeData, retrievedData)
+				}
+			},
+		)
 	}
 }
 
 // TestGetUIDsByUsername checks that we can retrieve the proper UID given a particular username.
 // If we give a user that does not exist, we should get 0 as the result, and an error
 func TestGetUIDsByUsername(t *testing.T) {
-
 	type testCase struct {
 		description   string
 		testUsername  string
@@ -178,9 +176,7 @@ func TestGetUIDsByUsername(t *testing.T) {
 		},
 	}
 
-	goodDbLocation := path.Join(os.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(goodDbLocation)
-
+	goodDbLocation := path.Join(t.TempDir(), fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 	goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
 	if err != nil {
 		t.Errorf("Could not create new database, %s", err)
