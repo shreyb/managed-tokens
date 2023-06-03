@@ -71,7 +71,7 @@ func (c *CommandEnvironment) SetCondorCollectorHost(value string) {
 }
 func (c *CommandEnvironment) SetHtgettokenOpts(value string) {
 	prefix := "HTGETTOKENOPTS="
-	c.HtgettokenOpts = prefix + `\"` + value + `\"`
+	c.HtgettokenOpts = prefix + value
 }
 
 // TODO Document this

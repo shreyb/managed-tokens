@@ -55,6 +55,7 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, exper
 		}
 		return *stringPtr
 	}
+	// TODO Get this working
 	defer log.Debugf("Final HTGETTOKENOPTS: %s", getValueFromPointer(&htgettokenOpts))
 
 	userPrincipal = GetUserPrincipalFromConfiguration(serviceConfigPath, experiment)
