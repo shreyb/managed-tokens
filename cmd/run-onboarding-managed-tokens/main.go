@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/cmdUtils"
+	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/vaultToken"
@@ -272,15 +274,25 @@ func run(ctx context.Context) error {
 
 	// Set up service config
 	serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
+	userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, s.Experiment())
+	if userPrincipal == "" {
+		log.Error("Cannot have a blank userPrincipal.  Exiting")
+		os.Exit(1)
+	}
+	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
+	schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+	keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
 	serviceConfig, err = worker.NewConfig(
 		s,
-		setkrb5ccname(krb5ccname),
-		setCondorCreddHost(serviceConfigPath),
-		setCondorCollectorHost(serviceConfigPath),
-		setSchedds(serviceConfigPath),
-		setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
-		setKeytabOverride(serviceConfigPath),
-		account(serviceConfigPath),
+		worker.SetCommandEnvironment(
+			func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
+			func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
+			func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
+		),
+		worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
+		worker.SetSchedds(schedds),
+		worker.SetUserPrincipal(userPrincipal),
+		worker.SetKeytabPath(keytabPath),
 	)
 	if err != nil {
 		log.WithFields(log.Fields{

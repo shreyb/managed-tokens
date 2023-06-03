@@ -1,6 +1,8 @@
 package worker
 
-import "github.com/shreyb/managed-tokens/internal/environment"
+import (
+	"github.com/shreyb/managed-tokens/internal/environment"
+)
 
 // To call, for example, do something like this in package main
 //
@@ -17,34 +19,53 @@ import "github.com/shreyb/managed-tokens/internal/environment"
 //	)
 //
 // TODO Document these funcs, including the example above
-func SetCommandEnvironment(cmdEnvFuncs ...func(e *environment.CommandEnvironment)) func(*Config) {
-	return func(c *Config) {
+func SetCommandEnvironment(cmdEnvFuncs ...func(e *environment.CommandEnvironment)) func(*Config) error {
+	return func(c *Config) error {
 		for _, f := range cmdEnvFuncs {
 			f(&c.CommandEnvironment)
 		}
+		return nil
 	}
 }
 
-func SetUserPrincipal(value string) func(*Config) {
-	return func(c *Config) { c.UserPrincipal = value }
+func SetUserPrincipal(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.UserPrincipal = value
+		return nil
+	}
 }
 
-func SetNodes(value []string) func(*Config) {
-	return func(c *Config) { c.Nodes = value }
+func SetNodes(value []string) func(*Config) error {
+	return func(c *Config) error {
+		c.Nodes = value
+		return nil
+	}
 }
 
-func SetAccount(value string) func(*Config) {
-	return func(c *Config) { c.Account = value }
+func SetAccount(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.Account = value
+		return nil
+	}
 }
 
-func SetKeytabPath(value string) func(*Config) {
-	return func(c *Config) { c.KeytabPath = value }
+func SetKeytabPath(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.KeytabPath = value
+		return nil
+	}
 }
 
-func SetDesiredUID(value int) func(*Config) {
-	return func(c *Config) { c.DesiredUID = uint32(value) }
+func SetDesiredUID(value int) func(*Config) error {
+	return func(c *Config) error {
+		c.DesiredUID = uint32(value)
+		return nil
+	}
 }
 
-func SetDesiredSchedds(value []string) func(*Config) {
-	return func(c *Config) { c.Schedds = value }
+func SetSchedds(value []string) func(*Config) error {
+	return func(c *Config) error {
+		c.Schedds = value
+		return nil
+	}
 }
