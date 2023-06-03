@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -127,11 +129,15 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config,
 		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 	}
 
+	userPrincipal, htgettokenopts := getUserPrincipalAndHtgettokenopts()
 	serviceConfig, err := worker.NewConfig(
 		s,
-		setkrb5ccname(krb5ccname),
-		setKeytabPath(),
-		setUserPrincipalAndHtgettokenopts(),
+		worker.SetCommandEnvironment(
+			func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
+			func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
+		),
+		worker.SetKeytabPath(viper.GetString("ferry.serviceKeytabPath")),
+		worker.SetUserPrincipal(userPrincipal),
 	)
 	if err != nil {
 		log.Error("Could not create new service configuration")
@@ -215,4 +221,20 @@ func getAndAggregateFERRYData(ctx context.Context, username string, authFunc fun
 	} else {
 		ferryDataChan <- entry
 	}
+}
+
+// This space is for other auxiliary functions
+
+// setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable.
+func getUserPrincipalAndHtgettokenopts() (string, string) {
+	var htgettokenOpts string
+	userPrincipal := viper.GetString("ferry.serviceKerberosPrincipal")
+	credKey := strings.ReplaceAll(userPrincipal, "@FNAL.GOV", "")
+
+	if viper.IsSet("htgettokenopts") {
+		htgettokenOpts = viper.GetString("htgettokenopts")
+	} else {
+		htgettokenOpts = "--credkey=" + credKey
+	}
+	return userPrincipal, htgettokenOpts
 }
