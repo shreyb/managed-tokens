@@ -18,7 +18,9 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
 
+	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -436,21 +438,40 @@ func run(ctx context.Context) error {
 		for _, s := range services {
 			// Setup the configs
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
+			uid, err := getDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"caller":  "token-push.run",
+					"service": s.Name(),
+				}).Error("Error obtaining UID for service.  Skipping service.")
+				return
+			}
+			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, s.Experiment())
+			if userPrincipal == "" {
+				log.Error("Cannot have a blank userPrincipal.  Exiting")
+				os.Exit(1)
+			}
+			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
+			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+			keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
+			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			serviceConfigSetupWg.Add(1)
 			go func(s service.Service, serviceConfigPath string) {
 				defer serviceConfigSetupWg.Done()
 				c, err := worker.NewConfig(
 					s,
-					setkrb5ccname(krb5ccname),
-					setCondorCreddHost(serviceConfigPath),
-					setSchedds(serviceConfigPath),
-					setCondorCollectorHost(serviceConfigPath),
-					setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
-					setKeytabOverride(serviceConfigPath),
-					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database),
-					destinationNodes(serviceConfigPath),
-					account(serviceConfigPath),
-					setDefaultRoleFileDestinationTemplate(serviceConfigPath),
+					worker.SetCommandEnvironment(
+						func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
+						func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
+						func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
+					),
+					worker.SetSchedds(schedds),
+					worker.SetUserPrincipal(userPrincipal),
+					worker.SetKeytabPath(keytabPath),
+					worker.SetDesiredUID(uid),
+					worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
+					worker.SetAccount(viper.GetString(viper.GetString(serviceConfigPath+".account"))),
+					worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileTemplate, defaultRoleFileDestinationTemplate),
 				)
 				if err != nil {
 					log.WithFields(log.Fields{

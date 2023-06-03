@@ -19,6 +19,23 @@ type unPingableNodes struct {
 	sync.Map
 }
 
+// TODO Maybe make this an interface?
+// TODO DOcument this
+type SupportedExtrasKey int
+
+const (
+	DefaultRoleFileTemplate SupportedExtrasKey = iota
+)
+
+func (s SupportedExtrasKey) String() string {
+	switch s {
+	case DefaultRoleFileTemplate:
+		return "DefaultRoleFileTemplate"
+	default:
+		return "unsupported extras key"
+	}
+}
+
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 type Config struct {
 	service.Service
@@ -28,6 +45,7 @@ type Config struct {
 	KeytabPath    string
 	DesiredUID    uint32
 	Schedds       []string
+	// TODO UPdate this!
 	// Extras is a map where any value can be stored that may not fit into the above categories.
 	// However, to avoid runtime errors/bad data, it is strongly suggested to create setter/getter
 	// funcs that set these values, and run type checks.  For example, if we wanted to set
@@ -40,7 +58,7 @@ type Config struct {
 	//	}
 	// The code that tries to retrieve Extras["foo"] can then just call GetFooFromExtras and check
 	// the bool value to make sure it's true
-	Extras map[string]any
+	Extras map[SupportedExtrasKey]any
 	environment.CommandEnvironment
 	*unPingableNodes // Pointer to an unPingableNodes object that indicates which configured nodes in Nodes do not respond to a ping request
 }
@@ -62,7 +80,7 @@ type Config struct {
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
 func NewConfig(service service.Service, options ...func(*Config) error) (*Config, error) {
 	c := Config{Service: service}
-	c.Extras = make(map[string]any)
+	c.Extras = make(map[SupportedExtrasKey]any)
 
 	for _, option := range options {
 		err := option(&c)

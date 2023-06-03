@@ -56,7 +56,7 @@ func SetKeytabPath(value string) func(*Config) error {
 	}
 }
 
-func SetDesiredUID(value int) func(*Config) error {
+func SetDesiredUID(value uint32) func(*Config) error {
 	return func(c *Config) error {
 		c.DesiredUID = uint32(value)
 		return nil
@@ -66,6 +66,13 @@ func SetDesiredUID(value int) func(*Config) error {
 func SetSchedds(value []string) func(*Config) error {
 	return func(c *Config) error {
 		c.Schedds = value
+		return nil
+	}
+}
+
+func SetSupportedExtrasKeyValue(key SupportedExtrasKey, value any) func(*Config) error {
+	return func(c *Config) error {
+		c.Extras[key] = value
 		return nil
 	}
 }
