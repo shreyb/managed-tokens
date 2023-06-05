@@ -432,11 +432,12 @@ func run(ctx context.Context) error {
 	}()
 
 	// Set up our serviceConfigs and load them into various collection channels
-	func() {
-		var serviceConfigSetupWg sync.WaitGroup
-		defer close(collectServiceConfigs)
-		for _, s := range services {
+	var serviceConfigSetupWg sync.WaitGroup
+	for _, s := range services {
+		serviceConfigSetupWg.Add(1)
+		go func(s service.Service) {
 			// Setup the configs
+			defer serviceConfigSetupWg.Done()
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 			uid, err := getDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
@@ -448,44 +449,41 @@ func run(ctx context.Context) error {
 			}
 			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, s.Experiment())
 			if userPrincipal == "" {
-				log.Error("Cannot have a blank userPrincipal.  Exiting")
-				os.Exit(1)
+				log.Error("Cannot have a blank userPrincipal.  Skipping service")
+				return
 			}
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
-			serviceConfigSetupWg.Add(1)
-			go func(s service.Service, serviceConfigPath string) {
-				defer serviceConfigSetupWg.Done()
-				c, err := worker.NewConfig(
-					s,
-					worker.SetCommandEnvironment(
-						func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
-						func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
-						func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
-					),
-					worker.SetSchedds(schedds),
-					worker.SetUserPrincipal(userPrincipal),
-					worker.SetKeytabPath(keytabPath),
-					worker.SetDesiredUID(uid),
-					worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
-					worker.SetAccount(viper.GetString(viper.GetString(serviceConfigPath+".account"))),
-					worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileTemplate, defaultRoleFileDestinationTemplate),
-				)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"experiment": s.Experiment(),
-						"role":       s.Role(),
-					}).Error("Could not create config for service")
-					return
-				}
-				collectServiceConfigs <- c
-				registerServiceNotificationsChan(ctx, s, database)
-			}(s, serviceConfigPath)
-		}
-		serviceConfigSetupWg.Wait()
-	}()
+			c, err := worker.NewConfig(
+				s,
+				worker.SetCommandEnvironment(
+					func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
+					func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
+					func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
+				),
+				worker.SetSchedds(schedds),
+				worker.SetUserPrincipal(userPrincipal),
+				worker.SetKeytabPath(keytabPath),
+				worker.SetDesiredUID(uid),
+				worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
+				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
+				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileTemplate, defaultRoleFileDestinationTemplate),
+			)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"experiment": s.Experiment(),
+					"role":       s.Role(),
+				}).Error("Could not create config for service")
+				return
+			}
+			collectServiceConfigs <- c
+			registerServiceNotificationsChan(ctx, s, database)
+		}(s)
+	}
+	serviceConfigSetupWg.Wait()
+	close(collectServiceConfigs)
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
 	// Add our configured nodes to managed tokens database
