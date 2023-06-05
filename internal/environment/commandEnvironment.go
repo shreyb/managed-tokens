@@ -63,7 +63,7 @@ func (c *CommandEnvironment) SetKrb5CCName(value string, t KerberosCCacheType) {
 // TODO DOcument these
 func (c *CommandEnvironment) SetCondorCreddHost(value string) {
 	prefix := "_condor_CREDD_HOST="
-	c.Krb5ccname = prefix + value
+	c.CondorCreddHost = prefix + value
 }
 func (c *CommandEnvironment) SetCondorCollectorHost(value string) {
 	prefix := "_condor_COLLECTOR_HOST="
