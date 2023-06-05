@@ -19,7 +19,6 @@ type unPingableNodes struct {
 	sync.Map
 }
 
-// TODO Maybe make this an interface?
 // TODO DOcument this
 type SupportedExtrasKey int
 

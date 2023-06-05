@@ -184,10 +184,10 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 		return newCount, shouldSendNotification
 	}
 
+	var newValue int
 	if nValue, ok := n.(*pushError); ok {
 		// Evaluate the pushError count and change it if needed
 		if pushErrorCountVal, pushErrorCountOk := ec.pushErrors[nValue.node]; pushErrorCountOk {
-			var newValue int
 			newValue, sendNotification = adjustCount(pushErrorCountVal.value)
 			pushErrorCountVal.set(newValue)
 			ec.pushErrors[nValue.GetNode()] = pushErrorCountVal
@@ -205,7 +205,6 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 	}
 	// For setupErrors, if we're tracking the count, examine the current count and change it as needed
 	if _, ok := n.(*setupError); ok {
-		var newValue int
 		newValue, sendNotification = adjustCount(ec.setupErrors.value)
 		ec.setupErrors.set(newValue)
 		log.WithFields(log.Fields{
@@ -213,6 +212,14 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 			"count":            ec.setupErrors.value,
 			"sendNotification": sendNotification,
 		}).Debug("Adjusted count for setupError")
+	}
+	if !sendNotification {
+		log.WithFields(log.Fields{
+			"service":             n.GetService(),
+			"count":               newValue,
+			"notificationMinimum": errorCountToSendMessage,
+			"sendNotification":    sendNotification,
+		}).Debug("Will not send notification - error count is less than threshhold to send notification.")
 	}
 	return
 }
