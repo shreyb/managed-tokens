@@ -459,7 +459,7 @@ func run(ctx context.Context) error {
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
-					func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
+					func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) },
 					func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
 					func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
 				),

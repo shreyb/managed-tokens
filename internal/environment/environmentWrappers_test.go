@@ -8,78 +8,39 @@ import (
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
-type testEnviron struct {
-	Krb5ccname string
-	key1       string
-	key2       string
-}
-
-func (t *testEnviron) ToMap() map[string]string {
-	m := make(map[string]string)
-	m["Krb5ccname"] = t.Krb5ccname
-	m["key1"] = t.key1
-	m["key2"] = t.key2
-	return m
-}
-
-func (t *testEnviron) toEnvs() map[string]string {
-	m := make(map[string]string)
-	m["Krb5ccname"] = "KRB5CCNAME"
-	m["key1"] = "KEY1"
-	m["key2"] = "KEY2"
-	return m
-}
-
-func (t *testEnviron) ToValues() map[string]string {
-	return nil
-}
-
-type badTestEnviron struct {
-	key1 string
-	key2 string
-}
-
-func (b *badTestEnviron) ToMap() map[string]string {
-	m := make(map[string]string)
-	m["key1"] = b.key1
-	m["key2"] = b.key2
-	return m
-}
-
-func (b *badTestEnviron) toEnvs() map[string]string {
-	m := make(map[string]string)
-	m["key1"] = "KEY1"
-	m["key2"] = "KEY2"
-	return m
-}
-
-func (b *badTestEnviron) ToValues() map[string]string {
-	return nil
-}
-
-// TestKerberosEnvironmentWrappedCommand uses various types that implement EnvironmentMapper, and makes sure that KerberosEnvironmentWrappedCommand
+// TestKerberosEnvironmentWrappedCommand makes sure that KerberosEnvironmentWrappedCommand
 // sets the kerberos-related environment variables properly
 func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 	type testCase struct {
 		description               string
-		environ                   EnvironmentMapper
+		environ                   *CommandEnvironment
 		expectedKrb5ccNameSetting string
 	}
 	testCases := []testCase{
 		{
-			"Use complete command environment to return kerberos-wrapped command",
-			&testEnviron{
+			"Use minimal command environment to return kerberos-wrapped command",
+			&CommandEnvironment{
 				Krb5ccname: "KRB5CCNAME=krb5ccnametest",
-				key1:       "KEY1=key1_value",
-				key2:       "KEY2=key2_value",
 			},
 			"KRB5CCNAME=krb5ccnametest",
 		},
 		{
+			"Use complete command environment to return kerberos-wrapped command",
+			&CommandEnvironment{
+				Krb5ccname:          "KRB5CCNAME=krb5ccnametest",
+				CondorCreddHost:     "_condor_CREDD_HOST=foo",
+				CondorCollectorHost: "_condor_COLLECTOR_HOST=bar",
+				HtgettokenOpts:      "HTGETTOKENOPTS=baz",
+			},
+			"KRB5CCNAME=krb5ccnametest",
+		},
+
+		{
 			"Use incomplete command environment to return kerberos-wrapped command",
-			&badTestEnviron{
-				key1: "KEY1=key1_value",
-				key2: "KEY2=key2_value",
+			&CommandEnvironment{
+				CondorCreddHost:     "_condor_CREDD_HOST=foo",
+				CondorCollectorHost: "_condor_COLLECTOR_HOST=bar",
+				HtgettokenOpts:      "HTGETTOKENOPTS=baz",
 			},
 			"",
 		},
@@ -114,13 +75,14 @@ func TestKerberosEnvironmentWrappedCommand(t *testing.T) {
 	}
 }
 
-// TestEnvironmentWrappedCommand makes sure that the service.EnvironmentMapper we pass to EnvironmentWrappedCommand gives us the
+// TestEnvironmentWrappedCommand makes sure that the CommandEnvironment we pass to EnvironmentWrappedCommand gives us the
 // right command environment
 func TestEnvironmentWrappedCommand(t *testing.T) {
-	environ := &testEnviron{
-		Krb5ccname: "KRB5CCNAME=krb5ccnametest",
-		key1:       "KEY1=key1_value",
-		key2:       "KEY2=key2_value",
+	environ := &CommandEnvironment{
+		Krb5ccname:          "KRB5CCNAME=krb5ccnametest",
+		CondorCreddHost:     "_condor_CREDD_HOST=foo",
+		CondorCollectorHost: "_condor_COLLECTOR_HOST=bar",
+		HtgettokenOpts:      "HTGETTOKENOPTS=baz",
 	}
 
 	cmdExecutable, err := exec.LookPath("true")
@@ -131,8 +93,8 @@ func TestEnvironmentWrappedCommand(t *testing.T) {
 	cmd := EnvironmentWrappedCommand(context.Background(), environ, cmdExecutable)
 
 	environKeyValSlice := make([]string, 0)
-	for _, envSetting := range environ.ToMap() {
-		environKeyValSlice = append(environKeyValSlice, envSetting)
+	for _, field := range getAllSupportedCommandEnvironmentFields() {
+		environKeyValSlice = append(environKeyValSlice, environ.GetSetting(field))
 	}
 
 	if ok, err := utils.IsSliceSubSlice(environKeyValSlice, cmd.Env); !ok {

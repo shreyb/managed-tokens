@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/utils"
@@ -357,7 +358,7 @@ func run(ctx context.Context) error {
 			os.Exit(1)
 		}
 		defer func() {
-			os.RemoveAll(sc.Krb5ccname)
+			os.RemoveAll(sc.GetValue(environment.Krb5ccname))
 			log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
 		}()
 		authFunc = withKerberosJWTAuth(sc)

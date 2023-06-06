@@ -133,7 +133,7 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config,
 	serviceConfig, err := worker.NewConfig(
 		s,
 		worker.SetCommandEnvironment(
-			func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) },
+			func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) },
 			func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
 		),
 		worker.SetKeytabPath(viper.GetString("ferry.serviceKeytabPath")),

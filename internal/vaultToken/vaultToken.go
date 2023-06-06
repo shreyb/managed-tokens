@@ -90,14 +90,14 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 				}
 				log.WithFields(log.Fields{
 					"serviceName": serviceName,
-					"credd":       environmentForCommand.ToValues()["CondorCreddHost"],
+					"credd":       environmentForCommand.GetValue(environment.CondorCreddHost),
 				}).Errorf("Could not obtain vault token: %s", err)
 				errChan <- err
 				return
 			}
 			log.WithFields(log.Fields{
 				"serviceName": serviceName,
-				"credd":       environmentForCommand.ToValues()["CondorCreddHost"],
+				"credd":       environmentForCommand.GetValue(environment.CondorCreddHost),
 			}).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
 			errChan <- nil
 		}(environmentForCommand)
@@ -205,7 +205,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 			}
 			log.WithFields(log.Fields{
 				"service": serviceName,
-				"credd":   environ.ToValues()["CondorCreddHost"],
+				"credd":   environ.GetValue(environment.CondorCreddHost),
 			}).Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
 		}
 		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
@@ -215,7 +215,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 			}
 			log.WithFields(log.Fields{
 				"service": serviceName,
-				"credd":   environ.ToValues()["CondorCreddHost"],
+				"credd":   environ.GetValue(environment.CondorCreddHost),
 			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 			return err
 		}
@@ -227,11 +227,11 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 			}
 			log.WithFields(log.Fields{
 				"service": serviceName,
-				"credd":   environ.ToValues()["CondorCreddHost"],
+				"credd":   environ.GetValue(environment.CondorCreddHost),
 			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 			log.WithFields(log.Fields{
 				"service": serviceName,
-				"credd":   environ.ToValues()["CondorCreddHost"],
+				"credd":   environ.GetValue(environment.CondorCreddHost),
 			}).Errorf("%s", stdoutStderr)
 			return err
 		} else {
@@ -239,7 +239,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 				log.WithFields(log.Fields{
 					"service":     serviceName,
 					"environment": environ.String(),
-					"credd":       environ.ToValues()["CondorCreddHost"],
+					"credd":       environ.GetValue(environment.CondorCreddHost),
 				}).Debugf("%s", stdoutStderr)
 			}
 		}
