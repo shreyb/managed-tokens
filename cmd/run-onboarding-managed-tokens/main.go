@@ -259,7 +259,7 @@ func run(ctx context.Context) error {
 
 	// Determine what the real experiment name should be
 	givenServiceExperiment, givenRole := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
-	experiment := checkExperimentOverride(givenServiceExperiment)
+	experiment := cmdUtils.CheckExperimentOverride(givenServiceExperiment)
 
 	// If we're reading from an experiment config entry that has an overridden experiment
 	// s should be of type ExperimentOverriddenService.  Else, it should use the normal
@@ -267,7 +267,7 @@ func run(ctx context.Context) error {
 	var s service.Service
 	if experiment != givenServiceExperiment {
 		serviceName := experiment + "_" + givenRole
-		s = newExperimentOverridenService(serviceName, givenServiceExperiment)
+		s = cmdUtils.NewExperimentOverridenService(serviceName, givenServiceExperiment)
 	} else {
 		s = service.NewService(viper.GetString("service"))
 	}
@@ -314,7 +314,7 @@ func run(ctx context.Context) error {
 	// tokens for that service
 	if err := worker.GetKerberosTicketandVerify(kerberosContext, serviceConfig); err != nil {
 		log.WithField(
-			"service", getServiceName(serviceConfig.Service),
+			"service", cmdUtils.GetServiceName(serviceConfig.Service),
 		).Error("Failed to obtain kerberos ticket. Stopping onboarding")
 		return errors.New("could not obtain kerberos ticket")
 	}
@@ -340,7 +340,6 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	log.WithField("service", getServiceName(serviceConfig.Service)).Info("Successfully generated refresh token in vault.  Onboarding complete.")
+	log.WithField("service", cmdUtils.GetServiceName(serviceConfig.Service)).Info("Successfully generated refresh token in vault.  Onboarding complete.")
 	return nil
-
 }

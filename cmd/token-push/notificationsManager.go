@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -43,7 +44,7 @@ var notificationsFromWorkersChan = make(chan notifications.Notification) // Glob
 // notifications channel to the service name.  This registration is stored in the serviceNotificationChanMap.  It also increments a waitgroup
 // so the caller can keep track of how many ServiceEmailManagers have been opened.
 func registerServiceNotificationsChan(ctx context.Context, s service.Service, database *db.ManagedTokensDatabase) {
-	serviceName := getServiceName(s)
+	serviceName := cmdUtils.GetServiceName(s)
 
 	timestamp := time.Now().Format(time.RFC822)
 	e := notifications.NewEmail(

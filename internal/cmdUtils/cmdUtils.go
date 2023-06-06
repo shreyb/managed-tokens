@@ -1,3 +1,5 @@
+// cmdUtils provides utilities that are meant to be used by the various executables that the
+// managed tokens library provides
 package cmdUtils
 
 import (
@@ -17,6 +19,9 @@ import (
 var once sync.Once
 
 // Functional options for initialization of service Config
+
+// TODO Unit test this whole package
+
 // getCondorCollectorHostFromConfiguration gets the _condor_COLLECTOR_HOST environment variable from the Viper configuration
 func GetCondorCollectorHostFromConfiguration(serviceConfigPath string) string {
 	overrideVar := serviceConfigPath + ".condorCollectorHostOverride"
@@ -158,7 +163,7 @@ func GetScheddsFromConfiguration(serviceConfigPath string) []string {
 // Functions to set environment.CommandEnvironment inside worker.Config
 // setkrb5ccname returns a function that sets the KRB5CCNAME directory environment variable in an environment.CommandEnvironment
 func Setkrb5ccnameInCommandEnvironment(krb5ccname string) func(*environment.CommandEnvironment) {
-	return func(e *environment.CommandEnvironment) { e.SetKrb5CCName(krb5ccname, environment.DIR) }
+	return func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) }
 }
 
 func SetCondorCollectorHostInCommandEnvironment(collector string) func(*environment.CommandEnvironment) {

@@ -304,7 +304,7 @@ func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 
 	servicesToAddToDatabase := make([]string, 0, len(services))
 	for _, s := range services {
-		servicesToAddToDatabase = append(servicesToAddToDatabase, getServiceName(s))
+		servicesToAddToDatabase = append(servicesToAddToDatabase, cmdUtils.GetServiceName(s))
 	}
 
 	if err := database.UpdateServices(context.Background(), servicesToAddToDatabase); err != nil {
@@ -425,7 +425,7 @@ func run(ctx context.Context) error {
 		defer setupWg.Done()
 		defer close(initializeSuccessfulServices)
 		for serviceConfig := range collectServiceConfigs {
-			serviceName := getServiceName(serviceConfig.Service)
+			serviceName := cmdUtils.GetServiceName(serviceConfig.Service)
 			serviceConfigs[serviceName] = serviceConfig
 			initializeSuccessfulServices <- serviceName
 		}
@@ -575,7 +575,7 @@ func run(ctx context.Context) error {
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
 			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
-			log.WithField("service", getServiceName(pingSuccess.GetService())).Error(msg)
+			log.WithField("service", cmdUtils.GetServiceName(pingSuccess.GetService())).Error(msg)
 		}
 	}
 
@@ -586,7 +586,7 @@ func run(ctx context.Context) error {
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
 		if pushSuccess.GetSuccess() {
-			successfulServices[getServiceName(pushSuccess.GetService())] = true
+			successfulServices[cmdUtils.GetServiceName(pushSuccess.GetService())] = true
 		}
 	}
 
