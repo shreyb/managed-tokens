@@ -21,7 +21,7 @@ import (
 )
 
 // setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors
-func setupAdminNotifications(ctx context.Context) (adminNotifications []notifications.SendMessager, notificationsChan notifications.EmailManager) {
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (adminNotifications []notifications.SendMessager, notificationsChan chan notifications.Notification) {
 	// Send admin notifications at end of run
 	var prefix string
 	if viper.GetBool("test") {
@@ -43,7 +43,28 @@ func setupAdminNotifications(ctx context.Context) (adminNotifications []notifica
 		viper.GetString(prefix + "slack_alerts_url"),
 	)
 	adminNotifications = append(adminNotifications, email, slackMessage)
-	notificationsChan = notifications.NewAdminNotificationManager(ctx) // Listen for messages from run
+
+	// Functional options for AdminNotificationManager
+	funcOpts := make([]notifications.AdminNotificationManagerOption, 0)
+	dontTrackErrorCounts := func(a *notifications.AdminNotificationManager) error {
+		a.TrackErrorCounts = false
+		return nil
+	}
+	funcOpts = append(funcOpts, dontTrackErrorCounts)
+
+	if database != nil {
+		setDB := func(a *notifications.AdminNotificationManager) error {
+			a.Database = database
+			return nil
+		}
+		writeableDatabase := func(a *notifications.AdminNotificationManager) error {
+			a.DatabaseReadOnly = false
+			return nil
+		}
+		funcOpts = append(funcOpts, setDB, writeableDatabase)
+	}
+
+	notificationsChan = notifications.NewAdminNotificationManager(ctx, funcOpts...).ReceiveChan // Listen for messages from run
 	return adminNotifications, notificationsChan
 }
 
@@ -172,7 +193,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // authFunc.  It spins up a worker to get data from FERRY, and then puts that data into
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
-	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan notifications.EmailManager) {
+	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan notifications.Notification) {
 	var ferryRequestContext context.Context
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
 		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)

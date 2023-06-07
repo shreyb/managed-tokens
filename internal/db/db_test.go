@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/shreyb/managed-tokens/internal/testutils"
 )
 
-// TestOpenOrCreateDatabase checks that we can create and reopen a new FERRYUIDDatabase
+// TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase
 func TestOpenOrCreateDatabase(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
+	tempDir := t.TempDir()
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
 
 	// Test that we can create a new db at a new location
 	func() {
@@ -28,8 +28,7 @@ func TestOpenOrCreateDatabase(t *testing.T) {
 		defer goodTestDb.Close()
 
 		if err = checkSchema(goodTestDb); err != nil {
-			t.Error("Schema check failed")
-
+			t.Errorf("Schema check failed: %v", err)
 		}
 	}()
 
@@ -41,293 +40,234 @@ func TestOpenOrCreateDatabase(t *testing.T) {
 	goodTestDb.Close()
 }
 
-// TestOpenOrCreateDatabaseCheckError creates a file that will fail the
-// FERRYUIDDatabase check.  We want to make sure we get the proper returned *ferryUIDDatabaseCheckError
-// This call to OpenOrCreateDatabase should return an error because we create a tempfile, and because it exists,
-// OpenOrCreateDatabase never runs initialize() and assigns the ApplicationId
-func TestOpenOrCreateDatabaseCheckError(t *testing.T) {
-	var checkError *ferryUIDDatabaseCheckError
-	dbLocation, err := os.CreateTemp(os.TempDir(), "managed-tokens")
-	if err != nil {
-		t.Error("Could not create temp file for test database")
-	}
-	defer os.Remove(dbLocation.Name())
-
-	badTestDb, err := OpenOrCreateDatabase(dbLocation.Name())
-	if !errors.As(err, &checkError) {
-		t.Errorf(
-			"Returned error from OpenOrCreateDatabase is of wrong type.  Expected %T, got %T",
-			checkError,
-			err,
-		)
-	} else {
-		badTestDb.Close()
+// TestCheckDatabaseBadApplicationId checks that if we open a database with the wrong ApplicationId, we get the correct error type
+func TestCheckDatabaseBadApplicationId(t *testing.T) {
+	tempDir := t.TempDir()
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	m := &ManagedTokensDatabase{
+		filename: dbLocation,
 	}
 
-}
-
-// TestInitialize makes sure that the *(FERRYUIDDatabase).initialize func returns a *FERRYUIDDatabase object with the
-// correct ApplicationId and schema
-func TestInitialize(t *testing.T) {
-	dbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(dbLocation)
-
-	f := &FERRYUIDDatabase{filename: dbLocation}
-	if err := f.initialize(); err != nil {
-		t.Error("Could not initialize FERRYUIDDatabase")
-	}
-	defer f.Close()
-	if err := f.check(); err != nil {
-		t.Error("initialized FERRYUIDDatabase has the wrong ApplicationId")
-	}
-	if err := checkSchema(f); err != nil {
-		t.Error("initialized FERRYUIDDatabase failed schema check")
-	}
-}
-
-// TestCheckGood makes sure that the *(FERRYUIDDatabase).check() method performs the proper check, and when given a proper database, returns
-// a nil error
-func TestCheckGood(t *testing.T) {
-	goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(goodDbLocation)
-
-	goodTestDb := &FERRYUIDDatabase{filename: goodDbLocation}
-	if err := goodTestDb.initialize(); err != nil {
-		t.Error("Could not initialize FERRYUIDDatabase")
-	}
-	defer goodTestDb.Close()
-
-	if err := goodTestDb.check(); err != nil {
-		t.Errorf("FERRYUIDDatabase failed check. %s", err)
-	}
-}
-
-// TestCheckBad makes sure that the *(FERRYUIDDatabase).check() method performs the proper check, and when given an improper database, returns
-// an error indicating that the ApplicationIds do not match
-func TestCheckBad(t *testing.T) {
-	var checkError = fmt.Errorf("Application IDs do not match.  Got 0, expected %d", ApplicationId)
-	badDbLocation, err := os.CreateTemp(os.TempDir(), "managed-tokens")
-	if err != nil {
-		t.Error("Could not create temp file for test database")
-	}
-	defer os.Remove(badDbLocation.Name())
-
-	badTestDb := &FERRYUIDDatabase{filename: badDbLocation.Name()}
-	badTestDb.db, err = sql.Open("sqlite3", badDbLocation.Name())
-	if err != nil {
-		t.Error("Could not open the UID database file")
-	}
-	defer badTestDb.Close()
-
-	if err := badTestDb.check(); err.Error() != checkError.Error() {
-		t.Errorf(
-			"Got unexpected error from check.  Expected %s, got %s",
-			checkError,
-			err,
-		)
-	}
-}
-
-// TestCreateUidTables checks that *(FERRYUIDDatabase).createUidsTable creates the proper UID table in the database by checking the schema
-func TestCreateUidsTable(t *testing.T) {
 	var err error
-	goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(goodDbLocation)
-
-	goodTestDb := &FERRYUIDDatabase{filename: goodDbLocation}
-	goodTestDb.db, err = sql.Open("sqlite3", goodDbLocation)
-	if err != nil {
-		t.Error("Could not open the UID database file")
+	if m.db, err = sql.Open("sqlite3", dbLocation); err != nil {
+		t.Error(err)
 	}
-	defer goodTestDb.Close()
+	defer m.Close()
 
-	if err := goodTestDb.createUidsTable(); err != nil {
-		t.Error("Could not create UIDs table in FERRYUIDDatabase")
-	}
-	if err := checkSchema(goodTestDb); err != nil {
-		t.Error("Test FERRYUIDDatabase has wrong schema")
-	}
-}
-
-// TestInsertAndConfirmUIDsInTable checks that we can insert and retrieve
-// FERRY data into the FERRYUIDDatabase
-func TestInsertAndConfirmUIDsInTable(t *testing.T) {
-	type testCase struct {
-		description           string
-		fakeData              []FerryUIDDatum
-		expectedRetrievedData []FerryUIDDatum
+	// Set a fake application ID
+	if _, err = m.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", 42)); err != nil {
+		t.Error(err)
 	}
 
-	testCases := []testCase{
-		{
-			"Use an empty database with no data stored",
-			[]FerryUIDDatum{},
-			[]FerryUIDDatum{},
-		},
-		{
-			"Use a database with fake data",
-			[]FerryUIDDatum{
-				&checkDatum{
-					username: "testuser",
-					uid:      12345,
-				},
-				&checkDatum{
-					username: "anothertestuser",
-					uid:      67890,
-				},
-			},
-			[]FerryUIDDatum{
-				&checkDatum{
-					username: "testuser",
-					uid:      12345,
-				},
-				&checkDatum{
-					username: "anothertestuser",
-					uid:      67890,
-				},
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		t.Run(
-			test.description,
-			func(t *testing.T) {
-				goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-				defer os.Remove(goodDbLocation)
-
-				goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
-				if err != nil {
-					t.Errorf("Could not create new database, %s", err)
-				}
-				defer goodTestDb.Close()
-
-				if err := goodTestDb.InsertUidsIntoTableFromFERRY(context.Background(), test.fakeData); err != nil {
-					t.Error("Could not insert fake data into test database")
-				}
-
-				retrievedData, err := goodTestDb.ConfirmUIDsInTable(context.Background())
-				if err != nil {
-					t.Error("Could not retrieve fake data from test database")
-				}
-
-				for _, expectedDatum := range test.expectedRetrievedData {
-					found := false
-					for _, testDatum := range retrievedData {
-						if (testDatum.Uid() == expectedDatum.Uid()) && (testDatum.Username() == expectedDatum.Username()) {
-							found = true
-							break
-						}
-					}
-					if !found {
-						t.Errorf(
-							"Did not find expected datum %v in retrieved data",
-							expectedDatum,
-						)
-					}
-				}
-			},
-		)
+	var e *databaseCheckError
+	if err = m.check(); err == nil {
+		t.Error("Expected application ID check to fail.  Got nil error instead")
+	} else if !errors.As(err, &e) {
+		t.Errorf("Got wrong error type from application ID check.  Expected *databaseCheckError, got %T instead", err)
 	}
 
 }
 
-// TestGetUIDsByUsername checks that we can retrieve the proper UID given a particular username.
-// If we give a user that does not exist, we should get 0 as the result, and an error
-func TestGetUIDsByUsername(t *testing.T) {
-
+// TestGetValuesTransactionRunner inserts values into a test database table and makes sure that getValuesTransactionRunner properly
+// returns those values
+func TestGetValuesTransactionRunner(t *testing.T) {
+	// Set up test data
+	type expectedData struct {
+		id       int
+		fakeName string
+	}
 	type testCase struct {
-		description   string
-		testUsername  string
-		expectedUid   int
-		expectedError error
+		description string
+		insertFunc  func(id int, fakeName string, m *ManagedTokensDatabase) error
+		expectedData
 	}
 
 	testCases := []testCase{
 		{
-			"Get UID for user we know is in the database",
-			"testuser",
-			12345,
-			nil,
+			"No data inserted",
+			func(id int, fakeName string, m *ManagedTokensDatabase) error { return nil },
+			expectedData{},
 		},
 		{
-			"Attempt to get UID for user who is not in the database",
-			"nonexistentuser",
-			0,
-			errors.New("sql: no rows in result set"),
+			"One row of data inserted",
+			func(id int, fakeName string, m *ManagedTokensDatabase) error {
+				_, err := m.db.Exec("INSERT INTO test_table VALUES (?, ?)", id, fakeName)
+				return err
+			},
+			expectedData{
+				id:       12345,
+				fakeName: "foobar",
+			},
 		},
 	}
 
-	fakeData := []FerryUIDDatum{
-		&checkDatum{
-			username: "testuser",
-			uid:      12345,
-		},
-		&checkDatum{
-			username: "anothertestuser",
-			uid:      67890,
-		},
-	}
-
-	goodDbLocation := path.Join("/tmp/", fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
-	defer os.Remove(goodDbLocation)
-
-	goodTestDb, err := OpenOrCreateDatabase(goodDbLocation)
-	if err != nil {
-		t.Errorf("Could not create new database, %s", err)
-	}
-	defer goodTestDb.Close()
-
-	if err := goodTestDb.InsertUidsIntoTableFromFERRY(context.Background(), fakeData); err != nil {
-		t.Error("Could not insert fake data into test database")
-	}
-
+	tempDir := t.TempDir()
 	for _, test := range testCases {
-		t.Run(
-			test.description,
+		t.Run(test.description,
 			func(t *testing.T) {
+				m, err := createAndOpenTestDatabaseWithApplicationId(tempDir)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				defer m.db.Close()
+				if _, err = m.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, fake_name STRING NOT NULL)"); err != nil {
+					t.Error("Could not create table for TestGetValuesTransactionRunner test")
+					return
+				}
+				// Insert our test data
+				if err = test.insertFunc(test.expectedData.id, test.expectedData.fakeName, m); err != nil {
+					t.Errorf("Failed to run insert func for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+					return
+				}
+
+				// The actual test
 				ctx := context.Background()
-				retrievedUid, err := goodTestDb.GetUIDByUsername(ctx, test.testUsername)
+				testQuery := "SELECT id, fake_name FROM test_table"
+				data, err := getValuesTransactionRunner(ctx, m.db, testQuery)
 				if err != nil {
-					if test.expectedError != nil {
-						// if err.Error() != test.expectedError.Error() {
-						if err.Error() != test.expectedError.Error() {
-							t.Errorf(
-								"Got wrong error.  Expected %v, got %v",
-								test.expectedError,
-								err,
-							)
-						}
-					} else {
-						t.Error("Could not get UID by username")
+					t.Errorf("Could not obtain values from database for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+					return
+				}
+				var noExpectedData expectedData
+				if test.expectedData == noExpectedData {
+					if len(data) != 0 {
+						t.Errorf("Should not have gotten any data back.  Got %v", data)
+					}
+					return
+				}
+				if dataId, ok := data[0][0].(int64); !ok {
+					t.Errorf("Got wrong data type for id value.  Expected int, got %T", dataId)
+				} else {
+					if int(dataId) != test.expectedData.id {
+						t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", test.expectedData.id, dataId)
 					}
 				}
-				if retrievedUid != test.expectedUid {
-					t.Errorf(
-						"Retrieved UID and expected UID do not match.  Expected %d, got %d",
-						test.expectedUid,
-						retrievedUid,
-					)
+				if dataFakeName, ok := data[0][1].(string); !ok {
+					t.Errorf("Got wrong data type for fake_name value.  Expected string, got %T", dataFakeName)
+				} else {
+					if dataFakeName != test.expectedData.fakeName {
+						t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", test.expectedData.fakeName, dataFakeName)
+					}
 				}
 			},
 		)
 	}
-
 }
 
-// checkSchema is a testing utility function to make sure that a test FERRYUIDDatabase has the right schema
-func checkSchema(f *FERRYUIDDatabase) error {
-	var schema string
-	if err := f.db.QueryRow("SELECT sql FROM sqlite_master;").Scan(&schema); err != nil {
-		return err
+type fakeDatum struct {
+	id       int
+	fakeName string
+}
+
+func (f *fakeDatum) values() []any { return []any{f.id, f.fakeName} }
+
+// TestInsertValuesTransactionRunner checks that insertValuesTransactionRunner properly inserts values into a test database
+func TestInsertValuesTransactionRunner(t *testing.T) {
+	// Create fake DB, try to insert values, check that we get the right values back
+	tempDir := t.TempDir()
+	m, err := createAndOpenTestDatabaseWithApplicationId(tempDir)
+	if err != nil {
+		t.Error(err)
+		return
 	}
-	expectedSchema := strings.TrimRight(strings.TrimSpace(createUIDTableStatement), ";")
-	if schema != expectedSchema {
+	defer func() {
+		m.db.Close()
+		os.Remove(m.filename)
+	}()
+
+	// Set up test data
+	expectedId := 12345
+	expectedFakeName := "foobar"
+	if _, err = m.db.Exec("CREATE TABLE test_table (id INTEGER PRIMARY KEY, fake_name STRING NOT NULL)"); err != nil {
+		t.Error("Could not create table for TestInsertTransactionRunner test")
+		return
+	}
+
+	// The actual test
+	ctx := context.Background()
+	insertStatementString := "INSERT INTO test_table VALUES (?, ?)"
+	if err = insertValuesTransactionRunner(ctx, m.db, insertStatementString, []insertValues{&fakeDatum{expectedId, expectedFakeName}}); err != nil {
+		t.Errorf("Could not insert values into database for TestInsertTransactionRunner test")
+		return
+	}
+	getDataBackQuery := "SELECT id, fake_name FROM test_table"
+	var dataId int
+	var dataFakeName string
+	if err := m.db.QueryRowContext(ctx, getDataBackQuery).Scan(&dataId, &dataFakeName); err != nil {
+		t.Errorf("Could not retrieve test data from database for TestInsertTransactionRunner test")
+	}
+	if dataId != expectedId {
+		t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", expectedId, dataId)
+	}
+	if dataFakeName != expectedFakeName {
+		t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", expectedFakeName, dataFakeName)
+	}
+}
+
+// checkSchema is a testing utility function to make sure that a test ManagedTokensDatabase that has been initialized has the right schema
+func checkSchema(m *ManagedTokensDatabase) error {
+	schemaRows := make([]string, 0)
+	rows, err := m.db.Query("SELECT sql FROM sqlite_master WHERE sql IS NOT NULL;")
+	if err != nil {
+		return errors.New("could not get schema from database")
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var schemaRow string
+		err = rows.Scan(&schemaRow)
+		if err != nil {
+			return fmt.Errorf("could not scan schema rows from database: %w", err)
+		}
+		schemaRows = append(schemaRows, standardizeSpaces(strings.TrimSpace(schemaRow)))
+	}
+	migrationsSql := make([]string, 0, len(migrations))
+	for _, migrationPiece := range migrations {
+		sql := migrationPiece.sqlText
+		sqlSlice := strings.Split(sql, ";")
+
+		for _, sqlElt := range sqlSlice {
+			if !strings.Contains(sqlElt, "PRAGMA") && len(sqlElt) != 0 {
+				migrationsSql = append(migrationsSql, standardizeSpaces(strings.TrimSpace(sqlElt)))
+			}
+		}
+	}
+	if !testutils.SlicesHaveSameElements(schemaRows, migrationsSql) {
 		return fmt.Errorf(
-			"Schema for database does not match expected schema.  Expected %s, got %s",
-			expectedSchema,
-			schema,
+			"Schema for database does not match expected schema.  Expected %s, got %s.",
+			migrationsSql,
+			schemaRows,
 		)
 	}
 	return nil
+}
+
+// standardizeSpaces is a simple utility function to reprint any string with only a single space character separating.  This
+// helps to compare two strings that have the same text, but different spacing schemes/indents/newlines, etc.
+// For example:
+// standardizeSpaces("blah  blah blahblah") = standardizeSpaces("blah blah      blahblah ")
+// Thanks to https://stackoverflow.com/a/42251527
+func standardizeSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// createAndOpenTestDatabaseWithApplicationId creates a test ManagedTokensDatabase object at a random location in os.TempDir,
+// sets the application ID, and returns a pointer to the ManagedTokensDatabase, along with any error in creating that object
+func createAndOpenTestDatabaseWithApplicationId(tempDir string) (*ManagedTokensDatabase, error) {
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	m := &ManagedTokensDatabase{
+		filename: dbLocation,
+	}
+
+	var err error
+	if m.db, err = sql.Open("sqlite3", dbLocation); err != nil {
+		return nil, err
+	}
+
+	// Set the application ID
+	if _, err = m.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
+		return nil, err
+	}
+	return m, nil
 }

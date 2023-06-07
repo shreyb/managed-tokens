@@ -18,6 +18,7 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
 
+	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -279,6 +280,38 @@ func initServices() {
 	}
 }
 
+// openDatabaseAndLoadServices opens a db.ManagedTokensDatabase and loads the configured services into
+// the database.  If any of these operations fail, it returns a nil *db.ManagedTokensDatabase and an error.
+// Otherwise, it returns the pointer to the db.ManagedTokensDatabase
+func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
+	var dbLocation string
+	// Open connection to the SQLite database where notification info will be stored
+	if viper.IsSet("dbLocation") {
+		dbLocation = viper.GetString("dbLocation")
+	} else {
+		dbLocation = "/var/lib/managed-tokens/uid.db"
+	}
+	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+
+	database, err := db.OpenOrCreateDatabase(dbLocation)
+	if err != nil {
+		msg := "Could not open or create ManagedTokensDatabase"
+		log.WithField("executable", currentExecutable).Error(msg)
+		return nil, err
+	}
+
+	servicesToAddToDatabase := make([]string, 0, len(services))
+	for _, s := range services {
+		servicesToAddToDatabase = append(servicesToAddToDatabase, getServiceName(s))
+	}
+
+	if err := database.UpdateServices(context.Background(), servicesToAddToDatabase); err != nil {
+		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured services.  Future database-based operations may fail")
+	}
+
+	return database, nil
+}
+
 func main() {
 	// Global context
 	var globalTimeout time.Duration
@@ -303,8 +336,38 @@ func run(ctx context.Context) error {
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
-	var setupWg sync.WaitGroup
+	var setupWg sync.WaitGroup                  // WaitGroup to keep track of concurrent setup actions
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
+
+	sendAdminNotifications := func(adminNotificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+		handleNotificationsFinalization()
+		close(adminNotificationsChan)
+		err := notifications.SendAdminNotifications(
+			ctx,
+			currentExecutable,
+			viper.GetString("templates.adminerrors"),
+			viper.GetBool("test"),
+			(*adminNotificationsPtr)...,
+		)
+		if err != nil {
+			// We don't want to halt execution at this point
+			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+		}
+		return err
+	}
+
+	database, databaseErr := openDatabaseAndLoadServices()
+
+	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
+	adminNotifications, adminNotificationsChan := setupAdminNotifications(ctx, database)
+	if databaseErr != nil {
+		adminNotificationsChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+	} else {
+		defer database.Close()
+	}
+
+	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+	defer sendAdminNotifications(adminNotificationsChan, &adminNotifications)
 
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
@@ -323,28 +386,6 @@ func run(ctx context.Context) error {
 			}
 		}
 	}()
-
-	// Set up admin notifications
-	adminNotifications := setupAdminNotifications()
-	// Make sure notifications are always sent at the end of the run
-	// We need to pass the pointer in here since we need to pick up the
-	// changes made to adminNotifications, as explained here:
-	// https://stackoverflow.com/a/52070387
-	// and mocked out here:
-	// https://go.dev/play/p/rww0ORt94pU
-	defer func(adminNotificationsPtr *[]notifications.SendMessager) {
-		// Wait for all notifications to finish filtering through before moving onto cleanup
-		handleNotificationsFinalization()
-		if err := notifications.SendAdminNotifications(
-			ctx,
-			"token-push",
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			(*adminNotificationsPtr)...,
-		); err != nil {
-			log.Error("Error sending admin notifications")
-		}
-	}(&adminNotifications)
 
 	// Create temporary dir for all kerberos caches to live in
 	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
@@ -376,15 +417,15 @@ func run(ctx context.Context) error {
 	}()
 
 	// Set up our service config collector
-	// TODO need to check for config key here too Maybe an interface that gets the proper config name?
 	collectServiceConfigs := make(chan *worker.Config, len(services))
 	setupWg.Add(1)
 	go func() {
 		defer setupWg.Done()
 		defer close(initializeSuccessfulServices)
 		for serviceConfig := range collectServiceConfigs {
-			serviceConfigs[getServiceName(serviceConfig.Service)] = serviceConfig
-			initializeSuccessfulServices <- getServiceName(serviceConfig.Service)
+			serviceName := getServiceName(serviceConfig.Service)
+			serviceConfigs[serviceName] = serviceConfig
+			initializeSuccessfulServices <- serviceName
 		}
 	}()
 
@@ -406,7 +447,7 @@ func run(ctx context.Context) error {
 					setCondorCollectorHost(serviceConfigPath),
 					setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
 					setKeytabOverride(serviceConfigPath),
-					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath),
+					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database),
 					destinationNodes(serviceConfigPath),
 					account(serviceConfigPath),
 					setDefaultRoleFileDestinationTemplate(serviceConfigPath),
@@ -419,12 +460,21 @@ func run(ctx context.Context) error {
 					return
 				}
 				collectServiceConfigs <- c
-				registerServiceNotificationsChan(ctx, s, &notificationsManagersWg)
+				registerServiceNotificationsChan(ctx, s, database)
 			}(s, serviceConfigPath)
 		}
 		serviceConfigSetupWg.Wait()
 	}()
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
+
+	// Add our configured nodes to managed tokens database
+	nodesToAddToDatabase := make([]string, 0)
+	for _, serviceConfig := range serviceConfigs {
+		nodesToAddToDatabase = append(nodesToAddToDatabase, serviceConfig.Nodes...)
+	}
+	if err := database.UpdateNodes(ctx, nodesToAddToDatabase); err != nil {
+		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured nodes.  Future database-based operations may fail")
+	}
 
 	// Setup done.  Push prometheus metrics
 	log.WithField("executable", currentExecutable).Debug("Setup complete")

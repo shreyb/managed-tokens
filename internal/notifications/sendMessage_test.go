@@ -18,26 +18,32 @@ func (f *fakeSender) sendMessage(ctx context.Context, msg string) error {
 // TestSendMessage checks that SendMessage properly wraps a SendMessager's sendMessage method
 func TestSendMessage(t *testing.T) {
 	tests := []struct {
-		s   SendMessager
-		err error
+		description string
+		s           SendMessager
+		err         error
 	}{
 		{
-			s:   &fakeSender{errors.New("This failed for some reason")},
-			err: &SendMessageError{"Could not get a new grid proxy from gridProxyer"},
+			description: "Failure to send for some reason",
+			s:           &fakeSender{errors.New("This failed for some reason")},
+			err:         &SendMessageError{"Could not get a new grid proxy from gridProxyer"},
 		},
 		{
-			s:   &fakeSender{err: nil},
-			err: nil,
+			description: "Successful send of message",
+			s:           &fakeSender{err: nil},
+			err:         nil,
 		},
 	}
 
 	ctx := context.Background()
 
 	for _, test := range tests {
-		err := SendMessage(ctx, test.s, "")
-		if reflect.TypeOf(err) != reflect.TypeOf(test.err) {
-			t.Errorf("SendMessage test should have returned %T; got %T instead", test.err, err)
-		}
+		t.Run(test.description, func(t *testing.T) {
+			err := SendMessage(ctx, test.s, "")
+			if reflect.TypeOf(err) != reflect.TypeOf(test.err) {
+				t.Errorf("SendMessage test should have returned %T; got %T instead", test.err, err)
+			}
+		},
+		)
 	}
 
 }

@@ -6,6 +6,27 @@ import (
 	"strings"
 )
 
+// kerberos CCache types.  See https://web.mit.edu/kerberos/krb5-1.12/doc/basic/ccache_def.html
+type KerberosCCacheType int
+
+const (
+	api     KerberosCCacheType = iota // Unsupported on Linux - only on Windows
+	DIR                               // Indicates the location of a collection of caches
+	FILE                              // Indicates the location of a single cache
+	keyring                           // Unsupported by this library
+)
+
+func (k KerberosCCacheType) String() string {
+	switch k {
+	case DIR:
+		return "DIR:"
+	case FILE:
+		return "FILE:"
+	default:
+		return "unsupported kerberos cache type"
+	}
+}
+
 // TODO:  Maybe clean up CommandEnvironment so that it has a friendlier interface.  We can just
 // have the actual env var name be internal to the type, rather than the user needing to
 // know that.  I.e. You would say c := CommandEnvironment{Krb5ccname: "blahblah"}, and not need
@@ -33,6 +54,37 @@ type CommandEnvironment struct {
 	HtgettokenOpts string
 }
 
+func (c *CommandEnvironment) SetKrb5CCName(value string, t KerberosCCacheType) {
+	cacheType := t.String()
+	prefix := "KRB5CCNAME=" + cacheType
+	c.Krb5ccname = prefix + value
+}
+
+// TODO DOcument these
+func (c *CommandEnvironment) SetCondorCreddHost(value string) {
+	prefix := "_condor_CREDD_HOST="
+	c.Krb5ccname = prefix + value
+}
+func (c *CommandEnvironment) SetCondorCollectorHost(value string) {
+	prefix := "_condor_COLLECTOR_HOST="
+	c.CondorCollectorHost = prefix + value
+}
+func (c *CommandEnvironment) SetHtgettokenOpts(value string) {
+	prefix := "HTGETTOKENOPTS="
+	c.HtgettokenOpts = prefix + `\"` + value + `\"`
+}
+
+// TODO Document this
+func (c *CommandEnvironment) Copy() *CommandEnvironment {
+	newEnv := CommandEnvironment{
+		Krb5ccname:          c.Krb5ccname,
+		CondorCreddHost:     c.CondorCreddHost,
+		CondorCollectorHost: c.CondorCollectorHost,
+		HtgettokenOpts:      c.HtgettokenOpts,
+	}
+	return &newEnv
+}
+
 // ToMap translates the CommandEnvironment struct to a map[string]string with the keys named for the fields
 func (c *CommandEnvironment) ToMap() map[string]string {
 	return map[string]string{
@@ -44,7 +96,7 @@ func (c *CommandEnvironment) ToMap() map[string]string {
 }
 
 // ToEnvs gives the map of the environment variable key for each field in the CommandEnvironment
-func (c *CommandEnvironment) ToEnvs() map[string]string {
+func (c *CommandEnvironment) toEnvs() map[string]string {
 	return map[string]string{
 		"Krb5ccname":          "KRB5CCNAME",
 		"CondorCreddHost":     "_condor_CREDD_HOST",
@@ -70,7 +122,7 @@ func (c *CommandEnvironment) ToValues() map[string]string {
 	mapC := c.ToMap()
 	m := make(map[string]string, len(mapC))
 	for key, envSetting := range mapC {
-		value := strings.TrimPrefix(envSetting, c.ToEnvs()[key]+"=")
+		value := strings.TrimPrefix(envSetting, c.toEnvs()[key]+"=")
 		m[key] = value
 	}
 	return m
@@ -89,6 +141,6 @@ func (c *CommandEnvironment) String() string {
 // EnvironmentMapper is an interface which can be used to get environment variable information for a command
 type EnvironmentMapper interface {
 	ToMap() map[string]string
-	ToEnvs() map[string]string
 	ToValues() map[string]string
+	toEnvs() map[string]string
 }

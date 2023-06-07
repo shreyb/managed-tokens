@@ -57,10 +57,10 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 	}
 
 	// If we're running on a cluster with multiple schedds, create CommandEnvironments for each so we store tokens in all the possible credds
-	environmentsForCommands := make([]environment.CommandEnvironment, 0)
+	environmentsForCommands := make([]*environment.CommandEnvironment, 0, len(schedds))
 	for _, schedd := range schedds {
-		newEnv := environ
-		newEnv.CondorCreddHost = fmt.Sprintf("%s=%s", newEnv.ToEnvs()["CondorCreddHost"], schedd)
+		newEnv := environ.Copy()
+		newEnv.SetCondorCreddHost(schedd)
 		environmentsForCommands = append(environmentsForCommands, newEnv)
 	}
 
@@ -81,7 +81,7 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 	var wg sync.WaitGroup
 	for _, environmentForCommand := range environmentsForCommands {
 		wg.Add(1)
-		go func(environmentForCommand environment.CommandEnvironment) {
+		go func(environmentForCommand *environment.CommandEnvironment) {
 			defer wg.Done()
 			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
 				if ctx.Err() == context.DeadlineExceeded {
@@ -169,7 +169,7 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
 // using interactive=true, it will display stdout/stderr on the stdout of the caller
-func getTokensandStoreinVault(ctx context.Context, serviceName string, environ environment.CommandEnvironment, interactive bool) error {
+func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *environment.CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
 	cmdArgs := make([]string, 0, 2)
 	verbose, ok := utils.GetVerboseFromContext(ctx)
@@ -184,7 +184,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ e
 	}
 	cmdArgs = append(cmdArgs, serviceName)
 
-	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["condor_vault_storer"], cmdArgs...)
+	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, environ, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
 	log.WithField("service", serviceName).Info("Storing and obtaining vault token")
 	log.WithFields(log.Fields{

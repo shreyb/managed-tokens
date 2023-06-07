@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -124,33 +125,20 @@ func setKeytabOverride(serviceConfigPath string) func(sc *worker.Config) error {
 // the default behavior is to query the managed tokens database that should be populated by the refresh-uids-from-ferry executable.
 //
 // If the default behavior is not possible, the configuration should have a desiredUIDOverride field to allow token-push to run properly
-func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath string) func(*worker.Config) error {
+func setDesiredUIByOverrideOrLookup(ctx context.Context, serviceConfigPath string, database *db.ManagedTokensDatabase) func(*worker.Config) error {
 	return func(sc *worker.Config) error {
 		if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
 			sc.DesiredUID = viper.GetUint32(serviceConfigPath + ".desiredUIDOverride")
 		} else {
 			// Get UID from SQLite DB that should be kept up to date by refresh-uids-from-ferry
 			func() error {
-				var dbLocation string
-				var uid int
-
+				if database == nil {
+					msg := "no valid database to read UID from"
+					log.Error(msg)
+					return errors.New(msg)
+				}
 				username := viper.GetString(serviceConfigPath + ".account")
-
-				if viper.IsSet("dbLocation") {
-					dbLocation = viper.GetString("dbLocation")
-				} else {
-					dbLocation = "/var/lib/managed-tokens/uid.db"
-
-				}
-
-				ferryUidDb, err := db.OpenOrCreateDatabase(dbLocation)
-				if err != nil {
-					log.WithField("executable", currentExecutable).Error("Could not open or create FERRYUIDDatabase")
-					return err
-				}
-				defer ferryUidDb.Close()
-
-				uid, err = ferryUidDb.GetUIDByUsername(ctx, username)
+				uid, err := database.GetUIDByUsername(ctx, username)
 				if err != nil {
 					log.Error("Could not get UID by username")
 					return err
