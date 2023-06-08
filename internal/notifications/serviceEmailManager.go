@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -130,12 +131,12 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 // email text according to the passed in errorTable and the email object's templatePath
 func prepareServiceEmail(ctx context.Context, errorTable string, e *email) (string, error) {
 	timestamp := time.Now().Format(time.RFC822)
-	e.templateStruct = struct {
+	templateStruct := struct {
 		Timestamp  string
 		ErrorTable string
 	}{
 		Timestamp:  timestamp,
 		ErrorTable: errorTable,
 	}
-	return e.prepareEmailWithTemplate()
+	return prepareMessageFromTemplate(strings.NewReader(serviceErrorsTemplate), templateStruct)
 }
