@@ -165,6 +165,9 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 					shouldSend := true
 					if trackErrorCounts {
 						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
+						if !shouldSend {
+							log.WithField("caller", "NewAdminNotificationManager").Debug("Error count less than error limit.  Not sending notification.")
+						}
 					}
 					if shouldSend {
 						adminChan <- n

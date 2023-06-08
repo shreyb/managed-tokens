@@ -1,50 +1,79 @@
 package worker
 
-import "github.com/shreyb/managed-tokens/internal/environment"
+import (
+	"github.com/shreyb/managed-tokens/internal/environment"
+)
 
-// To call, for example, do something like this in package main
+// SetCommandEnvironment is a helper func that takes a variadic of func(*environment.CommandEnvironment) and returns a func(*Config) that sets
+// the Config's embedded CommandEnvironment by running the funcs passed in the variadic.  It is meant to be used to as a functional
+// opt in the call to NewConfig to create a new Config object.   For example:
 //
-//	f := func(e *environment.CommandEnvironment) {
-//	 e.SetCondorCreddHost("my_credd_host")
-//	}
-//	g := func(e *environment.CommandEnvironment) {
-//	 e.SetCondorCollectorHost("my_collector_host")
-//	}
-//
-//	c := worker.NewConfig(
-//	 service,
-//	 worker.SetCommandEnvironment(f, g)
+//	c := NewConfig(
+//	  SetCommandEnvironment(
+//	    func(e *environment.CommandEnvironment) { e.SetCondorCreddHost("my_credd_host") }
+//	  )
 //	)
-//
-// TODO Document these funcs, including the example above
-func SetCommandEnvironment(cmdEnvFuncs ...func(e *environment.CommandEnvironment)) func(*Config) {
-	return func(c *Config) {
+func SetCommandEnvironment(cmdEnvFuncs ...func(e *environment.CommandEnvironment)) func(*Config) error {
+	return func(c *Config) error {
 		for _, f := range cmdEnvFuncs {
 			f(&c.CommandEnvironment)
 		}
+		return nil
 	}
 }
 
-func SetUserPrincipal(value string) func(*Config) {
-	return func(c *Config) { c.UserPrincipal = value }
+// SetUserPrincipal returns a func(*Config) with the UserPrincipal field set to the passed in value
+func SetUserPrincipal(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.UserPrincipal = value
+		return nil
+	}
 }
 
-func SetNodes(value []string) func(*Config) {
-	return func(c *Config) { c.Nodes = value }
+// SetNodes returns a func(*Config) with the Nodes field set to the passed in value
+func SetNodes(value []string) func(*Config) error {
+	return func(c *Config) error {
+		c.Nodes = value
+		return nil
+	}
 }
 
-func SetAccount(value string) func(*Config) {
-	return func(c *Config) { c.Account = value }
+// SetAccount returns a func(*Config) with the Account field set to the passed in value
+func SetAccount(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.Account = value
+		return nil
+	}
 }
 
-func SetKeytabPath(value string) func(*Config) {
-	return func(c *Config) { c.KeytabPath = value }
+// SetKeytabPath returns a func(*Config) with the KeytabPath field set to the passed in value
+func SetKeytabPath(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.KeytabPath = value
+		return nil
+	}
 }
 
-func SetDesiredUID(value int) func(*Config) {
-	return func(c *Config) { c.DesiredUID = uint32(value) }
+// SetDesiredUID returns a func(*Config) with the DesiredUID field set to the passed in value
+func SetDesiredUID(value uint32) func(*Config) error {
+	return func(c *Config) error {
+		c.DesiredUID = uint32(value)
+		return nil
+	}
 }
 
-func SetDesiredSchedds(value []string) func(*Config) {
-	return func(c *Config) { c.Schedds = value }
+// SetSchedds returns a func(*Config) with the Schedds field set to the passed in value
+func SetSchedds(value []string) func(*Config) error {
+	return func(c *Config) error {
+		c.Schedds = value
+		return nil
+	}
+}
+
+// SetSupportedExtrasKeyValue returns a func(*Config) that sets the value for the given supportedExtraskey in the Extras map
+func SetSupportedExtrasKeyValue(key supportedExtrasKey, value any) func(*Config) error {
+	return func(c *Config) error {
+		c.Extras[key] = value
+		return nil
+	}
 }

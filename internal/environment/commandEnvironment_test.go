@@ -1,8 +1,14 @@
 package environment
 
 import (
-	"reflect"
 	"testing"
+)
+
+const (
+	krb5ccnameTestValue          string = "krb5ccname_test"
+	condorCreddHostTestValue     string = "condor_credd_host_setting"
+	condorCollectorHostTestValue string = "condor_credd_host_setting"
+	htgettokenoptsTestValue      string = "htgettokenopts_setting"
 )
 
 var cmdEnvFull CommandEnvironment = CommandEnvironment{
@@ -17,120 +23,130 @@ var cmdEnvPartial CommandEnvironment = CommandEnvironment{
 	CondorCreddHost: "_condor_CREDD_HOST=condor_credd_host_setting",
 }
 
-// TestCommandEnvironmentToMap checks to see if various CommandEnvironments get translated properly to maps
-func TestCommandEnvironmentToMap(t *testing.T) {
+// TestSetKrb5ccname ensures that SetKrb5ccname properly handles the passed value and kerberosCCacheType and stores the proper string in the
+// CommandEnvironment
+func TestSetKrb5ccname(t *testing.T) {
 	type testCase struct {
-		description string
-		CommandEnvironment
-		expectedResult map[string]string
+		description    string
+		cacheType      kerberosCCacheType
+		expectedResult string
 	}
+
 	testCases := []testCase{
 		{
-			description:        "Test translating filled CommandEnvironment to a map[string]string",
-			CommandEnvironment: cmdEnvFull,
-			expectedResult: map[string]string{
-				"Krb5ccname":          "KRB5CCNAME=krb5ccname_setting",
-				"CondorCreddHost":     "_condor_CREDD_HOST=condor_credd_host_setting",
-				"CondorCollectorHost": "_condor_COLLECTOR_HOST=condor_collector_host_setting",
-				"HtgettokenOpts":      "HTGETTOKENOPTS=htgettokenopts_setting",
-			},
+			"Use DIR",
+			DIR,
+			"KRB5CCNAME=DIR:" + krb5ccnameTestValue,
 		},
 		{
-			description:        "Test translating partially-filled CommandEnvironment to a map[string]string",
-			CommandEnvironment: cmdEnvPartial,
-			expectedResult: map[string]string{
-				"Krb5ccname":          "KRB5CCNAME=krb5ccname_setting",
-				"CondorCreddHost":     "_condor_CREDD_HOST=condor_credd_host_setting",
-				"CondorCollectorHost": "",
-				"HtgettokenOpts":      "",
-			},
+			"Use FILE",
+			FILE,
+			"KRB5CCNAME=FILE:" + krb5ccnameTestValue,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			m := tc.CommandEnvironment.ToMap()
-			if !reflect.DeepEqual(m, tc.expectedResult) {
-				t.Errorf("Maps do not match.  Expected %s, got %s", tc.expectedResult, m)
+	for _, test := range testCases {
+		t.Run(test.description, func(t *testing.T) {
+			c := &CommandEnvironment{}
+			c.SetKrb5ccname(krb5ccnameTestValue, test.cacheType)
+			result := string(c.Krb5ccname)
+
+			if test.expectedResult != result {
+				t.Errorf("Set wrong value for KRB5CCNAME env.  Expected %s, got %s", test.expectedResult, result)
 			}
-		})
+		},
+		)
 	}
 }
 
-// TestCommandEnvironmentToEnvs checks to see if various CommandEnvironments get translated properly to maps of environment variable assignments
-func TestCommandEnvironmentToEnvs(t *testing.T) {
-	type testCase struct {
-		description string
-		CommandEnvironment
-		expectedResult map[string]string
-	}
-
-	staticExpectedResult := map[string]string{
-		"Krb5ccname":          "KRB5CCNAME",
-		"CondorCreddHost":     "_condor_CREDD_HOST",
-		"CondorCollectorHost": "_condor_COLLECTOR_HOST",
-		"HtgettokenOpts":      "HTGETTOKENOPTS",
-	}
-
-	testCases := []testCase{
-		{
-			description:        "Take full CommandEnvironment, and return all translations to environment variables",
-			CommandEnvironment: cmdEnvFull,
-			expectedResult:     staticExpectedResult,
-		},
-		{
-			description:        "Take partial CommandEnvironment, and make sure we still return all possible translations to environment variables",
-			CommandEnvironment: cmdEnvPartial,
-			expectedResult:     staticExpectedResult,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			m := tc.CommandEnvironment.toEnvs()
-			if !reflect.DeepEqual(m, tc.expectedResult) {
-				t.Errorf("Maps do not match.  Expected %s, got %s", tc.expectedResult, m)
-			}
-		})
+// TestSetCondorCreddHost checks that SetCondorCreddHost properly sets the CondorCreddHost field in the CommandEnvironment
+func TestSetCondorCreddHost(t *testing.T) {
+	c := &CommandEnvironment{}
+	c.SetCondorCreddHost(condorCreddHostTestValue)
+	expected := "_condor_CREDD_HOST=" + condorCreddHostTestValue
+	result := string(c.CondorCreddHost)
+	if expected != result {
+		t.Errorf("Set wrong value for _condor_CREDD_HOST env.  Expected %s, got %s", expected, result)
 	}
 }
 
-// TestCommandEnvironmentToValues checks to see if various CommandEnvironments get translated properly to maps
-func TestCommandEnvironmentToValues(t *testing.T) {
+// TestSetCondorCollectorHost checks that SetCondorCollectorHost properly sets the CondorCollectorHost field in the CommandEnvironment
+func TestSetCondorCollectorHost(t *testing.T) {
+	c := &CommandEnvironment{}
+	c.SetCondorCollectorHost(condorCollectorHostTestValue)
+	expected := "_condor_COLLECTOR_HOST=" + condorCollectorHostTestValue
+	result := string(c.CondorCollectorHost)
+	if expected != result {
+		t.Errorf("Set wrong value for _condor_COLLECTOR_HOST env.  Expected %s, got %s", expected, result)
+	}
+}
+
+// TestSetHtgettokenopts checks that SetHtgettokenopts properly sets the Htgettokenopts field in the CommandEnvironment
+func TestSetHtgettokenopts(t *testing.T) {
+	c := &CommandEnvironment{}
+	c.SetHtgettokenOpts(htgettokenoptsTestValue)
+	expected := "HTGETTOKENOPTS=" + htgettokenoptsTestValue
+	result := string(c.HtgettokenOpts)
+	if expected != result {
+		t.Errorf("Set wrong value for HTGETTOKENOPTS env.  Expected %s, got %s", expected, result)
+	}
+}
+
+// TestGetSetting checks that we properly get values from the CommandEnvironment and handle the case of an unsupported CommandEnvironment field
+func TestGetSetting(t *testing.T) {
 	type testCase struct {
 		description string
-		CommandEnvironment
-		expectedResult map[string]string
+		*CommandEnvironment
+		key            supportedCommandEnvironmentField
+		expectedResult string
 	}
+
 	testCases := []testCase{
 		{
-			description:        "Test translating filled CommandEnvironment to a map[string]string",
-			CommandEnvironment: cmdEnvFull,
-			expectedResult: map[string]string{
-				"Krb5ccname":          "krb5ccname_setting",
-				"CondorCreddHost":     "condor_credd_host_setting",
-				"CondorCollectorHost": "condor_collector_host_setting",
-				"HtgettokenOpts":      "htgettokenopts_setting",
-			},
+			"Full CommandEnvironment, get _condor_CREDD_HOST",
+			&cmdEnvFull,
+			CondorCreddHost,
+			"_condor_CREDD_HOST=" + condorCreddHostTestValue,
 		},
 		{
-			description:        "Test translating partially-filled CommandEnvironment to a map[string]string",
-			CommandEnvironment: cmdEnvPartial,
-			expectedResult: map[string]string{
-				"Krb5ccname":          "krb5ccname_setting",
-				"CondorCreddHost":     "condor_credd_host_setting",
-				"CondorCollectorHost": "",
-				"HtgettokenOpts":      "",
-			},
+			"Partial CommandEnvironment, get valid key (_condor_CREDD_HOST)",
+			&cmdEnvPartial,
+			CondorCreddHost,
+			"_condor_CREDD_HOST=" + condorCreddHostTestValue,
+		},
+		{
+			"Partial CommandEnvironment, get missing key (_condor_COLLECTOR_HOST)",
+			&cmdEnvPartial,
+			CondorCollectorHost,
+			"",
+		},
+		{
+			"Full CommandEnvironment, get invalid key (should be impossible/difficult, but let's make sure it's handled correctly)",
+			&cmdEnvFull,
+			supportedCommandEnvironmentField(45678),
+			"unsupported CommandEnvironment field",
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.description, func(t *testing.T) {
-			m := tc.CommandEnvironment.ToValues()
-			if !reflect.DeepEqual(m, tc.expectedResult) {
-				t.Errorf("Maps do not match.  Expected %s, got %s", tc.expectedResult, m)
-			}
-		})
+	for _, test := range testCases {
+		t.Run(test.description,
+			func(t *testing.T) {
+				result := test.CommandEnvironment.GetSetting(test.key)
+				if result != test.expectedResult {
+					t.Errorf("Got unexpected result when retrieving value from CommandEnvironment.  Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}
+
+func TestGetValue(t *testing.T) {
+	c := cmdEnvFull
+	key := HtgettokenOpts
+	expected := htgettokenoptsTestValue
+	result := c.GetValue(key)
+
+	if expected != result {
+		t.Errorf("Got wrong value from CommandEnvironment.  Expected %s, got %s", expected, result)
 	}
 }

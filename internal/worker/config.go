@@ -19,28 +19,50 @@ type unPingableNodes struct {
 	sync.Map
 }
 
+// supportedExtrasKey is an enumerated key for the Config.Extras map.  Callers wishing to store values
+// in the Config.Extras map should use a SupportedExtrasKey as the key
+type supportedExtrasKey int
+
+const (
+	// DefaultRoleFileTemplate is a key to store the value of the default role file template in the Config.Extras map
+	DefaultRoleFileTemplate supportedExtrasKey = iota
+)
+
+func (s supportedExtrasKey) String() string {
+	switch s {
+	case DefaultRoleFileTemplate:
+		return "DefaultRoleFileTemplate"
+	default:
+		return "unsupported extras key"
+	}
+}
+
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 type Config struct {
 	service.Service
-	UserPrincipal string
-	Nodes         []string
-	Account       string
-	KeytabPath    string
-	DesiredUID    uint32
-	Schedds       []string
+	UserPrincipal string   // The principal of the kerberos credential needed by the various workers
+	Nodes         []string // The destination nodes for PushTokensWorker to push copies of the vault tokens to
+	Account       string   // The user account the PushTokensWorker should use to connect to a destination node
+	KeytabPath    string   // The path on disk where the kerberos keytab is stored
+	DesiredUID    uint32   // The UID associated with the Account. This determines the destination filename
+	Schedds       []string // The list of schedds/credds where a StoreAndGetTokenWorker should store vault tokens
 	// Extras is a map where any value can be stored that may not fit into the above categories.
-	// However, to avoid runtime errors/bad data, it is strongly suggested to create setter/getter
-	// funcs that set these values, and run type checks.  For example, if we wanted to set
-	// a string property with key "foo" here, we should have two funcs:
-	//	func SetFooInExtras(c *Config, fooValue string) { c.Extras["foo"] = fooValue }
-	// and
-	//	func GetFooFromExtras(c *Config) (string, bool) {
-	//		val, ok := c.Extras["foo"].(string)
-	//		return val, ok
-	//	}
-	// The code that tries to retrieve Extras["foo"] can then just call GetFooFromExtras and check
-	// the bool value to make sure it's true
-	Extras map[string]any
+	// To allow an external package to set an Extras value, define an exported func that sets
+	// the value directly.  For example:
+	//  func SetSupportedExtrasKeyValue(c *Config, key supportedExtrasKey, value any) { c.Extras[key] = value }
+	//
+	// The functional option version of this would look like:
+	//  func SetSupportedExtrasKeyValue(key supportedExtrasKey, value any) func (*Config) { return func(c *Config) {c.Extras[key] = value } }
+	//
+	// It's also a good idea to create a getter value for each supportedExtrasKey, so that type checks can be done.  For example, for a key whose
+	// value's underlying type we expect to be a string, define a func like this:
+	//  func GetMySupportedExtrasKey(c *Config) (string, bool) {
+	// 		if val, ok := c.Extras[MySupportedKey].(string); ok {
+	//  			return val, ok
+	//  	}
+	//  }
+	// Then the caller should check ok to make sure it's true before using the value
+	Extras map[supportedExtrasKey]any
 	environment.CommandEnvironment
 	*unPingableNodes // Pointer to an unPingableNodes object that indicates which configured nodes in Nodes do not respond to a ping request
 }
@@ -62,7 +84,7 @@ type Config struct {
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
 func NewConfig(service service.Service, options ...func(*Config) error) (*Config, error) {
 	c := Config{Service: service}
-	c.Extras = make(map[string]any)
+	c.Extras = make(map[supportedExtrasKey]any)
 
 	for _, option := range options {
 		err := option(&c)

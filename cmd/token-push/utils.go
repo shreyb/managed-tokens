@@ -2,20 +2,18 @@ package main
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/worker"
 )
-
-var once sync.Once
 
 // Prep admin notifications
 func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) ([]notifications.SendMessager, chan notifications.Notification) {
@@ -99,10 +97,10 @@ func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs 
 	for workerSuccess := range chans.GetSuccessChan() {
 		if !workerSuccess.GetSuccess() {
 			log.WithField(
-				"service", getServiceName(workerSuccess.GetService()),
+				"service", cmdUtils.GetServiceName(workerSuccess.GetService()),
 			).Debug("Removing serviceConfig from list of configs to use")
-			failedConfigs = append(failedConfigs, serviceConfigs[getServiceName(workerSuccess.GetService())])
-			delete(serviceConfigs, getServiceName(workerSuccess.GetService()))
+			failedConfigs = append(failedConfigs, serviceConfigs[cmdUtils.GetServiceName(workerSuccess.GetService())])
+			delete(serviceConfigs, cmdUtils.GetServiceName(workerSuccess.GetService()))
 		}
 	}
 	return failedConfigs
@@ -124,7 +122,7 @@ func addServiceToServicesSlice(services []service.Service, configExperiment, rea
 	var serv service.Service
 	serviceName := realExperiment + "_" + role
 	if configExperiment != realExperiment {
-		serv = newExperimentOverridenService(serviceName, configExperiment)
+		serv = cmdUtils.NewExperimentOverridenService(serviceName, configExperiment)
 	} else {
 		serv = service.NewService(serviceName)
 	}

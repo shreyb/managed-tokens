@@ -18,7 +18,9 @@ import (
 	"github.com/rifflock/lfshook"
 	"github.com/spf13/pflag"
 
+	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -302,7 +304,7 @@ func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 
 	servicesToAddToDatabase := make([]string, 0, len(services))
 	for _, s := range services {
-		servicesToAddToDatabase = append(servicesToAddToDatabase, getServiceName(s))
+		servicesToAddToDatabase = append(servicesToAddToDatabase, cmdUtils.GetServiceName(s))
 	}
 
 	if err := database.UpdateServices(context.Background(), servicesToAddToDatabase); err != nil {
@@ -423,48 +425,65 @@ func run(ctx context.Context) error {
 		defer setupWg.Done()
 		defer close(initializeSuccessfulServices)
 		for serviceConfig := range collectServiceConfigs {
-			serviceName := getServiceName(serviceConfig.Service)
+			serviceName := cmdUtils.GetServiceName(serviceConfig.Service)
 			serviceConfigs[serviceName] = serviceConfig
 			initializeSuccessfulServices <- serviceName
 		}
 	}()
 
 	// Set up our serviceConfigs and load them into various collection channels
-	func() {
-		var serviceConfigSetupWg sync.WaitGroup
-		defer close(collectServiceConfigs)
-		for _, s := range services {
+	var serviceConfigSetupWg sync.WaitGroup
+	for _, s := range services {
+		serviceConfigSetupWg.Add(1)
+		go func(s service.Service) {
 			// Setup the configs
+			defer serviceConfigSetupWg.Done()
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-			serviceConfigSetupWg.Add(1)
-			go func(s service.Service, serviceConfigPath string) {
-				defer serviceConfigSetupWg.Done()
-				c, err := worker.NewConfig(
-					s,
-					setkrb5ccname(krb5ccname),
-					setCondorCreddHost(serviceConfigPath),
-					setSchedds(serviceConfigPath),
-					setCondorCollectorHost(serviceConfigPath),
-					setUserPrincipalAndHtgettokenopts(serviceConfigPath, s.Experiment()),
-					setKeytabOverride(serviceConfigPath),
-					setDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database),
-					destinationNodes(serviceConfigPath),
-					account(serviceConfigPath),
-					setDefaultRoleFileDestinationTemplate(serviceConfigPath),
-				)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"experiment": s.Experiment(),
-						"role":       s.Role(),
-					}).Error("Could not create config for service")
-					return
-				}
-				collectServiceConfigs <- c
-				registerServiceNotificationsChan(ctx, s, database)
-			}(s, serviceConfigPath)
-		}
-		serviceConfigSetupWg.Wait()
-	}()
+			uid, err := getDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"caller":  "token-push.run",
+					"service": s.Name(),
+				}).Error("Error obtaining UID for service.  Skipping service.")
+				return
+			}
+			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, s.Experiment())
+			if userPrincipal == "" {
+				log.Error("Cannot have a blank userPrincipal.  Skipping service")
+				return
+			}
+			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
+			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+			keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
+			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
+			c, err := worker.NewConfig(
+				s,
+				worker.SetCommandEnvironment(
+					func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) },
+					func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
+					func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
+				),
+				worker.SetSchedds(schedds),
+				worker.SetUserPrincipal(userPrincipal),
+				worker.SetKeytabPath(keytabPath),
+				worker.SetDesiredUID(uid),
+				worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
+				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
+				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileTemplate, defaultRoleFileDestinationTemplate),
+			)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"experiment": s.Experiment(),
+					"role":       s.Role(),
+				}).Error("Could not create config for service")
+				return
+			}
+			collectServiceConfigs <- c
+			registerServiceNotificationsChan(ctx, s, database)
+		}(s)
+	}
+	serviceConfigSetupWg.Wait()
+	close(collectServiceConfigs)
 	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
 	// Add our configured nodes to managed tokens database
@@ -556,7 +575,7 @@ func run(ctx context.Context) error {
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
 			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
-			log.WithField("service", getServiceName(pingSuccess.GetService())).Error(msg)
+			log.WithField("service", cmdUtils.GetServiceName(pingSuccess.GetService())).Error(msg)
 		}
 	}
 
@@ -567,7 +586,7 @@ func run(ctx context.Context) error {
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
 		if pushSuccess.GetSuccess() {
-			successfulServices[getServiceName(pushSuccess.GetService())] = true
+			successfulServices[cmdUtils.GetServiceName(pushSuccess.GetService())] = true
 		}
 	}
 

@@ -308,13 +308,6 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 // Note that these three funcs were implemented as functions with the *Config object as an argument, and not
 // with a pointer receiver, because they are not meant to be inherent behaviors of a *Config object.
 
-// SetDefaultRoleFileTemplateValueInExtras is used to set the default role file template in the worker.Config.
-// It is preferred over directly setting worker.Config["DefaultRoleFileTemplate"], because it enforces that the
-// set value (tempmlateString) must be a string
-func SetDefaultRoleFileTemplateValueInExtras(c *Config, templateString string) {
-	c.Extras["DefaultRoleFileTemplate"] = templateString
-}
-
 // GetDefaultRoleFileTemplateValueFromExtras retrieves the default role file template value from the worker.Config,
 // and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
 // passes, for example:
@@ -324,7 +317,7 @@ func SetDefaultRoleFileTemplateValueInExtras(c *Config, templateString string) {
 //	tmplString, ok := GetDefaultRoleFileTemplateValueFromExtras(c)
 //	if !ok { // handle missing or incorrect value }
 func GetDefaultRoleFileTemplateValueFromExtras(c *Config) (string, bool) {
-	defaultRoleFileTemplateString, ok := c.Extras["DefaultRoleFileTemplate"].(string)
+	defaultRoleFileTemplateString, ok := c.Extras[DefaultRoleFileTemplate].(string)
 	return defaultRoleFileTemplateString, ok
 }
 
