@@ -115,7 +115,7 @@ func (c *CommandEnvironment) SetHtgettokenOpts(value string) {
 //
 // setting will be "KRB5CCNAME=DIR:krb5ccname_setting"
 func (c *CommandEnvironment) GetSetting(s supportedCommandEnvironmentField) string {
-	return string(c.mapSupportedFieldsToStructFields(s))
+	return string(c.mapSupportedFieldToStructField(s))
 }
 
 // GetValue retrieves the full key=value setting from a supportedCommandEnvironmentField in the CommandEnvironment, trims the "key=" portion,
@@ -151,7 +151,7 @@ func (c *CommandEnvironment) String() string {
 	return strings.Join(envSlice, " ")
 }
 
-func (c *CommandEnvironment) mapSupportedFieldsToStructFields(s supportedCommandEnvironmentField) environmentVariableSetting {
+func (c *CommandEnvironment) mapSupportedFieldToStructField(s supportedCommandEnvironmentField) environmentVariableSetting {
 	switch s {
 	case Krb5ccname:
 		return c.Krb5ccname
