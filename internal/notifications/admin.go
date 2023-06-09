@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -184,8 +182,6 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
 	var wg sync.WaitGroup
 	var existsSendError bool
-	var fullMessageBuilder strings.Builder
-	var abridgedMessageBuilder strings.Builder
 
 	adminErrors.writerCount.Wait()
 	log.Debug("adminErrors is finalized")
@@ -215,14 +211,9 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 	adminErrorsMapFinal := prepareAdminErrorsForFullMessage()
 	setupErrorsCombined, pushErrorsCombined := prepareAbridgedAdminSlices()
 
+	// Prepare the full and abridged messages
 	timestamp := time.Now().Format(time.RFC822)
-	templateData, err := os.ReadFile(adminTemplatePath)
-	if err != nil {
-		log.WithField("caller", "SendAdminNotifications").Errorf("Could not read admin error template file: %s", err)
-		return err
-	}
-	adminTemplate := template.Must(template.New("admin").Parse(string(templateData)))
-	if err = adminTemplate.Execute(&fullMessageBuilder, struct {
+	fullMessageStruct := struct {
 		Timestamp           string
 		Operation           string
 		AdminErrors         map[string]AdminDataFinal
@@ -236,11 +227,8 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		SetupErrorsCombined: setupErrorsCombined,
 		PushErrorsCombined:  pushErrorsCombined,
 		Abridged:            false,
-	}); err != nil {
-		log.WithField("caller", "SendAdminNotifications").Errorf("Failed to execute full admin template: %s", err)
-		return err
 	}
-	if err = adminTemplate.Execute(&abridgedMessageBuilder, struct {
+	abridgedMessageStruct := struct {
 		Timestamp           string
 		Operation           string
 		AdminErrors         map[string]AdminDataFinal
@@ -254,8 +242,16 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 		SetupErrorsCombined: setupErrorsCombined,
 		PushErrorsCombined:  pushErrorsCombined,
 		Abridged:            true,
-	}); err != nil {
-		log.WithField("caller", "SendAdminNotifications").Errorf("Failed to execute abridged admin template: %s", err)
+	}
+
+	fullMessage, err := prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), fullMessageStruct)
+	if err != nil {
+		log.WithField("caller", "SendAdminNotifications").Errorf("Could not prepare full admin message from template: %s", err)
+		return err
+	}
+	abridgedMessage, err := prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), abridgedMessageStruct)
+	if err != nil {
+		log.WithField("caller", "SendAdminNotifications").Errorf("Could not prepare abridged admin message from template: %s", err)
 		return err
 	}
 
@@ -267,13 +263,13 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 			switch sm.(type) {
 			case *email:
 				// Send long-form message
-				if err := SendMessage(ctx, sm, fullMessageBuilder.String()); err != nil {
+				if err := SendMessage(ctx, sm, fullMessage); err != nil {
 					existsSendError = true
 					log.WithField("caller", "SendAdminNotifications").Error("Failed to send admin email")
 				}
 			case *slackMessage:
 				// Send abridged message
-				if err := SendMessage(ctx, sm, abridgedMessageBuilder.String()); err != nil {
+				if err := SendMessage(ctx, sm, abridgedMessage); err != nil {
 					existsSendError = true
 					log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
 				}

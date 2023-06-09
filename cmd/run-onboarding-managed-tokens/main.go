@@ -24,8 +24,8 @@ import (
 
 var (
 	currentExecutable string
-	buildTimestamp    string
-	version           string
+	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
+	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 )
 
 // Supported timeouts and their default values

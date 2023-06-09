@@ -47,10 +47,6 @@ install -m 0644 %{name}.cron %{buildroot}/%{_sysconfdir}/cron.d/%{name}
 mkdir -p %{buildroot}/%{_sysconfdir}/logrotate.d
 install -m 0644 %{name}.logrotate %{buildroot}/%{_sysconfdir}/logrotate.d/%{name}
 
-# Templates
-mkdir -p %{buildroot}/%{_datadir}/%{name}/templates
-install -m 0644 templates/*.txt  %{buildroot}/%{_datadir}/%{name}/templates
-
 
 %clean
 rm -rf %{buildroot}
@@ -61,7 +57,6 @@ rm -rf %{buildroot}
 %config(noreplace) %{_sysconfdir}/%{name}/managedTokens.yml
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/cron.d/%{name}
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/logrotate.d/%{name}
-%{_datadir}/%{name}/templates
 %{_bindir}/refresh-uids-from-ferry
 %{_bindir}/run-onboarding-managed-tokens
 %{_bindir}/token-push
@@ -83,6 +78,10 @@ install -d %{_sharedstatedir}/%{name} -m 0774 -o rexbatch -g fife
 }
 
 %changelog
+* Thu Jun 08 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.8
+Remove templates from spec file - they are now being embedded
+in the binaries
+
 * Wed Sep 07 2022 Shreyas Bhat <sbhat@fnal.gov> - 0.2.1
 Change owner of /etc/managed-tokens dir
 

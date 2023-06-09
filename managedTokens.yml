@@ -89,9 +89,3 @@ experiments:
       production:
         account: mu2epro
         destinationNodes: [node2.fnal.gov]
-
-
-
-templates:
-  serviceErrors: "/usr/share/managed-tokens/templates/serviceErrors.txt"
-  adminErrors:  "/usr/share/managed-tokens/templates/adminErrors.txt"

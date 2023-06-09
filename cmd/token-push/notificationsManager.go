@@ -53,7 +53,6 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, da
 		fmt.Sprintf("Managed Tokens Push Errors for %s - %s", serviceName, timestamp),
 		viper.GetString("email.smtphost"),
 		viper.GetInt("email.smtpport"),
-		viper.GetString("templates.serviceerrors"),
 	)
 	serviceEmailManagersWg.Add(1)
 

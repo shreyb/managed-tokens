@@ -39,7 +39,6 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 		"Managed Tokens Errors "+now,
 		viper.GetString("email.smtphost"),
 		viper.GetInt("email.smtpport"),
-		"",
 	)
 	slackMessage := notifications.NewSlackMessage(
 		viper.GetString(prefix + "slack_alerts_url"),
