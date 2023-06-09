@@ -1,0 +1,11 @@
+# Build artifacts
+*.rpm
+*.tar.gz
+
+# Testing
+.vscode/*
+
+# Built executables
+cmd/refresh-uids-from-ferry/refresh-uids-from-ferry
+cmd/run-onboarding-managed-tokens/run-onboarding-managed-tokens
+cmd/token-push/token-push
