@@ -1,5 +1,5 @@
 NAME = managed-tokens
-VERSION = v0.7.1
+VERSION = v0.8
 ROOTDIR = $(shell pwd)
 BUILD = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 rpmVersion := $(subst v,,$(VERSION))
@@ -33,7 +33,6 @@ tarball: build
 	mkdir -p $(SOURCEDIR)
 	cp $(foreach exe,$(executables),cmd/$(exe)/$(exe)) $(SOURCEDIR)  # Executables
 	cp $(ROOTDIR)/managedTokens.yml $(ROOTDIR)/packaging/managed-tokens.logrotate $(ROOTDIR)/packaging/managed-tokens.cron $(SOURCEDIR)  # Config files
-	cp -r $(ROOTDIR)/templates/ $(SOURCEDIR)/templates
 	tar -czf $(buildTarPath) -C $(ROOTDIR) $(buildTarName)
 	echo "Built deployment tarball"
 
