@@ -439,7 +439,7 @@ func run(ctx context.Context) error {
 			// Setup the configs
 			defer serviceConfigSetupWg.Done()
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-			uid, err := getDesiredUIByOverrideOrLookup(ctx, serviceConfigPath, database)
+			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
 				log.WithFields(log.Fields{
 					"caller":  "token-push.run",
@@ -456,6 +456,7 @@ func run(ctx context.Context) error {
 			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
+			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -470,6 +471,7 @@ func run(ctx context.Context) error {
 				worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileTemplate, defaultRoleFileDestinationTemplate),
+				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
 			)
 			if err != nil {
 				log.WithFields(log.Fields{

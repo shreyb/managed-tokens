@@ -70,6 +70,20 @@ func TestSetCondorCreddHost(t *testing.T) {
 	}
 }
 
+// FuzzSetCondorCreddHost checks that SetCondorCreddHost properly sets the CondorCreddHost field in the CommandEnvironment
+func FuzzSetCondorCreddHost(f *testing.F) {
+	f.Add(condorCreddHostTestValue)
+	f.Fuzz(func(t *testing.T, a string) {
+		c := &CommandEnvironment{}
+		c.SetCondorCreddHost(a)
+		expected := "_condor_CREDD_HOST=" + a
+		result := string(c.CondorCreddHost)
+		if expected != result {
+			t.Errorf("Set wrong value for _condor_CREDD_HOST env.  Expected %s, got %s", expected, result)
+		}
+	})
+}
+
 // TestSetCondorCollectorHost checks that SetCondorCollectorHost properly sets the CondorCollectorHost field in the CommandEnvironment
 func TestSetCondorCollectorHost(t *testing.T) {
 	c := &CommandEnvironment{}

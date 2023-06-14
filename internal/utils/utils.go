@@ -5,6 +5,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"os/user"
 	"reflect"
@@ -17,9 +18,15 @@ import (
 )
 
 // CheckForExecutables takes a map of executables of the form {"name_of_executable": "whatever"} and
-// checks if each executable is in $PATH.  If so, it saves the path in the map.  If not, it returns an error
+// checks if each executable is in $PATH.  If the location of the executable in $PATH is already present
+// in the map, and can be found on the filesystem it will move to the next executable.  If not, it will
+// save the location in the map.  If an executable cannot be found, CheckForExecutables returns an error.
 func CheckForExecutables(exeMap map[string]string) error {
-	for exe := range exeMap {
+	for exe, location := range exeMap {
+		// If the location is already saved, continue to the next executable.
+		if _, err := os.Stat(location); location != "" && err == nil {
+			continue
+		}
 		pth, err := exec.LookPath(exe)
 		if err != nil {
 			err := fmt.Errorf("%s was not found in $PATH: %w", exe, err)

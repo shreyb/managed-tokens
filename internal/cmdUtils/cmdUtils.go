@@ -22,37 +22,35 @@ var once sync.Once
 
 // TODO Unit test this whole package
 
-// getCondorCollectorHostFromConfiguration gets the _condor_COLLECTOR_HOST environment variable from the Viper configuration
+// GetCondorCollectorHostFromConfiguration gets the _condor_COLLECTOR_HOST environment variable from the Viper configuration
 func GetCondorCollectorHostFromConfiguration(serviceConfigPath string) string {
-	overrideVar := serviceConfigPath + ".condorCollectorHostOverride"
-	if viper.IsSet(overrideVar) {
-		return viper.GetString(overrideVar)
-	}
-	return viper.GetString("condorCollectorHost")
+	condorCollectorHostPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "condorCollectorHost")
+	return viper.GetString(condorCollectorHostPath)
 }
 
-// getUserPrincipalFromConfiguration gets the configured kerberos principal
+// GetUserPrincipalFromConfiguration gets the configured kerberos principal
 func GetUserPrincipalFromConfiguration(serviceConfigPath, experiment string) string {
-	userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString("kerberosPrincipalPattern"))
-	if err != nil {
-		log.Errorf("Error parsing Kerberos Principal Template, %s", err)
-		return ""
-	}
-	userPrincipalOverrideConfigPath := serviceConfigPath + ".userPrincipalOverride"
-	if viper.IsSet(userPrincipalOverrideConfigPath) {
+	if userPrincipalOverrideConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "userPrincipal"); ok {
 		return viper.GetString(userPrincipalOverrideConfigPath)
 	} else {
 		var b strings.Builder
-		templateArgs := struct{ Account string }{Account: viper.GetString(serviceConfigPath + ".account")}
+		kerberosPrincipalPattern, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "kerberosPrincipalPattern")
+		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString(kerberosPrincipalPattern))
+		if err != nil {
+			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
+			return ""
+		}
+		account := viper.GetString(serviceConfigPath + ".account")
+		templateArgs := struct{ Account string }{Account: account}
 		if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
-			log.WithField("experiment", experiment).Error("Could not execute kerberos prinicpal template")
+			log.WithField("account", account).Error("Could not execute kerberos prinicpal template")
 			return ""
 		}
 		return b.String()
 	}
 }
 
-// getUserPrincipalAndHtgettokenoptsFromConfiguration gets a worker.Config's kerberos principal and with it, the value for the HTGETTOKENOPTS environment variable
+// GetUserPrincipalAndHtgettokenoptsFromConfiguration gets a worker.Config's kerberos principal and with it, the value for the HTGETTOKENOPTS environment variable
 func GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, experiment string) (userPrincipal string, htgettokenOpts string) {
 	getValueFromPointer := func(stringPtr *string) string {
 		if stringPtr == nil {
@@ -101,22 +99,21 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, exper
 	return
 }
 
-// getKeytabOverrideFromConfiguration checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
+// GetKeytabOverrideFromConfiguration checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
 // If the override does not exist, it uses the configuration to calculate the default path to the keytab
 func GetKeytabOverrideFromConfiguration(serviceConfigPath string) string {
-	keytabConfigPath := serviceConfigPath + ".keytabPathOverride"
-	if viper.IsSet(keytabConfigPath) {
+	if keytabConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "keytabPath"); ok {
 		return viper.GetString(keytabConfigPath)
+	} else {
+		// Default keytab location
+		return path.Join(
+			viper.GetString(keytabConfigPath),
+			fmt.Sprintf(
+				"%s.keytab",
+				viper.GetString(serviceConfigPath+".account"),
+			),
+		)
 	}
-	// Default keytab location
-	keytabDir := viper.GetString("keytabPath")
-	return path.Join(
-		keytabDir,
-		fmt.Sprintf(
-			"%s.keytab",
-			viper.GetString(serviceConfigPath+".account"),
-		),
-	)
 }
 
 // getScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
@@ -125,8 +122,7 @@ func GetScheddsFromConfiguration(serviceConfigPath string) []string {
 	schedds := make([]string, 0)
 
 	// If condorCreddHostOverride is set, set the schedd slice to that
-	creddOverrideVar := serviceConfigPath + ".condorCreddHostOverride"
-	if viper.IsSet(creddOverrideVar) {
+	if creddOverrideVar, ok := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "condorCreddHost"); ok {
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
 		return schedds
 	}
@@ -172,4 +168,18 @@ func SetCondorCollectorHostInCommandEnvironment(collector string) func(*environm
 
 func SetHtgettokenOptsInCommandEnvironment(htgettokenopts string) func(*environment.CommandEnvironment) {
 	return func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) }
+}
+
+// Utility functions
+
+// GetServiceConfigOverrideKeyOrGlobalKey checks to see if key + "Override" is defined at the serviceConfigPath in the configuration.
+// If so, the full configuration path is returned, and the overriden bool is set to true.
+// If not, the original key is returned, and the overridden bool is set to false
+func GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, key string) (configPath string, overridden bool) {
+	configPath = key
+	overrideConfigPath := serviceConfigPath + "." + key + "Override"
+	if viper.IsSet(overrideConfigPath) {
+		return overrideConfigPath, true
+	}
+	return
 }
