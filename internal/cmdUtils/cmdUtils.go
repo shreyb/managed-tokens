@@ -24,17 +24,17 @@ var once sync.Once
 
 // GetCondorCollectorHostFromConfiguration gets the _condor_COLLECTOR_HOST environment variable from the Viper configuration
 func GetCondorCollectorHostFromConfiguration(serviceConfigPath string) string {
-	serviceConfigOverride, _ := GetServiceConfigOverrideIfSet(serviceConfigPath, "condorCollectorHost")
-	return viper.GetString(serviceConfigOverride)
+	condorCollectorHostPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "condorCollectorHost")
+	return viper.GetString(condorCollectorHostPath)
 }
 
 // GetUserPrincipalFromConfiguration gets the configured kerberos principal
 func GetUserPrincipalFromConfiguration(serviceConfigPath, experiment string) string {
-	if userPrincipalOverrideConfigPath, ok := GetServiceConfigOverrideIfSet(serviceConfigPath, "userPrincipal"); ok {
+	if userPrincipalOverrideConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "userPrincipal"); ok {
 		return viper.GetString(userPrincipalOverrideConfigPath)
 	} else {
 		var b strings.Builder
-		kerberosPrincipalPattern, _ := GetServiceConfigOverrideIfSet(serviceConfigPath, "kerberosPrincipalPattern")
+		kerberosPrincipalPattern, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "kerberosPrincipalPattern")
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString(kerberosPrincipalPattern))
 		if err != nil {
 			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
@@ -102,7 +102,7 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, exper
 // GetKeytabOverrideFromConfiguration checks the configuration at the serviceConfigPath for an override for the path to the kerberos keytab.
 // If the override does not exist, it uses the configuration to calculate the default path to the keytab
 func GetKeytabOverrideFromConfiguration(serviceConfigPath string) string {
-	if keytabConfigPath, ok := GetServiceConfigOverrideIfSet(serviceConfigPath, "keytabPath"); ok {
+	if keytabConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "keytabPath"); ok {
 		return viper.GetString(keytabConfigPath)
 	} else {
 		// Default keytab location
@@ -122,7 +122,7 @@ func GetScheddsFromConfiguration(serviceConfigPath string) []string {
 	schedds := make([]string, 0)
 
 	// If condorCreddHostOverride is set, set the schedd slice to that
-	if creddOverrideVar, ok := GetServiceConfigOverrideIfSet(serviceConfigPath, "condorCreddHost"); ok {
+	if creddOverrideVar, ok := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "condorCreddHost"); ok {
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
 		return schedds
 	}
@@ -171,10 +171,11 @@ func SetHtgettokenOptsInCommandEnvironment(htgettokenopts string) func(*environm
 }
 
 // Utility functions
-// GetServiceConfigOverrideIfSet checks to see if key + "Override" is defined at the serviceConfigPath in the configuration.
+
+// GetServiceConfigOverrideKeyOrGlobalKey checks to see if key + "Override" is defined at the serviceConfigPath in the configuration.
 // If so, the full configuration path is returned, and the overriden bool is set to true.
 // If not, the original key is returned, and the overridden bool is set to false
-func GetServiceConfigOverrideIfSet(serviceConfigPath, key string) (configPath string, overridden bool) {
+func GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, key string) (configPath string, overridden bool) {
 	configPath = key
 	overrideConfigPath := serviceConfigPath + "." + key + "Override"
 	if viper.IsSet(overrideConfigPath) {

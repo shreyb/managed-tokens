@@ -44,7 +44,7 @@ func getDesiredUIDByOverrideOrLookup(ctx context.Context, serviceConfigPath stri
 // getDefaultRoleFileDestinationTemplate gets the template that the pushTokenWorker should use when
 // deriving the default role file path on the destination node.
 func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
-	defaultRoleFileDestinationTmplPath, _ := cmdUtils.GetServiceConfigOverrideIfSet(serviceConfigPath, "defaultRoleFileDestinationTemplate")
+	defaultRoleFileDestinationTmplPath, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "defaultRoleFileDestinationTemplate")
 	if !viper.IsSet(defaultRoleFileDestinationTmplPath) {
 		return "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
 	}
@@ -54,6 +54,6 @@ func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
 // getFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions
 // is overridden at the service configuration level, then the global configuration value is ignored.
 func getFileCopierOptionsFromConfig(serviceConfigPath string) string {
-	fileCopierOptions, _ := cmdUtils.GetServiceConfigOverrideIfSet(serviceConfigPath, "fileCopierOptions")
+	fileCopierOptions, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
 	return viper.GetString(fileCopierOptions)
 }
