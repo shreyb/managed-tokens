@@ -6,6 +6,7 @@ kerberosPrincipalPattern: principal_pattern
 dbLocation: "/var/lib/managed-tokens/managed-tokens.db"
 errorCountToSendMessage: 3
 defaultRoleFileDestinationTemplate: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any field in the worker.Config object is supported here
+fileCopierOptions: "--perms --chmod=u=r,go=" # Extra options to give to the fileCopier utility - usually rsync
 
 # Performance/timeouts
 timeouts:

@@ -275,11 +275,18 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
+	var fileCopierOptions string
+	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
+	if !ok {
+		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
+		fileCopierOptions = ""
+	}
 	f := fileCopier.NewSSHFileCopier(
 		sourceFile,
 		c.Account,
 		node,
 		destinationFile,
+		fileCopierOptions,
 		"",
 		c.CommandEnvironment,
 	)
@@ -305,7 +312,7 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 
 }
 
-// Note that these three funcs were implemented as functions with the *Config object as an argument, and not
+// Note that these funcs were implemented as functions with the *Config object as an argument, and not
 // with a pointer receiver, because they are not meant to be inherent behaviors of a *Config object.
 
 // GetDefaultRoleFileTemplateValueFromExtras retrieves the default role file template value from the worker.Config,
@@ -348,4 +355,17 @@ func parseDefaultRoleFileTemplateFromConfig(c *Config) (string, error) {
 		return "", err
 	}
 	return b.String(), nil
+}
+
+// GetFileCopierOptionsFromExtras retrieves the file copier options value from the worker.Config,
+// and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
+// passes, for example:
+//
+//	c := worker.NewConfig( // various options )
+//	// set the default role file template in here
+//	opts, ok := GetFileCopierOptionsFromExtras(c)
+//	if !ok { // handle missing or incorrect value }
+func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
+	fileCopierOptions, ok := c.Extras[FileCopierOptions].(string)
+	return fileCopierOptions, ok
 }

@@ -26,12 +26,15 @@ type supportedExtrasKey int
 const (
 	// DefaultRoleFileTemplate is a key to store the value of the default role file template in the Config.Extras map
 	DefaultRoleFileTemplate supportedExtrasKey = iota
+	FileCopierOptions
 )
 
 func (s supportedExtrasKey) String() string {
 	switch s {
 	case DefaultRoleFileTemplate:
 		return "DefaultRoleFileTemplate"
+	case FileCopierOptions:
+		return "FileCopierOptions"
 	default:
 		return "unsupported extras key"
 	}
