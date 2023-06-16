@@ -50,14 +50,12 @@ func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
 
 // GetUserPrincipalAndHtgettokenoptsFromConfiguration gets a worker.Config's kerberos principal and with it, the value for the HTGETTOKENOPTS environment variable
 func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath string) (userPrincipal string, htgettokenOpts string) {
-	getValueFromPointer := func(stringPtr *string) string {
-		if stringPtr == nil {
-			return ""
+	htgettokenOptsPtr := &htgettokenOpts
+	defer func() {
+		if htgettokenOptsPtr != nil {
+			log.Debugf("Final HTGETTOKENOPTS: %s", *htgettokenOptsPtr)
 		}
-		return *stringPtr
-	}
-	// TODO Get this working
-	defer log.Debugf("Final HTGETTOKENOPTS: %s", getValueFromPointer(&htgettokenOpts))
+	}()
 
 	userPrincipal = GetUserPrincipalFromConfiguration(checkServiceConfigPath)
 	if userPrincipal == "" {
@@ -114,6 +112,8 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 	}
 }
 
+// TODO Need to make sure we get schedds only once, then check each serviceConfigPath to see if it's overridden.  Maybe a sync.Once?
+
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
@@ -127,10 +127,17 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	}
 
 	// Otherwise, run condor_status to get schedds.
+	log.Debug("Querying collector for schedds")
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	constraint, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
+	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
 
-	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithConstraint(constraint).WithArg("-schedd")
+	if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
+		constraint := viper.GetString(constraintKey)
+		log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+		statusCmd = statusCmd.WithConstraint(constraint)
+	}
+
+	log.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
 	classads, err := statusCmd.Run()
 	if err != nil {
 		log.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
