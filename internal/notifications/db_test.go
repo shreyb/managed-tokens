@@ -13,8 +13,7 @@ import (
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/testutils"
-	// "github.com/shreyb/managed-tokens/internal/testutils"
+	"github.com/shreyb/managed-tokens/internal/testUtils"
 )
 
 // TestSetErrorCountsByServiceNilDBCase checks that if we have a nil ManagedTokensDatabase, that setErrorCountsByService returns a nil
@@ -733,7 +732,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 					toAdd := setupErrorCount{val.Service(), val.Count()}
 					resultSetupSlice = append(resultSetupSlice, toAdd)
 				}
-				if !testutils.SlicesHaveSameElements(resultSetupSlice, test.expectedSetupErrorData) {
+				if !testUtils.SlicesHaveSameElements(resultSetupSlice, test.expectedSetupErrorData) {
 					t.Errorf("Database data does not match expected data for setup errors, test %s.  Expected %v, got %v", test.description, test.expectedSetupErrorData, resultSetupSlice)
 				}
 
@@ -747,7 +746,7 @@ func TestSaveErrorCountsInDatabase(t *testing.T) {
 					toAdd := pushErrorCount{val.Service(), val.Node(), val.Count()}
 					resultPushSlice = append(resultPushSlice, toAdd)
 				}
-				if !testutils.SlicesHaveSameElements(resultPushSlice, test.expectedPushErrorData) {
+				if !testUtils.SlicesHaveSameElements(resultPushSlice, test.expectedPushErrorData) {
 					t.Errorf("Database data does not match expected data for push errors, test %s.  Expected %v, got %v", test.description, test.expectedPushErrorData, testSetupErrors)
 				}
 			},

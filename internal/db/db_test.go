@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/testutils"
+	"github.com/shreyb/managed-tokens/internal/testUtils"
 )
 
 // TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase
@@ -233,7 +233,7 @@ func checkSchema(m *ManagedTokensDatabase) error {
 			}
 		}
 	}
-	if !testutils.SlicesHaveSameElements(schemaRows, migrationsSql) {
+	if !testUtils.SlicesHaveSameElements(schemaRows, migrationsSql) {
 		return fmt.Errorf(
 			"Schema for database does not match expected schema.  Expected %s, got %s.",
 			migrationsSql,
