@@ -447,14 +447,14 @@ func run(ctx context.Context) error {
 				}).Error("Error obtaining UID for service.  Skipping service.")
 				return
 			}
-			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, s.Experiment())
+			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
 				log.Error("Cannot have a blank userPrincipal.  Skipping service")
 				return
 			}
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
-			keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
+			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
 			c, err := worker.NewConfig(

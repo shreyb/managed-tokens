@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/service"
-	"github.com/shreyb/managed-tokens/internal/testutils"
+	testUtils "github.com/shreyb/managed-tokens/internal/testUtils"
 )
 
 type badFunctionalOptError struct {
@@ -111,7 +111,7 @@ func TestRegisterUnpingableNode(t *testing.T) {
 			return true
 		})
 
-		if !testutils.SlicesHaveSameElements(test.expectedNodes, finalNodes) {
+		if !testUtils.SlicesHaveSameElements(test.expectedNodes, finalNodes) {
 			t.Errorf("Expected registered unpingable nodes is different than results.  Expected %v, got %v", test.expectedNodes, finalNodes)
 		}
 	}

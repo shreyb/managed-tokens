@@ -274,14 +274,14 @@ func run(ctx context.Context) error {
 
 	// Set up service config
 	serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-	userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath, s.Experiment())
+	userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 	if userPrincipal == "" {
 		log.Error("Cannot have a blank userPrincipal.  Exiting")
 		os.Exit(1)
 	}
 	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 	schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
-	keytabPath := cmdUtils.GetKeytabOverrideFromConfiguration(serviceConfigPath)
+	keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 	serviceConfig, err = worker.NewConfig(
 		s,
 		worker.SetCommandEnvironment(

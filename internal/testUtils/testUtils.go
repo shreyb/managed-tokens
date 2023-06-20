@@ -1,6 +1,6 @@
-// Package testing is for testing utilities used across the codebase
+// Package testUtils is for testing utilities used across the codebase
 
-package testutils
+package testUtils
 
 import "fmt"
 

@@ -11,7 +11,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/shreyb/managed-tokens/internal/testutils"
+	"github.com/shreyb/managed-tokens/internal/testUtils"
 )
 
 // TestGetAllServices checks that GetAllServices correctly retrieves services from the ManagedTokensDatabase
@@ -57,7 +57,7 @@ func TestGetAllServices(t *testing.T) {
 				if err != nil {
 					t.Errorf("Failure to obtain services for test %s: %s", test.description, err)
 				}
-				if !testutils.SlicesHaveSameElements(services, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(services, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, services)
 				}
 			},
@@ -108,7 +108,7 @@ func TestGetAllNodes(t *testing.T) {
 				if err != nil {
 					t.Errorf("Failure to obtain nodes for test %s: %s", test.description, err)
 				}
-				if !testutils.SlicesHaveSameElements(nodes, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(nodes, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, nodes)
 				}
 			},
@@ -178,7 +178,7 @@ func TestGetNamedDimensionStringValues(t *testing.T) {
 				if !errors.Is(err, test.expectedErr) {
 					t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
 				}
-				if err == nil && !testutils.SlicesHaveSameElements(data, test.expectedData) {
+				if err == nil && !testUtils.SlicesHaveSameElements(data, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
 				}
 			},
@@ -264,7 +264,7 @@ func TestGetSetupErrorsInfo(t *testing.T) {
 						}
 					}
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -446,7 +446,7 @@ func TestGetPushErrorsInfo(t *testing.T) {
 						}
 					}
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -561,7 +561,7 @@ func TestGetPushErrorsByServiceInfo(t *testing.T) {
 						}
 					}
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -644,7 +644,7 @@ func TestUpdateServices(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, datum)
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -728,7 +728,7 @@ func TestUpdateNodes(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, datum)
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -868,7 +868,7 @@ func TestUpdateSetupErrorsTable(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, setupErrorCount{serviceName, count})
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -1019,7 +1019,7 @@ func TestUpdatePushErrorsTable(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, pushErrorCount{serviceName, nodeName, count})
 				}
-				if !testutils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
