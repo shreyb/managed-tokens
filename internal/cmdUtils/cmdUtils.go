@@ -16,7 +16,18 @@ import (
 	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
-var once sync.Once
+// Various sync.Onces to coordinate synchronization
+var (
+	logHtGettokenOptsOnce sync.Once
+	scheddStoreOnce       sync.Once
+)
+
+// globalSchedds stores the schedds for use by various goroutines
+var globalSchedds *scheddCollection
+
+func init() {
+	globalSchedds = newScheddCollection()
+}
 
 // Functional options for initialization of service Config
 
@@ -73,7 +84,7 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath s
 			htgettokenOpts = viper.GetString("ORIG_HTGETTOKENOPTS")
 			return
 		} else {
-			once.Do(
+			logHtGettokenOptsOnce.Do(
 				func() {
 					log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
 				},
@@ -112,8 +123,6 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 	}
 }
 
-// TODO Need to make sure we get schedds only once, then check each serviceConfigPath to see if it's overridden.  Maybe a sync.Once?
-
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
@@ -126,30 +135,40 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 		return schedds
 	}
 
-	// Otherwise, run condor_status to get schedds.
-	log.Debug("Querying collector for schedds")
-	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
+	// Otherwise, if we haven't run condor_status to get schedds, do that
+	var scheddLogSourceMsg string
+	scheddStoreOnce.Do(func() {
+		log.Debug("Querying collector for schedds")
+		collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
+		statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
 
-	if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
-		constraint := viper.GetString(constraintKey)
-		log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
-		statusCmd = statusCmd.WithConstraint(constraint)
+		if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
+			constraint := viper.GetString(constraintKey)
+			log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+			statusCmd = statusCmd.WithConstraint(constraint)
+		}
+
+		log.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+		classads, err := statusCmd.Run()
+		if err != nil {
+			log.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+
+		}
+
+		for _, classad := range classads {
+			name := classad["Name"].String()
+			schedds = append(schedds, name)
+		}
+		globalSchedds.storeSchedds(schedds) // Store the schedds into the global store
+		scheddLogSourceMsg = "collector"
+	})
+
+	// Return the globally-stored schedds
+	if len(schedds) == 0 {
+		schedds = globalSchedds.getSchedds()
+		scheddLogSourceMsg = "cache"
 	}
-
-	log.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
-	classads, err := statusCmd.Run()
-	if err != nil {
-		log.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
-	}
-
-	for _, classad := range classads {
-		name := classad["Name"].String()
-		schedds = append(schedds, name)
-	}
-
-	log.WithField("schedds", schedds).Debug("Set schedds successfully")
+	log.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddLogSourceMsg)
 	return schedds
 }
 
