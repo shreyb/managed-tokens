@@ -31,14 +31,9 @@ func init() {
 	}
 }
 
-// Func to get all schedds - DONE
-// In StoreAndGetTokens and other methods, copy environments so that we have one per schedd, then run - DONE
-// condor_vault_storer on each - DONE
-// Modify other funcs like that too here
 // TODO: Maybe a context value to store condor_status constraint so we don't have to hard-code jobsub_lite stuff in there?
 // Have anything that sets _condor_CREDD_HOST in the environment struct not actually set that unless
 // in the config as an override
-// Get Schedds at top level (main), then pass those down in worker.Configs.  Those can be passed down into StoreAndGetTokens
 
 // StoreAndGetTokens will store a refresh token on the condor-configured vault server and obtain vault and bearer tokens for a service using HTCondor executables.
 // It will also store the vault and bearer token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
@@ -172,10 +167,10 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *environment.CommandEnvironment, interactive bool) error {
 	// Store token in vault and get new vault token
 	cmdArgs := make([]string, 0, 2)
-	verbose, ok := utils.GetVerboseFromContext(ctx)
-	if !ok {
-		log.Debug("Could not retrieve verbose setting from context, either because it was not set or because of an error.  Setting verbose to false")
-		verbose = false
+	verbose, err := utils.GetVerboseFromContext(ctx)
+	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
+	if !errors.Is(err, utils.ErrContextKeyNotStored) && err != nil {
+		log.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
 	}
 	log.Debugf("Verbose is set to %t", verbose)
 
