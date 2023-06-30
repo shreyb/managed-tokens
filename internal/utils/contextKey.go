@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -18,11 +19,25 @@ const (
 	overrideTimeout
 )
 
-// GetVerboseFromContext returns the value of the verbose value from a context if it has been stored.  It also type-checks the value to ensure
-// it was stored properly
-func GetVerboseFromContext(ctx context.Context) (bool, bool) {
-	verbose, ok := ctx.Value(verbose).(bool)
-	return verbose, ok
+var (
+	ErrContextKeyFailedTypeCheck error = errors.New("returned value failed type-check")
+	ErrContextKeyNotStored             = errors.New("no value in Context for contextKey")
+)
+
+// GetVerboseFromContext returns the type-checked value of the verbose contextKey from a context if it has been stored. If there was an issue
+// retrieving the value from the verbose contextKey in the context, an error is returned
+func GetVerboseFromContext(ctx context.Context) (bool, error) {
+	var verboseReturnVal, ok bool
+	verboseVal := ctx.Value(verbose)
+	if verboseVal == nil {
+		log.WithField("contextKey", "verbose").Debug("No value stored for contextKey.")
+		return false, ErrContextKeyNotStored
+	}
+	if verboseReturnVal, ok = verboseVal.(bool); !ok {
+		log.WithField("contextKey", "verbose").Debug("contextKey value failed type check")
+		return false, ErrContextKeyFailedTypeCheck
+	}
+	return verboseReturnVal, nil
 }
 
 // ContextWithVerbose wraps a context with a verbose=true value
@@ -30,10 +45,21 @@ func ContextWithVerbose(ctx context.Context) context.Context {
 	return context.WithValue(ctx, verbose, true)
 }
 
-// GetOverrideTimeoutFromContext returns the override timeout value from a context if it's been stored and type-checks it
-func GetOverrideTimeoutFromContext(ctx context.Context) (time.Duration, bool) {
-	timeout, ok := ctx.Value(overrideTimeout).(time.Duration)
-	return timeout, ok
+// GetOverrideTimeoutFromContext returns the override timeout value from a context if it's been stored and type-checks it.  If either of these
+// operations fail, it returns an error
+func GetOverrideTimeoutFromContext(ctx context.Context) (time.Duration, error) {
+	var timeout time.Duration
+	var ok bool
+	timeoutVal := ctx.Value(overrideTimeout)
+	if timeoutVal == nil {
+		log.WithField("contextKey", "overrideTimeout").Debug("No value stored for contextKey")
+		return timeout, ErrContextKeyNotStored
+	}
+	if timeout, ok = timeoutVal.(time.Duration); !ok {
+		log.WithField("contextKey", "overrideTimeout").Debug("contextKey value failed type check")
+		return timeout, ErrContextKeyFailedTypeCheck
+	}
+	return timeout, nil
 }
 
 // ContextWithOverrideTimeout takes a parent context and returns a new context with an override timeout set
@@ -45,17 +71,28 @@ func ContextWithOverrideTimeout(ctx context.Context, timeout time.Duration) cont
 // If it finds an overrideTimeout key, it returns the corresponding time.Duration. Otherwise, it will parse the defaultDuration string and
 // return a time.Duration from that, if possible.
 func GetProperTimeoutFromContext(ctx context.Context, defaultDuration string) (time.Duration, error) {
-	var useTimeout time.Duration
-	var ok bool
-	var err error
-
-	if useTimeout, ok = GetOverrideTimeoutFromContext(ctx); !ok {
-		log.Debug("No overrideTimeout set.  Will use default")
-		useTimeout, err = time.ParseDuration(defaultDuration)
+	getDefaultTimeout := func() (time.Duration, error) {
+		timeout, err := time.ParseDuration(defaultDuration)
 		if err != nil {
 			log.Error("Could not parse default timeout duration")
-			return useTimeout, err
 		}
+		return timeout, err
+	}
+
+	var useTimeout time.Duration
+	var err error
+
+	useTimeout, err = GetOverrideTimeoutFromContext(ctx)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrContextKeyNotStored):
+			log.Debug("No overrideTimeout set.  Will use default")
+		case errors.Is(err, ErrContextKeyFailedTypeCheck):
+			log.Debug("Stored overrideTimeout failed type check.  Will use default")
+		default:
+			log.Error("Unspecified error getting overrideTimeout from context.  Will use default")
+		}
+		return getDefaultTimeout()
 	}
 	return useTimeout, nil
 }
