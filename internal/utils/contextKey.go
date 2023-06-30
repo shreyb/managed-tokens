@@ -30,11 +30,11 @@ func GetVerboseFromContext(ctx context.Context) (bool, error) {
 	var verboseReturnVal, ok bool
 	verboseVal := ctx.Value(verbose)
 	if verboseVal == nil {
-		log.Debug("No value for verbose was stored in the context.")
+		log.WithField("contextKey", "verbose").Debug("No value stored for contextKey.")
 		return false, ErrContextKeyNotStored
 	}
 	if verboseReturnVal, ok = verboseVal.(bool); !ok {
-		log.WithField("contextKey", "verbose").Debug("Context value failed type check for contextKey")
+		log.WithField("contextKey", "verbose").Debug("contextKey value failed type check")
 		return false, ErrContextKeyFailedTypeCheck
 	}
 	return verboseReturnVal, nil
@@ -52,11 +52,11 @@ func GetOverrideTimeoutFromContext(ctx context.Context) (time.Duration, error) {
 	var ok bool
 	timeoutVal := ctx.Value(overrideTimeout)
 	if timeoutVal == nil {
-		log.Debug("No value for overrideTimeout was stored in the context")
+		log.WithField("contextKey", "overrideTimeout").Debug("No value stored for contextKey")
 		return timeout, ErrContextKeyNotStored
 	}
 	if timeout, ok = timeoutVal.(time.Duration); !ok {
-		log.WithField("contextKey", "overrideTimeout").Debug("Context value failed type check for contextKey")
+		log.WithField("contextKey", "overrideTimeout").Debug("contextKey value failed type check")
 		return timeout, ErrContextKeyFailedTypeCheck
 	}
 	return timeout, nil
