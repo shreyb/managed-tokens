@@ -20,7 +20,7 @@ func TestGetServiceName(t *testing.T) {
 	}
 
 	standardService := service.NewService("experiment_role")
-	overridenService := &cmdUtils.ExperimentOverriddenService{standardService, "overrideKey", "overrideKey_role"}
+	overriddenService := &cmdUtils.ExperimentOverriddenService{standardService, "overrideKey", "overrideKey_role"}
 
 	testCases := []testCase{
 		{
@@ -29,8 +29,8 @@ func TestGetServiceName(t *testing.T) {
 			"experiment_role",
 		},
 		{
-			"Experiment-overriden service",
-			overridenService,
+			"Experiment-overridden service",
+			overriddenService,
 			"overrideKey_role",
 		},
 	}
@@ -47,7 +47,7 @@ func TestGetServiceName(t *testing.T) {
 	}
 }
 
-func TestNewExperimentOverridenService(t *testing.T) {
+func TestNewExperimentOverriddenService(t *testing.T) {
 	type expectedResult struct {
 		experiment, role, name, configName string
 	}
@@ -85,7 +85,7 @@ func TestNewExperimentOverridenService(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				s := cmdUtils.NewExperimentOverridenService(test.serviceName, test.configKey)
+				s := cmdUtils.NewExperimentOverriddenService(test.serviceName, test.configKey)
 				if test.expectedResult.experiment != s.Experiment() {
 					t.Errorf("Got wrong result.  Expected %s, got %s", test.expectedResult.experiment, s.Experiment())
 				}
@@ -135,7 +135,7 @@ func TestCheckExperimentOverride(t *testing.T) {
 			testExperiment,
 		},
 		{
-			"Overriden experiment - should get experiment back",
+			"Overridden experiment - should get experiment back",
 			setupViperWithOverride,
 			testOverride,
 			testExperiment,

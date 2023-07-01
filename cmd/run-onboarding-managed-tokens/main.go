@@ -267,7 +267,7 @@ func run(ctx context.Context) error {
 	var s service.Service
 	if experiment != givenServiceExperiment {
 		serviceName := experiment + "_" + givenRole
-		s = cmdUtils.NewExperimentOverridenService(serviceName, givenServiceExperiment)
+		s = cmdUtils.NewExperimentOverriddenService(serviceName, givenServiceExperiment)
 	} else {
 		s = service.NewService(viper.GetString("service"))
 	}
