@@ -121,7 +121,7 @@ func addServiceToServicesSlice(services []service.Service, configExperiment, rea
 	var serv service.Service
 	serviceName := realExperiment + "_" + role
 	if configExperiment != realExperiment {
-		serv = cmdUtils.NewExperimentOverridenService(serviceName, configExperiment)
+		serv = cmdUtils.NewExperimentOverriddenService(serviceName, configExperiment)
 	} else {
 		serv = service.NewService(serviceName)
 	}

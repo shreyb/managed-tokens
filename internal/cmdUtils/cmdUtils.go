@@ -191,7 +191,7 @@ func SetHtgettokenOptsInCommandEnvironment(htgettokenopts string) func(*environm
 // Utility functions
 
 // GetServiceConfigOverrideKeyOrGlobalKey checks to see if key + "Override" is defined at the checkServiceConfigPath in the configuration.
-// If so, the full configuration path is returned, and the overriden bool is set to true.
+// If so, the full configuration path is returned, and the overridden bool is set to true.
 // If not, the original key is returned, and the overridden bool is set to false
 func GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) (configPath string, overridden bool) {
 	configPath = key

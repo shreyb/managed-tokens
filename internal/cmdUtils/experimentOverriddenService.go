@@ -18,8 +18,8 @@ type ExperimentOverriddenService struct {
 	ConfigService string
 }
 
-// NewExperimentOverridenService returns a new *ExperimentOverridenService by using the service name and configuration key
-func NewExperimentOverridenService(serviceName, configKey string) *ExperimentOverriddenService {
+// NewExperimentOverriddenService returns a new *ExperimentOverriddenService by using the service name and configuration key
+func NewExperimentOverriddenService(serviceName, configKey string) *ExperimentOverriddenService {
 	s := service.NewService(serviceName)
 	return &ExperimentOverriddenService{
 		Service:          s,
