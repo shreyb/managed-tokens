@@ -69,9 +69,10 @@ FOREIGN KEY (node_id)
 // initialize  runs the initial steps needed to bring a database to the proper schema
 func (m *ManagedTokensDatabase) initialize() error {
 	var err error
+	funcLogger := log.WithField("dbLocation", m.filename)
 	// Set up the database
 	if m.db, err = sql.Open("sqlite3", m.filename); err != nil {
-		log.WithField("filename", m.filename).Error(err)
+		funcLogger.Error(err)
 		return &databaseOpenError{
 			m.filename,
 			err,
@@ -80,13 +81,13 @@ func (m *ManagedTokensDatabase) initialize() error {
 
 	// Set our application ID
 	if _, err := m.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", ApplicationId)); err != nil {
-		log.WithField("filename", m.filename).Error(err)
+		funcLogger.Error(err)
 		return &databaseCreateError{err}
 	}
 
 	// Create tables
 	if err := m.migrate(0, schemaVersion); err != nil {
-		log.WithField("filename", m.filename).Error("Could not create database tables")
+		funcLogger.Error("Could not create database tables")
 		return err
 	}
 	return nil
@@ -94,9 +95,10 @@ func (m *ManagedTokensDatabase) initialize() error {
 
 // migrate runs the various migrations to bring a database from a certain schema to the desired schema.
 func (m *ManagedTokensDatabase) migrate(from, to int) error {
+	funcLogger := log.WithField("dbLocation", m.filename)
 	if to > len(migrations) {
 		msg := "trying to migrate to a database version that does not exist"
-		log.Error(msg)
+		funcLogger.Error(msg)
 		return &databaseMigrateError{
 			msg,
 			from,
@@ -106,7 +108,7 @@ func (m *ManagedTokensDatabase) migrate(from, to int) error {
 	}
 
 	for i := from; i < to; i++ {
-		log.WithField("migration", fmt.Sprintf("v%d-v%d", from, to)).Debug("Migrating database")
+		funcLogger.WithField("migration", fmt.Sprintf("v%d-v%d", from, to)).Debug("Migrating database")
 		if _, err := m.db.Exec(migrations[i].sqlText); err != nil {
 			return &databaseMigrateError{
 				"",
