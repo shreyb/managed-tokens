@@ -34,11 +34,11 @@ func NewEmail(from string, to []string, subject, smtpHost string, smtpPort int) 
 
 // sendMessage sends message as an email based on the email object configuration
 func (e *email) sendMessage(ctx context.Context, message string) error {
-
 	emailDialer := gomail.Dialer{
 		Host: e.smtpHost,
 		Port: e.smtpPort,
 	}
+	funcLogger := log.WithField("recipient", strings.Join(e.to, ", "))
 
 	m := gomail.NewMessage()
 	m.SetHeader("From", e.from)
@@ -56,26 +56,17 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 	select {
 	case err := <-c:
 		if err != nil {
-			log.WithFields(log.Fields{
-				"recipient": strings.Join(e.to, ", "),
-				"email":     e,
-			}).Errorf("Error sending email: %s", err)
+			funcLogger.WithField("email", e).Errorf("Error sending email: %s", err)
 		} else {
-			log.WithFields(log.Fields{
-				"recipient": strings.Join(e.to, ", "),
-			}).Debug("Sent email")
+			funcLogger.Debug("Sent email")
 		}
 		return err
 	case <-ctx.Done():
 		err := ctx.Err()
 		if err == context.DeadlineExceeded {
-			log.WithFields(log.Fields{
-				"recipient": strings.Join(e.to, ", "),
-			}).Error("Error sending email: timeout")
+			funcLogger.Error("Error sending email: timeout")
 		} else {
-			log.WithFields(log.Fields{
-				"recipient": strings.Join(e.to, ", "),
-			}).Errorf("Error sending email: %s", err)
+			funcLogger.Errorf("Error sending email: %s", err)
 		}
 		return err
 	}
