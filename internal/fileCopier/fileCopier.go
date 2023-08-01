@@ -82,6 +82,15 @@ func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
 func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsyncOptions string, environ environment.CommandEnvironment) error {
 	utils.CheckForExecutables(fileCopierExecutables)
 
+	funcLogger := log.WithFields(log.Fields{
+		"source":       source,
+		"node":         node,
+		"destination":  dest,
+		"account":      account,
+		"sshOptions":   sshOptions,
+		"rsyncOptions": rsyncOptions,
+	})
+
 	cArgs := struct{ SSHExe, SSHOpts, RsyncOpts, SourcePath, Account, Node, DestPath string }{
 		SSHExe:     fileCopierExecutables["ssh"],
 		SSHOpts:    sshOptions,
@@ -96,51 +105,25 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	var t1 *utils.TemplateExecuteError
 	if errors.As(err, &t1) {
 		retErr := fmt.Errorf("could not execute rsync template: %w", err)
-		log.WithFields(log.Fields{
-			"source":       source,
-			"node":         node,
-			"destination":  dest,
-			"account":      account,
-			"sshOptions":   sshOptions,
-			"rsyncOptions": rsyncOptions,
-		}).Error(retErr.Error())
+		funcLogger.Error(retErr.Error())
 		return retErr
 	}
 	var t2 *utils.TemplateArgsError
 	if errors.As(err, &t2) {
 		retErr := fmt.Errorf("could not get rsync command arguments from template: %w", err)
-		log.WithFields(log.Fields{
-			"source":       source,
-			"node":         node,
-			"destination":  dest,
-			"account":      account,
-			"sshOptions":   sshOptions,
-			"rsyncOptions": rsyncOptions,
-		}).Error(retErr.Error())
+		funcLogger.Error(retErr.Error())
 		return retErr
 	}
 
 	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, fileCopierExecutables["rsync"], args...)
-	log.WithFields(log.Fields{
-		"sourcePath":  source,
-		"account":     account,
-		"node":        node,
-		"destPath":    dest,
+	funcLogger.WithFields(log.Fields{
 		"command":     cmd.String(),
 		"environment": environ.String(),
 	}).Debug("Running commmand to rsync file")
 
 	if err := cmd.Run(); err != nil {
 		err := fmt.Sprintf("rsync command failed: %s", err.Error())
-		log.WithFields(log.Fields{
-			"sshOpts":      sshOptions,
-			"rsyncOptions": rsyncOptions,
-			"sourcePath":   source,
-			"account":      account,
-			"node":         node,
-			"destPath":     dest,
-			"command":      cmd.String(),
-		}).Error(err)
+		funcLogger.WithField("command", cmd.String()).Error(err)
 
 		return errors.New(err)
 	}
@@ -151,5 +134,4 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 		"destPath": dest,
 	}).Debug("rsync successful")
 	return nil
-
 }

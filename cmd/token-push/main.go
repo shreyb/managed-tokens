@@ -12,11 +12,10 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
-
 	"github.com/rifflock/lfshook"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
@@ -33,6 +32,7 @@ var (
 	currentExecutable string
 	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
+	exeLogger         *log.Entry
 )
 
 // Supported timeouts and their default values
@@ -187,10 +187,11 @@ func initLogs() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
-	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
+	exeLogger = log.WithField("executable", currentExecutable)
+	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
 
 	if viper.GetBool("test") {
-		log.WithField("executable", currentExecutable).Info("Running in test mode")
+		exeLogger.Info("Running in test mode")
 	}
 }
 
@@ -203,13 +204,9 @@ func initTimeouts() error {
 		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"executable": currentExecutable,
-					"timeoutKey": timeoutKey,
-				}).Warn("Could not parse configured timeout.  Using default")
+				exeLogger.WithField("timeoutKey", timeoutKey).Warn("Could not parse configured timeout.  Using default")
 			}
-			log.WithFields(log.Fields{
-				"executable":   currentExecutable,
+			exeLogger.WithFields(log.Fields{
 				"timeoutKey":   timeoutKey,
 				"timeoutValue": timeout,
 			}).Debug("Configured timeout")
@@ -230,7 +227,7 @@ func initTimeouts() error {
 	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
-		log.WithField("executable", currentExecutable).Error(msg)
+		exeLogger.Error(msg)
 		return errors.New(msg)
 	}
 	return nil
@@ -240,7 +237,7 @@ func initTimeouts() error {
 func initMetrics() error {
 	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+		exeLogger.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
 			"To limit error noise, "+
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
@@ -293,12 +290,12 @@ func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 	} else {
 		dbLocation = "/var/lib/managed-tokens/uid.db"
 	}
-	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+	exeLogger.Debugf("Using db file at %s", dbLocation)
 
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
-		log.WithField("executable", currentExecutable).Error(msg)
+		exeLogger.Error(msg)
 		return nil, err
 	}
 
@@ -308,7 +305,7 @@ func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 	}
 
 	if err := database.UpdateServices(context.Background(), servicesToAddToDatabase); err != nil {
-		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured services.  Future database-based operations may fail")
+		exeLogger.Error("Could not update database with currently-configured services.  Future database-based operations may fail")
 	}
 
 	return database, nil
@@ -319,16 +316,16 @@ func main() {
 	var globalTimeout time.Duration
 	var ok bool
 	if globalTimeout, ok = timeouts["global"]; !ok {
-		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
+		exeLogger.Fatal("Could not obtain global timeout.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
 	// Run our actual operation
 	if err := run(ctx); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Error running operations to push vault tokens.  Exiting")
+		exeLogger.Fatal("Error running operations to push vault tokens.  Exiting")
 	}
-	log.Debug("Finished run")
+	exeLogger.Debug("Finished run")
 }
 
 func run(ctx context.Context) error {
@@ -353,7 +350,7 @@ func run(ctx context.Context) error {
 		)
 		if err != nil {
 			// We don't want to halt execution at this point
-			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+			exeLogger.Error("Error sending admin notifications")
 		}
 		return err
 	}
@@ -376,15 +373,15 @@ func run(ctx context.Context) error {
 		// Run cleanup actions
 		func(successfulServices map[string]bool) { // Cleanup
 			if err := reportSuccessesAndFailures(ctx, successfulServices); err != nil {
-				log.WithField("executable", currentExecutable).Error("Error aggregating successes and failures")
+				exeLogger.Error("Error aggregating successes and failures")
 			}
 		}(successfulServices)
 		// Push metrics to prometheus pushgateway
 		if prometheusUp {
 			if err := metrics.PushToPrometheus(); err != nil {
-				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
+				exeLogger.Error("Could not push metrics to prometheus pushgateway")
 			} else {
-				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
 	}()
@@ -392,20 +389,16 @@ func run(ctx context.Context) error {
 	// Create temporary dir for all kerberos caches to live in
 	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
-		log.WithField("executable", currentExecutable).Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Returning")
+		exeLogger.Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Returning")
 		return err
 	}
 	defer func() {
 		// Clear kerberos cache dir
 		if err := os.RemoveAll(krb5ccname); err != nil {
-			log.WithFields(
-				log.Fields{
-					"executable":   currentExecutable,
-					"kerbCacheDir": krb5ccname,
-				}).Error("Could not clear kerberos cache.  Please clean up manually")
+			exeLogger.WithField("kerbCacheDir", krb5ccname).Error("Could not clear kerberos cache.  Please clean up manually")
 			return
 		}
-		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+		exeLogger.Info("Cleared kerberos cache")
 	}()
 
 	// For all services, initialize success value to false
@@ -436,20 +429,21 @@ func run(ctx context.Context) error {
 	for _, s := range services {
 		serviceConfigSetupWg.Add(1)
 		go func(s service.Service) {
+			funcLogger := exeLogger.WithFields(log.Fields{
+				"caller":  "token-push.run",
+				"service": s.Name(),
+			})
 			// Setup the configs
 			defer serviceConfigSetupWg.Done()
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"caller":  "token-push.run",
-					"service": s.Name(),
-				}).Error("Error obtaining UID for service.  Skipping service.")
+				funcLogger.Error("Error obtaining UID for service.  Skipping service.")
 				return
 			}
 			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
-				log.Error("Cannot have a blank userPrincipal.  Skipping service")
+				funcLogger.Error("Cannot have a blank userPrincipal.  Skipping service")
 				return
 			}
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
@@ -474,10 +468,7 @@ func run(ctx context.Context) error {
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
 			)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"experiment": s.Experiment(),
-					"role":       s.Role(),
-				}).Error("Could not create config for service")
+				funcLogger.Error("Could not create config for service")
 				return
 			}
 			collectServiceConfigs <- c
@@ -494,11 +485,11 @@ func run(ctx context.Context) error {
 		nodesToAddToDatabase = append(nodesToAddToDatabase, serviceConfig.Nodes...)
 	}
 	if err := database.UpdateNodes(ctx, nodesToAddToDatabase); err != nil {
-		log.WithField("executable", currentExecutable).Error("Could not update database with currently-configured nodes.  Future database-based operations may fail")
+		exeLogger.Error("Could not update database with currently-configured nodes.  Future database-based operations may fail")
 	}
 
 	// Setup done.  Push prometheus metrics
-	log.WithField("executable", currentExecutable).Debug("Setup complete")
+	exeLogger.Debug("Setup complete")
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
 	}
@@ -524,12 +515,10 @@ func run(ctx context.Context) error {
 	// tokens for that service
 	failedKerberosConfigs := removeFailedServiceConfigs(kerberosChannels, serviceConfigs)
 	for _, failure := range failedKerberosConfigs {
-		log.WithField(
-			"service", failure.Service.Name(),
-		).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
+		exeLogger.WithField("service", failure.Service.Name()).Error("Failed to obtain kerberos ticket.  Will not try to obtain or push vault token to service nodes")
 	}
 	if len(serviceConfigs) == 0 {
-		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
+		exeLogger.Info("No more serviceConfigs to operate on.  Cleaning up now")
 		return nil
 	}
 
@@ -541,23 +530,21 @@ func run(ctx context.Context) error {
 	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
 	failedVaultConfigs := removeFailedServiceConfigs(condorVaultChans, serviceConfigs)
 	for _, failure := range failedVaultConfigs {
-		log.WithField(
-			"service", failure.Service.Name(),
-		).Error("Failed to obtain vault token.  Will not try to push vault token to service nodes")
+		exeLogger.WithField("service", failure.Service.Name()).Error("Failed to obtain vault token.  Will not try to push vault token to service nodes")
 	}
 
 	// For any successful services, make sure we remove all the vault tokens when we're done
 	for serviceName := range serviceConfigs {
 		defer func(serviceName string) {
 			if err := vaultToken.RemoveServiceVaultTokens(serviceName); err != nil {
-				log.WithField("service", serviceName).Error("Could not remove vault tokens for service")
+				exeLogger.WithField("service", serviceName).Error("Could not remove vault tokens for service")
 			}
 		}(serviceName)
 	}
 
 	// If we're in test mode, stop here
 	if viper.GetBool("test") {
-		log.Info("Test mode.  Cleaning up now")
+		exeLogger.Info("Test mode.  Cleaning up now")
 
 		for service := range serviceConfigs {
 			successfulServices[service] = true
@@ -566,7 +553,7 @@ func run(ctx context.Context) error {
 	}
 
 	if len(serviceConfigs) == 0 {
-		log.WithField("executable", currentExecutable).Info("No more serviceConfigs to operate on.  Cleaning up now")
+		exeLogger.Info("No more serviceConfigs to operate on.  Cleaning up now")
 		return nil
 	}
 
@@ -577,7 +564,7 @@ func run(ctx context.Context) error {
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
 			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
-			log.WithField("service", cmdUtils.GetServiceName(pingSuccess.GetService())).Error(msg)
+			exeLogger.WithField("service", cmdUtils.GetServiceName(pingSuccess.GetService())).Error(msg)
 		}
 	}
 
@@ -615,8 +602,8 @@ func reportSuccessesAndFailures(ctx context.Context, successMap map[string]bool)
 		}
 	}
 
-	log.Infof("Successes: %s", strings.Join(successes, ", "))
-	log.Infof("Failures: %s", strings.Join(failures, ", "))
+	exeLogger.Infof("Successes: %s", strings.Join(successes, ", "))
+	exeLogger.Infof("Failures: %s", strings.Join(failures, ", "))
 
 	return nil
 }

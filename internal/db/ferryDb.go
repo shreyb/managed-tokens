@@ -52,6 +52,7 @@ func (f *ferryUidDatum) String() string   { return fmt.Sprintf("%s, %d", f.usern
 // If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
 // with the information in the FERRYUIDDatum
 func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
+	funcLogger := log.WithField("dbLocation", m.filename)
 	ferryUIDDatumSlice := make([]insertValues, 0)
 	for _, ferryDatum := range ferryData {
 		ferryUIDDatumSlice = append(ferryUIDDatumSlice,
@@ -60,25 +61,26 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 	}
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
-		log.Error("Could not update uids table in database")
+		funcLogger.Error("Could not update uids table in database")
 		return err
 	}
-	log.Debug("Updated uid table in database with FERRY data")
+	funcLogger.Debug("Updated uid table in database with FERRY data")
 	return nil
 }
 
 // ConfirmUIDsInTable returns all the user to UID mapping information in the ManagedTokensDatabase in the form of
 // a FERRYUIDDatum slice
 func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
+	funcLogger := log.WithField("dbLocation", m.filename)
 	dataConverted := make([]FerryUIDDatum, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
 	if err != nil {
-		log.Error("Could not get usernames and uids from database")
+		funcLogger.Error("Could not get usernames and uids from database")
 		return dataConverted, err
 	}
 
 	if len(data) == 0 {
-		log.Debug("No uids in database")
+		funcLogger.Debug("No uids in database")
 		return dataConverted, nil
 	}
 
@@ -87,7 +89,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 		// Make sure we have the right number of values
 		if len(resultRow) != 2 {
 			msg := "uid data has wrong structure"
-			log.Errorf("%s: %v", msg, resultRow)
+			funcLogger.Errorf("%s: %v", msg, resultRow)
 			return dataConverted, errDatabaseDataWrongStructure
 		}
 		// Type check each element
@@ -95,10 +97,10 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 		uidVal, uidOk := resultRow[1].(int64)
 		if !(usernameOk && uidOk) {
 			msg := "uid query result datum has wrong type.  Expected (string, int)"
-			log.Errorf("%s: got (%T, %T)", msg, usernameVal, uidVal)
+			funcLogger.Errorf("%s: got (%T, %T)", msg, usernameVal, uidVal)
 			return dataConverted, errDatabaseDataWrongType
 		}
-		log.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
+		funcLogger.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
 		dataConverted = append(dataConverted, &ferryUidDatum{usernameVal, int(uidVal)})
 	}
 	return dataConverted, nil
@@ -106,6 +108,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 
 // GetUIDByUsername queries the ManagedTokensDatabase for a UID, given a username
 func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
+	funcLogger := log.WithField("dbLocation", m.filename)
 	var uid int
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
@@ -119,10 +122,10 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 	stmt, err := m.db.Prepare(getUIDbyUsernameStatement)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
+			funcLogger.Error("Context timeout")
 			return uid, dbContext.Err()
 		}
-		log.Errorf("Could not prepare query to get UID: %s", err)
+		funcLogger.Errorf("Could not prepare query to get UID: %s", err)
 		return uid, err
 	}
 	defer stmt.Close()
@@ -130,10 +133,10 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 	err = stmt.QueryRowContext(dbContext, username).Scan(&uid)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
+			funcLogger.Error("Context timeout")
 			return uid, dbContext.Err()
 		}
-		log.Errorf("Could not execute query to get UID: %s", err)
+		funcLogger.Errorf("Could not execute query to get UID: %s", err)
 		return uid, err
 	}
 	return uid, nil

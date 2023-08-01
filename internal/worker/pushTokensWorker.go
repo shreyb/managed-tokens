@@ -21,6 +21,8 @@ import (
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
+// TODO:  add metric for duration to push token
+
 var tokenPushTime = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
@@ -77,6 +79,10 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 	for sc := range chans.GetServiceConfigChan() {
 		var successNodes, failNodes sync.Map
+		serviceLogger := log.WithFields(log.Fields{
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
+		})
 
 		pushSuccess := &pushTokenSuccess{
 			Service: sc.Service,
@@ -90,19 +96,13 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 			// kswitch
 			if err := kerberos.SwitchCache(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Error("Could not switch kerberos cache")
+				serviceLogger.Error("Could not switch kerberos cache")
 				return
 			}
 
 			currentUser, err := user.Current()
 			if err != nil {
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Error(err)
+				serviceLogger.Error(err)
 				return
 			}
 			currentUID := currentUser.Uid
@@ -118,6 +118,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			for _, destinationNode := range sc.Nodes {
 				nodeWg.Add(1)
 				go func(destinationNode string) {
+					nodeLogger := serviceLogger.WithField("node", destinationNode)
 					defer nodeWg.Done()
 					var filenameWg sync.WaitGroup
 
@@ -129,11 +130,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 							defer filenameWg.Done()
 							pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 							defer pushCancel()
-							log.WithFields(log.Fields{
-								"experiment": sc.Service.Experiment(),
-								"role":       sc.Service.Role(),
-								"node":       destinationNode,
-							}).Debug("Attempting to push tokens to destination node")
+							nodeLogger.Debug("Attempting to push tokens to destination node")
 							if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
 								var notificationErrorString string
 								if sc.IsNodeUnpingable(destinationNode) {
@@ -145,16 +142,10 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 									} else {
 										notificationErrorString = notificationErrorString + pushContext.Err().Error()
 									}
-									log.WithFields(log.Fields{
-										"experiment": sc.Service.Experiment(),
-										"role":       sc.Service.Role(),
-									}).Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
+									nodeLogger.Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
 								} else {
 									notificationErrorString = notificationErrorString + err.Error()
-									log.WithFields(log.Fields{
-										"experiment": sc.Service.Experiment(),
-										"role":       sc.Service.Role(),
-									}).Error("Error pushing vault tokens to destination node")
+									nodeLogger.Error("Error pushing vault tokens to destination node")
 								}
 								pushSuccess.changeSuccessValue(false)
 								failNodes.LoadOrStore(destinationNode, struct{}{})
@@ -190,44 +181,32 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				}(destinationNode)
 				nodeWg.Wait()
 
+				// TODO Move all of this until pushing the file out a level - we don't need to write and delete the role file for every node,
+				// just once per service
 				// Push the default role file.  We handle this separately from the tokens because it's a non-essential file to push,
 				// so we don't want to have notifications going out ONLY saying that this push fails, if that's the case
 
 				// Make sure we can get the destination filename
 				destinationFilename, err := parseDefaultRoleFileTemplateFromConfig(sc)
 				if err != nil {
-					log.WithFields(log.Fields{
-						"experiment": sc.Service.Experiment(),
-						"role":       sc.Service.Role(),
-					}).Error("Could not obtain default role file destination.  Will not push the default role file")
+					serviceLogger.Error("Could not obtain default role file destination.  Will not push the default role file")
 					return
 				}
 
 				// Write the default role file to send
 				defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
 				if err != nil {
-					log.WithFields(log.Fields{
-						"experiment": sc.Service.Experiment(),
-						"role":       sc.Service.Role(),
-					}).Error("Error creating temporary file for default role string.  Will not push the default role file")
+					serviceLogger.Error("Error creating temporary file for default role string.  Will not push the default role file")
 					return
 				}
 				// Remove the tempfile when we're done
 				defer func() {
 					if err := os.Remove(defaultRoleFile.Name()); err != nil {
-						log.WithFields(log.Fields{
-							"experiment": sc.Service.Experiment(),
-							"role":       sc.Service.Role(),
-							"filename":   defaultRoleFile.Name(),
-						}).Error("Error deleting temporary file for default role string. Please clean up manually")
+						serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error deleting temporary file for default role string. Please clean up manually")
 					}
 				}()
 				if _, err := defaultRoleFile.WriteString(sc.Role() + "\n"); err != nil {
-					log.WithFields(log.Fields{
-						"experiment": sc.Service.Experiment(),
-						"role":       sc.Service.Role(),
-						"filename":   defaultRoleFile.Name(),
-					}).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
+					serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
 					return
 				}
 
@@ -235,17 +214,9 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 				defer pushCancel()
 				if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, destinationFilename); err != nil {
-					log.WithFields(log.Fields{
-						"experiment": sc.Service.Experiment(),
-						"role":       sc.Service.Role(),
-						"node":       destinationNode,
-					}).Error("Error pushing default role file to destination node")
+					serviceLogger.WithField("node", destinationNode).Error("Error pushing default role file to destination node")
 				} else {
-					log.WithFields(log.Fields{
-						"experiment": sc.Service.Experiment(),
-						"role":       sc.Service.Role(),
-						"node":       destinationNode,
-					}).Debug("Success pushing default role file to destination node")
+					serviceLogger.WithField("node", destinationNode).Debug("Success pushing default role file to destination node")
 				}
 			}
 		}()
@@ -276,6 +247,14 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
 	var fileCopierOptions string
+	funcLogger := log.WithFields(log.Fields{
+		"experiment":          c.Service.Experiment(),
+		"role":                c.Service.Role(),
+		"sourceFilename":      sourceFile,
+		"destinationFilename": destinationFile,
+		"node":                node,
+	})
+
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
 	if !ok {
 		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
@@ -292,22 +271,10 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 	)
 
 	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
-		log.WithFields(log.Fields{
-			"experiment":          c.Service.Experiment(),
-			"role":                c.Service.Role(),
-			"sourceFilename":      sourceFile,
-			"destinationFilename": destinationFile,
-			"node":                node,
-		}).Errorf("Could not copy file to destination")
+		funcLogger.Errorf("Could not copy file to destination")
 		return err
 	}
-	log.WithFields(log.Fields{
-		"experiment":          c.Service.Experiment(),
-		"role":                c.Service.Role(),
-		"sourceFilename":      sourceFile,
-		"destinationFilename": destinationFile,
-		"node":                node,
-	}).Info("Success copying file to destination")
+	funcLogger.Info("Success copying file to destination")
 	return nil
 
 }
@@ -332,13 +299,14 @@ func GetDefaultRoleFileTemplateValueFromExtras(c *Config) (string, bool) {
 // the executed template string
 func parseDefaultRoleFileTemplateFromConfig(c *Config) (string, error) {
 	// Get default role file template string from *Config
+	funcLogger := log.WithFields(log.Fields{
+		"experiment": c.Service.Experiment(),
+		"role":       c.Service.Role(),
+	})
 	templateString, ok := GetDefaultRoleFileTemplateValueFromExtras(c)
 	if !ok {
 		msg := "could not retrieve default role file destination template from worker configuration"
-		log.WithFields(log.Fields{
-			"experiment": c.Service.Experiment(),
-			"role":       c.Service.Role(),
-		}).Error(msg)
+		funcLogger.Error(msg)
 		return "", errors.New(msg)
 	}
 
@@ -348,10 +316,7 @@ func parseDefaultRoleFileTemplateFromConfig(c *Config) (string, error) {
 	var b strings.Builder
 	if err := defaultRoleFileTemplate.Execute(&b, tmplArgs); err != nil {
 		msg := "could not execute default role file destination template"
-		log.WithFields(log.Fields{
-			"experiment": c.Service.Experiment(),
-			"role":       c.Service.Role(),
-		}).Error(msg, ": ", err)
+		funcLogger.Error(msg, ": ", err)
 		return "", err
 	}
 	return b.String(), nil

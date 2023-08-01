@@ -28,6 +28,7 @@ var (
 	currentExecutable string
 	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
+	exeLogger         *log.Entry
 )
 
 // Supported Timeouts and their defaults
@@ -160,10 +161,11 @@ func initLogs() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
-	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
+	exeLogger = log.WithField("executable", currentExecutable)
+	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
 
 	if viper.GetBool("test") {
-		log.WithField("executable", currentExecutable).Info("Running in test mode")
+		exeLogger.Info("Running in test mode")
 	}
 }
 
@@ -176,16 +178,10 @@ func initTimeouts() error {
 		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithFields(log.Fields{
-					timeoutKey:   timeoutString,
-					"executable": currentExecutable,
-				}).Warn("Could not parse configured timeout duration.  Using default")
+				exeLogger.WithField(timeoutKey, timeoutString).Warn("Could not parse configured timeout duration.  Using default")
 				continue
 			}
-			log.WithFields(log.Fields{
-				"executable": currentExecutable,
-				timeoutKey:   timeoutString,
-			}).Debug("Configured timeout")
+			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -203,7 +199,7 @@ func initTimeouts() error {
 	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
-		log.WithField("executable", currentExecutable).Error(msg)
+		exeLogger.Error(msg)
 		return errors.New(msg)
 	}
 	return nil
@@ -213,7 +209,7 @@ func initTimeouts() error {
 func initMetrics() error {
 	// Set up prometheus metrics
 	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+		exeLogger.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
 			"To limit error noise, "+
 			"these failures at the experiment level will be registered as warnings in the log, "+
 			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
@@ -232,14 +228,14 @@ func main() {
 	var ok bool
 
 	if globalTimeout, ok = timeouts["global"]; !ok {
-		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
+		exeLogger.Fatal("Could not obtain global timeout.")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
 	// Run our actual operation
 	if err := run(ctx); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Error running operations to update database from FERRY.  Exiting")
+		exeLogger.Fatal("Error running operations to update database from FERRY.  Exiting")
 	}
 	log.Debug("Finished run")
 }
@@ -270,7 +266,7 @@ func run(ctx context.Context) error {
 		)
 		if err != nil {
 			// We don't want to halt execution at this point
-			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+			exeLogger.Error("Error sending admin notifications")
 		}
 		return err
 	}
@@ -282,19 +278,19 @@ func run(ctx context.Context) error {
 	} else {
 		dbLocation = "/var/lib/managed-tokens/uid.db"
 	}
-	log.WithField("executable", currentExecutable).Debugf("Using db file at %s", dbLocation)
+	exeLogger.Debugf("Using db file at %s", dbLocation)
 
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
-		log.WithField("executable", currentExecutable).Error(msg)
+		exeLogger.Error(msg)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
 		adminNotifications, notificationsChan := setupAdminNotifications(ctx, nil)
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
 
 		if err2 := sendAdminNotifications(notificationsChan, &adminNotifications); err2 != nil {
-			log.WithField("executable", currentExecutable).Error("Error sending admin notifications")
+			exeLogger.Error("Error sending admin notifications")
 			err := fmt.Errorf("error sending admin notifications regarding %w: %w", err, err2)
 			return err
 		}
@@ -319,9 +315,9 @@ func run(ctx context.Context) error {
 			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
 			if err := metrics.PushToPrometheus(); err != nil {
 				// Non-essential - don't halt execution here
-				log.WithField("executable", currentExecutable).Error("Could not push metrics to prometheus pushgateway")
+				exeLogger.Error("Could not push metrics to prometheus pushgateway")
 			} else {
-				log.WithField("executable", currentExecutable).Info("Finished pushing metrics to prometheus pushgateway")
+				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
 	}()
@@ -348,21 +344,21 @@ func run(ctx context.Context) error {
 	switch supportedFERRYAuthMethod(viper.GetString("authmethod")) {
 	case tlsAuth:
 		authFunc = withTLSAuth
-		log.WithField("executable", currentExecutable).Debug("Using TLS to authenticate to FERRY")
+		exeLogger.Debug("Using TLS to authenticate to FERRY")
 	case jwtAuth:
 		sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 		if err != nil {
 			msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
 			notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-			log.WithField("executable", currentExecutable).Error(msg)
+			exeLogger.Error(msg)
 			os.Exit(1)
 		}
 		defer func() {
 			os.RemoveAll(sc.GetValue(environment.Krb5ccname))
-			log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+			exeLogger.Info("Cleared kerberos cache")
 		}()
 		authFunc = withKerberosJWTAuth(sc)
-		log.WithField("executable", currentExecutable).Debug("Using JWT to authenticate to FERRY")
+		exeLogger.Debug("Using JWT to authenticate to FERRY")
 	default:
 		return errors.New("unsupported authentication method to communicate with FERRY")
 	}
@@ -396,21 +392,21 @@ func run(ctx context.Context) error {
 	if len(ferryData) == 0 {
 		msg := "no data collected from FERRY"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-		log.Error(msg + ". Exiting")
+		exeLogger.Error(msg + ". Exiting")
 		return errors.New(msg)
 	}
 
 	// Stop here if we're in test mode
 	if viper.GetBool("test") {
-		log.Info("Finished gathering data from FERRY")
+		exeLogger.Info("Finished gathering data from FERRY")
 
 		ferryDataStringSlice := make([]string, 0, len(ferryData))
 		for _, datum := range ferryData {
 			ferryDataStringSlice = append(ferryDataStringSlice, datum.String())
 		}
-		log.Infof(strings.Join(ferryDataStringSlice, "; "))
+		exeLogger.Infof(strings.Join(ferryDataStringSlice, "; "))
 
-		log.Info("Test mode finished")
+		exeLogger.Info("Test mode finished")
 		return nil
 	}
 
@@ -424,7 +420,7 @@ func run(ctx context.Context) error {
 	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-		log.Error(msg)
+		exeLogger.Error(msg)
 		return err
 	}
 
@@ -433,21 +429,21 @@ func run(ctx context.Context) error {
 	if err != nil {
 		msg := "Error running verification of INSERT"
 		notificationsChan <- notifications.NewSetupError(msg, currentExecutable)
-		log.Error(msg)
+		exeLogger.Error(msg)
 		return err
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
 		msg := "verification of INSERT failed.  Please check the logs"
-		log.Error(msg)
+		exeLogger.Error(msg)
 		notificationsChan <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
 			currentExecutable,
 		)
 		return errors.New(msg)
 	}
-	log.Debug("Verified INSERT")
-	log.Info("Successfully refreshed Managed Tokens DB.")
+	exeLogger.Debug("Verified INSERT")
+	exeLogger.Info("Successfully refreshed Managed Tokens DB.")
 	ferryRefreshTime.SetToCurrentTime()
 	return nil
 }

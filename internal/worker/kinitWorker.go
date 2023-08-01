@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
-	log "github.com/sirupsen/logrus"
 )
 
 const kerberosDefaultTimeoutStr string = "20s"
@@ -62,7 +63,11 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				} else {
 					msg = "Could not obtain and verify kerberos ticket"
 				}
-				log.Error(msg)
+				log.WithFields(log.Fields{
+					"experiment": sc.Service.Experiment(),
+					"role":       sc.Service.Role(),
+					"account":    sc.Account,
+				}).Error(msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 				return
 			}
@@ -72,26 +77,22 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 }
 
 func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
+	funcLogger := log.WithFields(log.Fields{
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
+	})
+
 	if err := kerberos.GetTicket(ctx, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 		msg := "Could not obtain kerberos ticket"
-		log.WithFields(log.Fields{
-			"experiment": sc.Service.Experiment(),
-			"role":       sc.Service.Role(),
-		}).Error(msg)
+		funcLogger.Error(msg)
 		return err
 	}
 
 	if err := kerberos.CheckPrincipal(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 		msg := "Kerberos ticket verification failed"
-		log.WithFields(log.Fields{
-			"experiment": sc.Service.Experiment(),
-			"role":       sc.Service.Role(),
-		}).Error(msg)
+		funcLogger.Error(msg)
 		return err
 	}
-	log.WithFields(log.Fields{
-		"experiment": sc.Service.Experiment(),
-		"role":       sc.Service.Role(),
-	}).Debug("Kerberos ticket obtained and verified")
+	funcLogger.Debug("Kerberos ticket obtained and verified")
 	return nil
 }

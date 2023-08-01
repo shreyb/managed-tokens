@@ -33,6 +33,7 @@ type serviceErrorCounts struct {
 
 // setErrorCountsByService queries the db.ManagedTokensDatabase to load the prior errorCounts for a given service
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
+	funcLogger := log.WithField("service", service)
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
 		return nil, false
@@ -53,10 +54,10 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 		}()
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				log.WithField("service", service).Debug("No setupError information for service.  Assuming there are no prior errors")
+				funcLogger.Debug("No setupError information for service.  Assuming there are no prior errors")
 				err = nil
 			} else {
-				log.WithField("service", service).Error("Could not get setupError information. Please inspect database")
+				funcLogger.Error("Could not get setupError information. Please inspect database")
 			}
 			return
 		}
@@ -75,10 +76,10 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 		}()
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				log.WithField("service", service).Debug("No pushError information for service.  Assuming there are no prior errors")
+				funcLogger.Debug("No pushError information for service.  Assuming there are no prior errors")
 				err = nil
 			} else {
-				log.WithField("service", service).Error("Could not get pushError information.  Please inspect database")
+				funcLogger.Error("Could not get pushError information.  Please inspect database")
 			}
 			return
 		}
@@ -94,7 +95,7 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 	// Listen on tChan to see if we got any errors getting error counts from ManagedTokensDatabase
 	for err := range tChan {
 		if err != nil {
-			log.Error("Error getting error info from database.  Will not track errors")
+			funcLogger.Error("Error getting error info from database.  Will not track errors")
 			return nil, false
 		}
 	}
@@ -141,14 +142,16 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 		return false, 0
 	}
 
+	funcLogger := log.WithField("service", service)
+
 	// Setup Errors.  Only do this bit if setupErrors was actually set - not if it's 0, for example, from initialization
 	if storeSetupErrorCount, value := shouldStoreValue(&ec.setupErrors); storeSetupErrorCount {
 		s := setupErrorCount{service, value}
 		if err := database.UpdateSetupErrorsTable(ctx, []db.SetupErrorCount{&s}); err != nil {
-			log.WithField("service", service).Error("Could not save new setupError counts in database")
+			funcLogger.Error("Could not save new setupError counts in database")
 			return err
 		}
-		log.WithField("service", service).Debug("Updated setupError counts in database")
+		funcLogger.Debug("Updated setupError counts in database")
 	}
 
 	// Push Errors
@@ -161,10 +164,10 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 
 	if len(pushErrorsCountSlice) != 0 {
 		if err := database.UpdatePushErrorsTable(ctx, pushErrorsCountSlice); err != nil {
-			log.WithField("service", service).Error("Could not save new pushError counts in database")
+			funcLogger.Error("Could not save new pushError counts in database")
 			return err
 		}
-		log.WithField("service", service).Debug("Updated pushError counts in database")
+		funcLogger.Debug("Updated pushError counts in database")
 	}
 	return nil
 }

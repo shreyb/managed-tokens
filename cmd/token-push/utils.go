@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/cmdUtils"
@@ -95,7 +94,7 @@ func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs 
 	failedConfigs := make([]*worker.Config, 0, len(serviceConfigs))
 	for workerSuccess := range chans.GetSuccessChan() {
 		if !workerSuccess.GetSuccess() {
-			log.WithField(
+			exeLogger.WithField(
 				"service", cmdUtils.GetServiceName(workerSuccess.GetService()),
 			).Debug("Removing serviceConfig from list of configs to use")
 			failedConfigs = append(failedConfigs, serviceConfigs[cmdUtils.GetServiceName(workerSuccess.GetService())])

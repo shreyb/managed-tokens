@@ -87,10 +87,11 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 		TrackErrorCounts: trackErrorCounts,
 		DatabaseReadOnly: true,
 	}
+	funcLogger := log.WithField("caller", "notifications.NewAdminNotificationManager")
 
 	for _, opt := range opts {
 		if err := opt(a); err != nil {
-			log.Errorf("Error running functional option")
+			funcLogger.Errorf("Error running functional option")
 		}
 	}
 
@@ -105,12 +106,12 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 		var err error
 		services, err = a.Database.GetAllServices(ctx)
 		if err != nil {
-			log.Error("Error getting services from database.  Assuming that we need to send all notifications")
+			funcLogger.Error("Error getting services from database.  Assuming that we need to send all notifications")
 			trackErrorCounts = false
 		}
 	}
 	if len(services) == 0 {
-		log.Debug("No services stored in database.  Not counting errors, and will send all notifications")
+		funcLogger.Debug("No services stored in database.  Not counting errors, and will send all notifications")
 		trackErrorCounts = false
 	}
 
@@ -133,13 +134,9 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
-					log.WithFields(log.Fields{
-						"caller": "NewAdminNotificationManager",
-					}).Error("Timeout exceeded in notification Manager")
+					funcLogger.Error("Timeout exceeded in notification Manager")
 				} else {
-					log.WithFields(log.Fields{
-						"caller": "NewAdminNotificationManager",
-					}).Error(err)
+					funcLogger.Error(err)
 				}
 				return
 
@@ -150,10 +147,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 					if trackErrorCounts && !a.DatabaseReadOnly {
 						for service, ec := range allServiceCounts {
 							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
-								log.WithFields(log.Fields{
-									"caller":  "NewEmailManager",
-									"service": n.GetService(),
-								}).Error("Error saving new error counts in database.  Please investigate")
+								funcLogger.WithField("service", n.GetService()).Error("Error saving new error counts in database.  Please investigate")
 							}
 						}
 					}
@@ -164,7 +158,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 					if trackErrorCounts {
 						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
 						if !shouldSend {
-							log.WithField("caller", "NewAdminNotificationManager").Debug("Error count less than error limit.  Not sending notification.")
+							funcLogger.Debug("Error count less than error limit.  Not sending notification.")
 						}
 					}
 					if shouldSend {
@@ -182,9 +176,10 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
 	var wg sync.WaitGroup
 	var existsSendError bool
+	funcLogger := log.WithField("caller", "notifications.SendAdminNotifications")
 
 	adminErrors.writerCount.Wait()
-	log.Debug("adminErrors is finalized")
+	funcLogger.Debug("adminErrors is finalized")
 
 	// No errors - only send slack message saying we tested.  If there are no errors, we don't send emails
 	if syncMapLength(adminErrors.errorsMap) == 0 {
@@ -198,12 +193,12 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 			}
 			for _, slackMessage := range slackMessages {
 				if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
-					log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
+					funcLogger.Error("Failed to send slack message")
 					return slackErr
 				}
 			}
 		}
-		log.WithField("caller", "SendAdminNotifications").Debug("No errors to send")
+		funcLogger.Debug("No errors to send")
 		return nil
 	}
 
@@ -246,12 +241,12 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 
 	fullMessage, err := prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), fullMessageStruct)
 	if err != nil {
-		log.WithField("caller", "SendAdminNotifications").Errorf("Could not prepare full admin message from template: %s", err)
+		funcLogger.Errorf("Could not prepare full admin message from template: %s", err)
 		return err
 	}
 	abridgedMessage, err := prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), abridgedMessageStruct)
 	if err != nil {
-		log.WithField("caller", "SendAdminNotifications").Errorf("Could not prepare abridged admin message from template: %s", err)
+		funcLogger.Errorf("Could not prepare abridged admin message from template: %s", err)
 		return err
 	}
 
@@ -265,16 +260,16 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 				// Send long-form message
 				if err := SendMessage(ctx, sm, fullMessage); err != nil {
 					existsSendError = true
-					log.WithField("caller", "SendAdminNotifications").Error("Failed to send admin email")
+					funcLogger.Error("Failed to send admin email")
 				}
 			case *slackMessage:
 				// Send abridged message
 				if err := SendMessage(ctx, sm, abridgedMessage); err != nil {
 					existsSendError = true
-					log.WithField("caller", "SendAdminNotifications").Error("Failed to send slack message")
+					funcLogger.Error("Failed to send slack message")
 				}
 			default:
-				log.WithField("caller", "SendAdminNotifications").Error("Unsupported SendMessager")
+				funcLogger.Error("Unsupported SendMessager")
 			}
 		}(sm)
 	}
@@ -317,6 +312,7 @@ func startAdminErrorAdder(adminChan <-chan Notification) {
 // addErrorToAdminErrors takes the passed in Notification, type-checks it, and adds it to the appropriate field of adminErrors
 func addErrorToAdminErrors(n Notification) {
 	adminErrors.mu.Lock()
+	funcLogger := log.WithField("caller", "notifications.addErrorToAdminErrors")
 	defer adminErrors.mu.Unlock()
 
 	// The first time addErrorToAdminErrors is called, initialize the errorsMap so we don't get a nil pointer dereference panic
@@ -337,7 +333,7 @@ func addErrorToAdminErrors(n Notification) {
 		); loaded {
 			// Service already has *adminData stored
 			if accumulatedAdminData, ok := actual.(*adminData); !ok {
-				log.Panic("Invalid data stored in admin errors map.")
+				funcLogger.Panic("Invalid data stored in admin errors map.")
 			} else {
 				// Just append the newest setup error to the slice
 				accumulatedAdminData.SetupErrors = append(accumulatedAdminData.SetupErrors, nValue.message)
@@ -354,7 +350,7 @@ func addErrorToAdminErrors(n Notification) {
 		)
 		if loaded {
 			if adminData, ok := actual.(*adminData); !ok {
-				log.Panic("Invalid data stored in admin errors map.")
+				funcLogger.Panic("Invalid data stored in admin errors map.")
 			} else {
 				adminData.PushErrors.Store(nValue.node, nValue.message)
 			}
@@ -407,15 +403,16 @@ type adminDataUnsync struct {
 func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
 	adminErrorsMap := make(map[string]*adminData)
 	adminErrorsMapUnsync := make(map[string]adminDataUnsync)
+	funcLogger := log.WithField("caller", "notifications.adminErrorsToAdminDataUnsync")
 	// 1.  Write adminErrors from sync.Map to Map called adminErrorsMap
 	adminErrors.errorsMap.Range(func(service, aData any) bool {
 		s, ok := service.(string)
 		if !ok {
-			log.Panic("Improper key in admin notifications map.")
+			funcLogger.Panic("Improper key in admin notifications map.")
 		}
 		a, ok := aData.(*adminData)
 		if !ok {
-			log.Panic("Invalid admin data stored for notification")
+			funcLogger.Panic("Invalid admin data stored for notification")
 		}
 
 		if !a.isEmpty() {
@@ -433,11 +430,11 @@ func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
 		aData.PushErrors.Range(func(node, err any) bool {
 			n, ok := node.(string)
 			if !ok {
-				log.Panic("Improper key in push errors map")
+				funcLogger.Panic("Improper key in push errors map")
 			}
 			e, ok := err.(string)
 			if !ok {
-				log.Panic("Improper error string in push errors map")
+				funcLogger.Panic("Improper error string in push errors map")
 			}
 
 			if e != "" {

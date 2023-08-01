@@ -41,82 +41,68 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 		UserPrincipal: userPrincipal,
 	}
 
+	funcLogger := log.WithFields(log.Fields{
+		"keytabPath":    keytabPath,
+		"userPrincipal": userPrincipal,
+	})
+
 	args, err := utils.TemplateToCommand(kerberosTemplates["kinit"], cArgs)
 	var t1 *utils.TemplateExecuteError
 	if errors.As(err, &t1) {
 		retErr := fmt.Errorf("could not execute kinit template: %w", err)
-		log.WithFields(log.Fields{
-			"keytabPath":    keytabPath,
-			"userPrincipal": userPrincipal,
-		}).Error(retErr.Error())
+		funcLogger.Error(retErr.Error())
 		return retErr
 	}
 	var t2 *utils.TemplateArgsError
 	if errors.As(err, &t2) {
 		retErr := fmt.Errorf("could not get kinit command arguments from template: %w", err)
-		log.WithFields(log.Fields{
-			"keytabPath":    keytabPath,
-			"userPrincipal": userPrincipal,
-		}).Error(retErr.Error())
+		funcLogger.Error(retErr.Error())
 		return retErr
 	}
 
 	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
-	log.WithFields(log.Fields{
-		"keytabPath":    keytabPath,
-		"userPrincipal": userPrincipal,
-		"command":       createKerberosTicket.String(),
-	}).Debug("Now creating new kerberos ticket with keytab")
+	funcLogger.WithField("command", createKerberosTicket.String()).Debug("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.WithFields(log.Fields{
-				"keytabPath":    keytabPath,
-				"userPrincipal": userPrincipal,
-			}).Error("Context timeout")
+			funcLogger.Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithFields(log.Fields{
-			"keytabPath":    keytabPath,
-			"userPrincipal": userPrincipal,
-		}).Error("Error running kinit to create new kerberos ticket")
-		log.WithFields(log.Fields{
-			"keytabPath":    keytabPath,
-			"userPrincipal": userPrincipal,
-		}).Errorf("%s", stdoutstdErr)
+		funcLogger.Error("Error running kinit to create new kerberos ticket")
+		funcLogger.Errorf("%s", stdoutstdErr)
 		return err
 	}
 	return nil
-
 }
 
 // CheckPrincipal verifies that the kerberos ticket principal matches checkPrincipal
 func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
+	funcLogger := log.WithField("caller", "CheckKerberosPrincipal")
 
-	log.WithFields(log.Fields{}).Debug("Checking user principal against configured principal")
+	funcLogger.Debug("Checking user principal against configured principal")
 	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("caller", "CheckKerberosPrincipal").Error("Context timeout")
+			funcLogger.Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("caller", "CheckKerberosPrincipal").Errorf("Error running klist:\n %s", stdoutStderr)
+		funcLogger.Errorf("Error running klist:\n %s", stdoutStderr)
 		return err
 
 	} else {
-		log.WithField("caller", "CheckKerberosPrincipal").Debugf("%s", stdoutStderr)
+		funcLogger.Debugf("%s", stdoutStderr)
 
 		matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
 		if len(matches) != 2 {
 			err := "could not find principal in kinit output"
-			log.WithField("caller", "CheckKerberosPrincipal").Error(err)
+			funcLogger.Error(err)
 			return errors.New(err)
 		}
 		principal := string(matches[1])
-		log.WithField("caller", "CheckKerberosPrincipal").Debugf("Found principal: %s", principal)
+		funcLogger.Debugf("Found principal: %s", principal)
 
 		if principal != checkPrincipal {
 			err := fmt.Sprintf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
-			log.WithField("caller", "CheckKerberosPrincipal").Error(err)
+			funcLogger.Error(err)
 			return errors.New(err)
 		}
 	}
@@ -128,34 +114,32 @@ func SwitchCache(ctx context.Context, userPrincipal string, environ environment.
 	cArgs := struct{ UserPrincipal string }{
 		UserPrincipal: userPrincipal,
 	}
+	funcLogger := log.WithField("userPrincipal", userPrincipal)
 
 	args, err := utils.TemplateToCommand(kerberosTemplates["kswitch"], cArgs)
 	if err != nil {
 		var t1 *utils.TemplateExecuteError
 		if errors.As(err, &t1) {
 			retErr := fmt.Errorf("could not execute kswitch template: %w", err)
-			log.WithField("userPrincipal", userPrincipal).Error(retErr.Error())
+			funcLogger.Error(retErr.Error())
 			return retErr
 		}
 		var t2 *utils.TemplateArgsError
 		if errors.As(err, &t2) {
 			retErr := fmt.Errorf("could not get kswitch command arguments from template: %w", err)
-			log.WithField("userPrincipal", userPrincipal).Error(retErr.Error())
+			funcLogger.Error(retErr.Error())
 			return retErr
 		}
 	}
 
 	switchkCache := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kswitch"], args...)
-	log.WithField("command", switchkCache.String()).Debug("Switching kerberos cache")
+	funcLogger.WithField("command", switchkCache.String()).Debug("Switching kerberos cache")
 	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.WithFields(log.Fields{
-				"caller":        "SwitchKerberosCache",
-				"userPrincipal": userPrincipal,
-			}).Error("Context timeout")
+			funcLogger.WithField("caller", "SwitchKerberosCache").Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("userPrincipal", userPrincipal).Errorf("Error running kswitch to load proper principal: %s", stdoutstdErr)
+		funcLogger.Errorf("Error running kswitch to load proper principal: %s", stdoutstdErr)
 		return err
 	}
 	return nil
