@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/user"
 	"strings"
-	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -25,7 +24,8 @@ var vaultExecutables = map[string]string{
 }
 
 func init() {
-	os.Setenv("PATH", "/usr/bin:/usr/sbin")
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", fmt.Sprintf("%s:/usr/bin:/usr/sbin", oldPath))
 	if err := utils.CheckForExecutables(vaultExecutables); err != nil {
 		log.Fatal("Could not find path to condor executables")
 	}
@@ -60,41 +60,22 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 		environmentsForCommands = append(environmentsForCommands, newEnv)
 	}
 
-	// Listener for all of the getTokensAndStoreInVault goroutines
-	var isError bool
-	errorCollectionDone := make(chan struct{}) // Channel to close when we're done determining if there was an error or not
-	errChan := make(chan error, len(schedds))
-	go func() {
-		defer close(errorCollectionDone)
-		for err := range errChan {
-			if err != nil {
-				isError = true
-			}
-		}
-	}()
-
 	// Get token and store it in vault
-	var wg sync.WaitGroup
+	var isError bool
 	for _, environmentForCommand := range environmentsForCommands {
-		wg.Add(1)
-		go func(environmentForCommand *environment.CommandEnvironment) {
-			defer wg.Done()
+		func() {
 			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
+				isError = true
 				if ctx.Err() == context.DeadlineExceeded {
 					funcLogger.Error("Context timeout")
-					errChan <- ctx.Err()
+					return
 				}
 				funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Errorf("Could not obtain vault token: %s", err)
-				errChan <- err
 				return
 			}
 			funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
-			errChan <- nil
-		}(environmentForCommand)
+		}()
 	}
-	wg.Wait()
-	close(errChan)
-	<-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
 
 	if isError {
 		msg := "Error obtaining and/or storing vault tokens"
