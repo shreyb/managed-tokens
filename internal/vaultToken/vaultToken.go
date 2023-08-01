@@ -41,13 +41,14 @@ func init() {
 // If run in interactive mode, then the stdout/stderr will be displayed in the user's terminal.  This can be used, for example, if it is expected
 // that the user might have to authenticate to the vault server.
 func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, schedds []string, environ environment.CommandEnvironment, interactive bool) error {
+	funcLogger := log.WithField("serviceName", serviceName)
 	// kswitch
 	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("serviceName", serviceName).Error("Context timeout")
+			funcLogger.Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("serviceName", serviceName).Errorf("Could not switch kerberos caches: %s", err)
+		funcLogger.Errorf("Could not switch kerberos caches: %s", err)
 		return err
 	}
 
@@ -80,20 +81,14 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 			defer wg.Done()
 			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
 				if ctx.Err() == context.DeadlineExceeded {
-					log.WithField("serviceName", serviceName).Error("Context timeout")
+					funcLogger.Error("Context timeout")
 					errChan <- ctx.Err()
 				}
-				log.WithFields(log.Fields{
-					"serviceName": serviceName,
-					"credd":       environmentForCommand.GetValue(environment.CondorCreddHost),
-				}).Errorf("Could not obtain vault token: %s", err)
+				funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Errorf("Could not obtain vault token: %s", err)
 				errChan <- err
 				return
 			}
-			log.WithFields(log.Fields{
-				"serviceName": serviceName,
-				"credd":       environmentForCommand.GetValue(environment.CondorCreddHost),
-			}).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
+			funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
 			errChan <- nil
 		}(environmentForCommand)
 	}
@@ -103,23 +98,23 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 
 	if isError {
 		msg := "Error obtaining and/or storing vault tokens"
-		log.WithField("serviceName", serviceName).Errorf(msg)
+		funcLogger.Errorf(msg)
 		return errors.New(msg)
 	}
 
 	// Validate vault token
 	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
-		log.WithField("service", serviceName).Error("Could not get default vault token location")
+		funcLogger.Error("Could not get default vault token location")
 		return err
 	}
 
 	if err := validateVaultToken(vaultTokenFilename); err != nil {
-		log.WithField("service", serviceName).Error("Could not validate vault token")
+		funcLogger.Error("Could not validate vault token")
 		return err
 	}
 
-	log.WithField("service", serviceName).Debug("Validated vault token")
+	funcLogger.Debug("Validated vault token")
 	return nil
 }
 
@@ -165,14 +160,19 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
 // using interactive=true, it will display stdout/stderr on the stdout of the caller
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *environment.CommandEnvironment, interactive bool) error {
+	funcLogger := log.WithFields(log.Fields{
+		"service": serviceName,
+		"credd":   environ.GetValue(environment.CondorCreddHost),
+	})
+
 	// Store token in vault and get new vault token
 	cmdArgs := make([]string, 0, 2)
 	verbose, err := utils.GetVerboseFromContext(ctx)
 	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
 	if !errors.Is(err, utils.ErrContextKeyNotStored) && err != nil {
-		log.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
+		funcLogger.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
 	}
-	log.Debugf("Verbose is set to %t", verbose)
+	funcLogger.Debugf("Verbose is set to %t", verbose)
 
 	if verbose {
 		cmdArgs = append(cmdArgs, "-v")
@@ -181,9 +181,8 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 
 	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, environ, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
-	log.WithField("service", serviceName).Info("Storing and obtaining vault token")
-	log.WithFields(log.Fields{
-		"service":     serviceName,
+	funcLogger.Info("Storing and obtaining vault token")
+	funcLogger.WithFields(log.Fields{
 		"command":     getTokensAndStoreInVaultCmd.String(),
 		"environment": environ.String(),
 	}).Debug("Running command to store vault token")
@@ -195,47 +194,31 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 
 		if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
-				log.WithField("service", serviceName).Error("Context timeout")
+				funcLogger.Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithFields(log.Fields{
-				"service": serviceName,
-				"credd":   environ.GetValue(environment.CondorCreddHost),
-			}).Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
+			funcLogger.Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
 		}
 		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
-				log.WithField("service", serviceName).Error("Context timeout")
+				funcLogger.Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithFields(log.Fields{
-				"service": serviceName,
-				"credd":   environ.GetValue(environment.CondorCreddHost),
-			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+			funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 			return err
 		}
 	} else {
 		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
-				log.WithField("service", serviceName).Error("Context timeout")
+				funcLogger.Error("Context timeout")
 				return ctx.Err()
 			}
-			log.WithFields(log.Fields{
-				"service": serviceName,
-				"credd":   environ.GetValue(environment.CondorCreddHost),
-			}).Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
-			log.WithFields(log.Fields{
-				"service": serviceName,
-				"credd":   environ.GetValue(environment.CondorCreddHost),
-			}).Errorf("%s", stdoutStderr)
+			funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+			funcLogger.Errorf("%s", stdoutStderr)
 			return err
 		} else {
 			if len(stdoutStderr) > 0 {
-				log.WithFields(log.Fields{
-					"service":     serviceName,
-					"environment": environ.String(),
-					"credd":       environ.GetValue(environment.CondorCreddHost),
-				}).Debugf("%s", stdoutStderr)
+				funcLogger.WithField("environment", environ.String()).Debugf("%s", stdoutStderr)
 			}
 		}
 	}
@@ -298,15 +281,16 @@ func (i *InvalidVaultTokenError) Error() string {
 // HTCondor
 func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 	vaultTokenLocations := make([]string, 0, 2)
+	funcLogger := log.WithField("service", serviceName)
 
 	defaultLocation, err := getDefaultVaultTokenLocation()
 	if err != nil {
-		log.Error("Could not get default vault location")
+		funcLogger.Error("Could not get default vault location")
 		return vaultTokenLocations, err
 	}
 	condorLocation, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
-		log.Error("Could not get condor vault location")
+		funcLogger.Error("Could not get condor vault location")
 		return vaultTokenLocations, err
 	}
 
@@ -336,24 +320,19 @@ func RemoveServiceVaultTokens(serviceName string) error {
 		log.WithField("service", serviceName).Error("Could not get vault token locations for deletion")
 	}
 	for _, vaultToken := range vaultTokenLocations {
+		tokenLogger := log.WithFields(log.Fields{
+			"service":  serviceName,
+			"filename": vaultToken,
+		})
 		err := os.Remove(vaultToken)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			log.WithFields(log.Fields{
-				"service":  serviceName,
-				"filename": vaultToken,
-			}).Warn("Vault token not removed because the file does not exist")
+			tokenLogger.Warn("Vault token not removed because the file does not exist")
 		case err != nil:
-			log.WithFields(log.Fields{
-				"service":  serviceName,
-				"filename": vaultToken,
-			}).Error("Could not remove vault token")
+			tokenLogger.Error("Could not remove vault token")
 			return err
 		default:
-			log.WithFields(log.Fields{
-				"service":  serviceName,
-				"filename": vaultToken,
-			}).Debug("Removed vault token")
+			tokenLogger.Debug("Removed vault token")
 		}
 	}
 	return nil
@@ -363,7 +342,7 @@ func RemoveServiceVaultTokens(serviceName string) error {
 func getCondorVaultTokenLocation(serviceName string) (string, error) {
 	currentUser, err := user.Current()
 	if err != nil {
-		log.Error(err)
+		log.WithField("service", serviceName).Error(err)
 		return "", err
 	}
 	currentUID := currentUser.Uid
