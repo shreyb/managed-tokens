@@ -27,14 +27,18 @@ type ServiceEmailManagerOption func(*ServiceEmailManager) error
 // the NotificationMinimum via EmailManagerOptions passed in.  If a ManagedTokensDatabase is not passed in via an EmailManagerOption,
 // then the EmailManager will send all notifications
 func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email, opts ...ServiceEmailManagerOption) *ServiceEmailManager {
+	funcLogger := log.WithFields(log.Fields{
+		"caller":  "notifications.NewServiceEmailManager",
+		"service": service,
+	})
+
 	em := &ServiceEmailManager{
 		Service:     service,
 		ReceiveChan: make(chan Notification),
 	}
-
 	for _, opt := range opts {
 		if err := opt(em); err != nil {
-			log.Errorf("Error running functional option")
+			funcLogger.Errorf("Error running functional option")
 		}
 	}
 
@@ -54,16 +58,10 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
-					log.WithFields(log.Fields{
-						"caller":  "NewServiceEmailManager",
-						"service": service,
-					}).Error("Timeout exceeded in notification Manager")
+					funcLogger.Error("Timeout exceeded in notification Manager")
 
 				} else {
-					log.WithFields(log.Fields{
-						"caller":  "NewServiceEmailManager",
-						"service": service,
-					}).Error(err)
+					funcLogger.Error(err)
 				}
 				return
 
@@ -72,26 +70,17 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 				if !chanOpen {
 					if trackErrorCounts {
 						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
-							log.WithFields(log.Fields{
-								"caller":  "NewEmailManager",
-								"service": em.Service,
-							}).Error("Error saving new error counts in database.  Please investigate")
+							funcLogger.Error("Error saving new error counts in database.  Please investigate")
 						}
 					}
 					if len(serviceErrorsTable) > 0 {
 						tableString := aggregateServicePushErrors(serviceErrorsTable)
 						msg, err := prepareServiceEmail(ctx, tableString, e)
 						if err != nil {
-							log.WithFields(log.Fields{
-								"caller":  "NewManager",
-								"service": service,
-							}).Error("Error preparing service email for sending")
+							funcLogger.Error("Error preparing service email for sending")
 						}
 						if err = SendMessage(ctx, e, msg); err != nil {
-							log.WithFields(log.Fields{
-								"caller":  "NewManager",
-								"service": service,
-							}).Error("Error sending email")
+							funcLogger.Error("Error sending email")
 						}
 					}
 					return
