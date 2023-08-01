@@ -26,6 +26,7 @@ var (
 	currentExecutable string
 	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
+	exeLogger         *log.Entry
 )
 
 // Supported timeouts and their default values
@@ -160,11 +161,12 @@ func initLogs() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
-	log.WithField("executable", currentExecutable).Debugf("Using config file %s", viper.ConfigFileUsed())
+	exeLogger = log.WithField("executable", currentExecutable)
+	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
 
 	// Test flag sets which notifications section from config we want to use.
 	if viper.GetBool("test") {
-		log.WithField("executable", currentExecutable).Info("Running in test mode")
+		exeLogger.Info("Running in test mode")
 	}
 }
 
@@ -177,16 +179,10 @@ func initTimeouts() error {
 		if _, ok := timeouts[timeoutKey]; ok {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"executable": currentExecutable,
-					timeoutKey:   timeoutString,
-				}).Warn("Could not parse configured timeout duration.  Using default")
+				exeLogger.WithField(timeoutKey, timeoutString).Warn("Could not parse configured timeout duration.  Using default")
 				continue
 			}
-			log.WithFields(log.Fields{
-				"executable": currentExecutable,
-				timeoutKey:   timeoutString,
-			}).Debug("Configured timeout")
+			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
 		}
 	}
@@ -204,7 +200,7 @@ func initTimeouts() error {
 	timeForGlobalCheck := now.Add(timeouts["global"])
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
-		log.WithField("executable", currentExecutable).Error(msg)
+		exeLogger.Error(msg)
 		return errors.New(msg)
 	}
 	return nil
@@ -215,7 +211,7 @@ func main() {
 	var ok bool
 
 	if globalTimeout, ok = timeouts["global"]; !ok {
-		log.WithField("executable", currentExecutable).Fatal("Could not obtain global timeout.")
+		exeLogger.Fatal("Could not obtain global timeout.")
 	}
 
 	// Global context
@@ -224,9 +220,9 @@ func main() {
 
 	// Run our actual operation
 	if err := run(ctx); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Error running onboarding.  Exiting")
+		exeLogger.Fatal("Error running onboarding.  Exiting")
 	}
-	log.Debug("Finished run")
+	exeLogger.Debug("Finished run")
 
 }
 
@@ -242,12 +238,12 @@ func run(ctx context.Context) error {
 	// Temporary directory for kerberos caches
 	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
-		log.WithField("executable", currentExecutable).Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+		exeLogger.Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
 		return err
 	}
 	defer func() {
 		os.RemoveAll(krb5ccname)
-		log.WithField("executable", currentExecutable).Info("Cleared kerberos cache")
+		exeLogger.Info("Cleared kerberos cache")
 	}()
 
 	// Processing
@@ -271,12 +267,13 @@ func run(ctx context.Context) error {
 	} else {
 		s = service.NewService(viper.GetString("service"))
 	}
+	funcLogger := exeLogger.WithField("service", cmdUtils.GetServiceName(serviceConfig.Service))
 
 	// Set up service config
 	serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 	userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 	if userPrincipal == "" {
-		log.Error("Cannot have a blank userPrincipal.  Exiting")
+		funcLogger.Error("Cannot have a blank userPrincipal.  Exiting")
 		os.Exit(1)
 	}
 	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
@@ -295,10 +292,7 @@ func run(ctx context.Context) error {
 		worker.SetKeytabPath(keytabPath),
 	)
 	if err != nil {
-		log.WithFields(log.Fields{
-			"experiment": s.Experiment(),
-			"role":       s.Role(),
-		}).Error("Could not create config for service")
+		funcLogger.Error("Could not create config for service")
 		return err
 	}
 
@@ -313,9 +307,7 @@ func run(ctx context.Context) error {
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
 	if err := worker.GetKerberosTicketandVerify(kerberosContext, serviceConfig); err != nil {
-		log.WithField(
-			"service", cmdUtils.GetServiceName(serviceConfig.Service),
-		).Error("Failed to obtain kerberos ticket. Stopping onboarding")
+		funcLogger.Error("Failed to obtain kerberos ticket. Stopping onboarding")
 		return errors.New("could not obtain kerberos ticket")
 	}
 
@@ -329,17 +321,14 @@ func run(ctx context.Context) error {
 
 	defer func() {
 		if err := vaultToken.RemoveServiceVaultTokens(viper.GetString("service")); err != nil {
-			log.WithField("service", viper.GetString("service")).Error("Could not remove vault tokens for service.  Please clean up manually")
+			funcLogger.Error("Could not remove vault tokens for service.  Please clean up manually")
 		}
 	}()
 	if err := worker.StoreAndGetRefreshAndVaultTokens(vaultStorerContext, serviceConfig); err != nil {
-		log.WithFields(log.Fields{
-			"experiment": serviceConfig.Service.Experiment(),
-			"role":       serviceConfig.Service.Role(),
-		}).Error("Could not generate refresh tokens and store vault token for service")
+		funcLogger.Error("Could not generate refresh tokens and store vault token for service")
 		return err
 	}
 
-	log.WithField("service", cmdUtils.GetServiceName(serviceConfig.Service)).Info("Successfully generated refresh token in vault.  Onboarding complete.")
+	funcLogger.Info("Successfully generated refresh token in vault.  Onboarding complete.")
 	return nil
 }

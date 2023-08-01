@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/cmdUtils"
@@ -129,10 +128,10 @@ func directNotificationsToManagers(ctx context.Context) {
 				if receiveChanVal, ok := receiveChan.(chan notifications.Notification); ok {
 					receiveChanVal <- n
 				} else {
-					log.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notification.Notification", receiveChanVal)
+					exeLogger.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notification.Notification", receiveChanVal)
 				}
 			} else {
-				log.Errorf("No notification channel exists for service %s", n.GetService())
+				exeLogger.Errorf("No notification channel exists for service %s", n.GetService())
 			}
 		}
 	}
@@ -145,10 +144,10 @@ func closeRegisteredNotificationsChans() {
 			if receiveChanVal, ok := value.(chan notifications.Notification); ok {
 				close(receiveChanVal)
 			} else {
-				log.Errorf("Registered service email manager is of wrong type %T.  Expected chan notifications.Notification", receiveChanVal)
+				exeLogger.Errorf("Registered service email manager is of wrong type %T.  Expected chan notifications.Notification", receiveChanVal)
 			}
 			return true
 		},
 	)
-	log.WithField("executable", currentExecutable).Debug("Closed all notifications channels")
+	exeLogger.Debug("Closed all notifications channels")
 }
