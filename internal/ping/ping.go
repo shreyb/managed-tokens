@@ -41,10 +41,11 @@ func (n Node) PingNode(ctx context.Context) error {
 	var pArgs = map[string]string{
 		"Node": string(n),
 	}
+	funcLogger := log.WithField("node", string(n))
 
 	if err := pingTemplate.Execute(&b, pArgs); err != nil {
 		err := fmt.Errorf("could not execute ping template: %w", err)
-		log.Error(err)
+		funcLogger.Error(err)
 		return err
 	}
 
@@ -52,19 +53,19 @@ func (n Node) PingNode(ctx context.Context) error {
 
 	if err != nil {
 		err := fmt.Errorf("could not get ping command arguments from template: %w", err)
-		log.WithField("templateStringsBuilder", b.String()).Error(err)
+		funcLogger.WithField("templateStringsBuilder", b.String()).Error(err)
 		return err
 	}
 
 	cmd := exec.CommandContext(ctx, pingExecutables["ping"], args...)
-	log.WithField("command", cmd.String()).Debug("Running command to ping node")
+	funcLogger.WithField("command", cmd.String()).Debug("Running command to ping node")
 	if cmdOut, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		if e := ctx.Err(); e != nil {
-			log.WithField("command", cmd.String()).Error(fmt.Sprintf("Context error: %s", e.Error()))
+			funcLogger.WithField("command", cmd.String()).Error(fmt.Sprintf("Context error: %s", e.Error()))
 			return e
 		}
 
-		log.WithField("command", cmd.String()).Error(fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()))
+		funcLogger.WithField("command", cmd.String()).Error(fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()))
 		return fmt.Errorf("%s %s", cmdOut, cmdErr)
 
 	}
