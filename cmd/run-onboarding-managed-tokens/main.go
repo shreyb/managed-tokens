@@ -267,7 +267,7 @@ func run(ctx context.Context) error {
 	} else {
 		s = service.NewService(viper.GetString("service"))
 	}
-	funcLogger := exeLogger.WithField("service", cmdUtils.GetServiceName(serviceConfig.Service))
+	funcLogger := exeLogger.WithField("service", s.Name())
 
 	// Set up service config
 	serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
