@@ -6,11 +6,12 @@ import (
 	"strings"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/ping"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
-	log "github.com/sirupsen/logrus"
 )
 
 const pingDefaultTimeoutStr string = "10s"
@@ -53,6 +54,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 			success := &pingSuccess{
 				Service: sc.Service,
 			}
+			serviceLogger := log.WithField("service", sc.Service.Name())
 
 			defer func(p *pingSuccess) {
 				chans.GetSuccessChan() <- p
@@ -70,6 +72,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
+				nodeLogger := serviceLogger.WithField("node", status.PingNoder.String())
 				if status.Err != nil {
 					var msg string
 					if errors.Is(status.Err, context.DeadlineExceeded) {
@@ -77,29 +80,23 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 					} else {
 						msg = "Error pinging node"
 					}
-					log.WithFields(log.Fields{
-						"service": sc.Service.Name(),
-						"node":    status.PingNoder.String(),
-					}).Error(msg)
+					nodeLogger.Error(msg)
 					failedNodes = append(failedNodes, status.PingNoder)
 					sc.RegisterUnpingableNode(status.PingNoder.String())
 				} else {
-					log.WithFields(log.Fields{
-						"service": sc.Service.Name(),
-						"node":    status.PingNoder.String(),
-					}).Debug("Successfully pinged node")
+					nodeLogger.Debug("Successfully pinged node")
 				}
 			}
 			if len(failedNodes) == 0 {
 				success.success = true
-				log.WithField("service", sc.Service.Name()).Info("Successfully pinged all nodes for service")
+				serviceLogger.Info("Successfully pinged all nodes for service")
 			} else {
 				failedNodesStrings := make([]string, 0, len(failedNodes))
 				for _, node := range failedNodes {
 					failedNodesStrings = append(failedNodesStrings, node.String())
 				}
-				log.WithField("service", sc.Service.Name()).Error("Error pinging some of nodes for service")
-				log.WithField("service", sc.Service.Name()).Errorf("Failed Nodes: %s", strings.Join(failedNodesStrings, ", "))
+				serviceLogger.Error("Error pinging some of nodes for service")
+				serviceLogger.Errorf("Failed Nodes: %s", strings.Join(failedNodesStrings, ", "))
 				chans.GetNotificationsChan() <- notifications.NewSetupError(
 					"Could not ping the following nodes: "+strings.Join(failedNodesStrings, ", "),
 					sc.ServiceNameFromExperimentAndRole(),

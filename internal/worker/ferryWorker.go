@@ -11,9 +11,10 @@ import (
 	"strings"
 	"text/template"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/utils"
-	log "github.com/sirupsen/logrus"
 )
 
 const ferryRequestDefaultTimeoutStr string = "30s"
@@ -72,11 +73,17 @@ type ferryUIDResponse struct {
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
 	ferryDataChan chan<- db.FerryUIDDatum) (*UIDEntryFromFerry, error) {
+	funcLogger := log.WithFields(log.Fields{
+		"account":   username,
+		"ferryHost": ferryHost,
+		"ferryPort": ferryPort,
+	})
+
 	entry := UIDEntryFromFerry{}
 
 	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)
 	if err != nil {
-		log.Fatal("Could not parse ferryRequest timeout")
+		funcLogger.Fatal("Could not parse ferryRequest timeout")
 	}
 
 	ferryAPIConfig := struct{ Hostname, Port, API, Username string }{
@@ -89,43 +96,43 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	var b strings.Builder
 	if err := ferryURLUIDTemplate.Execute(&b, ferryAPIConfig); err != nil {
 		fatalErr := fmt.Errorf("could not execute ferryURLUID template: %w", err)
-		log.Fatal(fatalErr)
+		funcLogger.Fatal(fatalErr)
 	}
 
 	ferryRequestCtx, ferryRequestCancel := context.WithTimeout(ctx, ferryRequestTimeout)
 	defer ferryRequestCancel()
 	resp, err := requestRunnerWithAuthMethodFunc(ferryRequestCtx, b.String(), "GET")
 	if err != nil {
-		log.WithField("account", username).Error("Attempt to get UID from FERRY failed")
+		funcLogger.Error("Attempt to get UID from FERRY failed")
 		if err2 := ctx.Err(); errors.Is(err2, context.DeadlineExceeded) {
-			log.WithField("account", username).Error("Timeout error")
+			funcLogger.Error("Timeout error")
 			return &entry, err2
 		}
-		log.WithField("account", username).Error(err)
+		funcLogger.Error(err)
 		return &entry, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.WithField("account", username).Error("Could not read body from HTTP response")
+		funcLogger.Error("Could not read body from HTTP response")
 		return &entry, err
 	}
 
 	parsedResponse := ferryUIDResponse{}
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
-		log.WithField("account", username).Errorf("Could not unmarshal FERRY response: %s", err)
+		funcLogger.Errorf("Could not unmarshal FERRY response: %s", err)
 		return &entry, err
 	}
 
 	if parsedResponse.FerryStatus == "failure" {
-		log.WithField("account", username).Errorf("FERRY server error: %s", parsedResponse.FerryError)
+		funcLogger.Errorf("FERRY server error: %s", parsedResponse.FerryError)
 		return &entry, errors.New("unspecified FERRY error.  Check logs")
 	}
 
 	entry.username = username
 	entry.uid = parsedResponse.FerryOutput.Uid
 
-	log.WithField("account", username).Info("Successfully got data from FERRY")
+	funcLogger.Info("Successfully got data from FERRY")
 	return &entry, nil
 }

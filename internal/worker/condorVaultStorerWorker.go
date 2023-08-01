@@ -54,6 +54,11 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- v
 			}(success)
 
+			configLogger := log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			})
+
 			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 			defer vaultStorerCancel()
 
@@ -64,17 +69,11 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 				} else {
 					msg = "Could not store and get vault tokens"
 				}
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Error(msg)
+				configLogger.Error(msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 			} else {
 				success.success = true
-				log.WithFields(log.Fields{
-					"experiment": sc.Service.Experiment(),
-					"role":       sc.Service.Role(),
-				}).Info("Successfully got and stored vault tokens")
+				configLogger.Info("Successfully got and stored vault tokens")
 			}
 		}(sc)
 	}
