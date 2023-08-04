@@ -78,7 +78,7 @@ func getAllAccountsFromConfig() []string {
 		for role := range viper.GetStringMap(roleConfigPath) {
 			accountConfigPath := roleConfigPath + "." + role + ".account"
 			account := viper.GetString(accountConfigPath)
-			log.WithField("account", account).Debug("Found account")
+			exeLogger.WithField("account", account).Debug("Found account")
 			s = append(s, account)
 		}
 	}

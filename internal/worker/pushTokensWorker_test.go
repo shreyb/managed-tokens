@@ -14,9 +14,9 @@ func TestSetDefaultRoleFileTemplateValueInExtras(t *testing.T) {
 	testTemplateString := "testtemplate"
 	c, _ := NewConfig(
 		s,
-		SetSupportedExtrasKeyValue(DefaultRoleFileTemplate, testTemplateString),
+		SetSupportedExtrasKeyValue(DefaultRoleFileDestinationTemplate, testTemplateString),
 	)
-	if result := c.Extras[DefaultRoleFileTemplate]; result != testTemplateString {
+	if result := c.Extras[DefaultRoleFileDestinationTemplate]; result != testTemplateString {
 		t.Errorf("Wrong template string stored.  Expected %s, got %s", testTemplateString, result)
 	}
 }
@@ -51,8 +51,8 @@ func TestGetDefaultRoleFileTemplateValueFromExtras(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				c, _ := NewConfig(s)
-				c.Extras[DefaultRoleFileTemplate] = test.stored
-				result, check := GetDefaultRoleFileTemplateValueFromExtras(c)
+				c.Extras[DefaultRoleFileDestinationTemplate] = test.stored
+				result, check := GetDefaultRoleFileDestinationTemplateValueFromExtras(c)
 				if check != test.expectedCheck {
 					t.Errorf("Type assertion failed.  Expected type assertion check to return %t, got %t", test.expectedCheck, check)
 				}
@@ -106,8 +106,8 @@ func TestParseDefaultRoleFileTemplateFromConfig(t *testing.T) {
 	for _, test := range goodTestCases {
 		t.Run(test.description,
 			func(t *testing.T) {
-				c.Extras[DefaultRoleFileTemplate] = test.stored
-				result, err := parseDefaultRoleFileTemplateFromConfig(c)
+				c.Extras[DefaultRoleFileDestinationTemplate] = test.stored
+				result, err := parseDefaultRoleFileDestinationTemplateFromConfig(c)
 				if err == nil && test.err != nil {
 					t.Errorf("Expected error of type %T, got nil instead", test.expected)
 				}
