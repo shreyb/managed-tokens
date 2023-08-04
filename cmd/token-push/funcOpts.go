@@ -48,7 +48,7 @@ func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
 	if !viper.IsSet(defaultRoleFileDestinationTmplPath) {
 		return "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
 	}
-	return defaultRoleFileDestinationTmplPath
+	return viper.GetString(defaultRoleFileDestinationTmplPath)
 }
 
 // getFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions

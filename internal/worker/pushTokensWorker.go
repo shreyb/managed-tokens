@@ -131,6 +131,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
 				return
 			}
+			serviceLogger.WithField("filename", defaultRoleFile.Name()).Debug("Wrote default role file to transfer to nodes")
 
 			sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
 			destinationFilenames := []string{
@@ -206,7 +207,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				}(destinationNode)
 				nodeWg.Wait()
 
-				// Send the tempfile to the destination node.  If we fail here, don't count this as an error
+				// Send the default role file to the destination node.  If we fail here, don't count this as an error
 				pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 				defer pushCancel()
 				if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, defaultRoleFileDestinationFilename); err != nil {
