@@ -25,14 +25,14 @@ type supportedExtrasKey int
 
 const (
 	// DefaultRoleFileTemplate is a key to store the value of the default role file template in the Config.Extras map
-	DefaultRoleFileTemplate supportedExtrasKey = iota
+	DefaultRoleFileDestinationTemplate supportedExtrasKey = iota
 	FileCopierOptions
 )
 
 func (s supportedExtrasKey) String() string {
 	switch s {
-	case DefaultRoleFileTemplate:
-		return "DefaultRoleFileTemplate"
+	case DefaultRoleFileDestinationTemplate:
+		return "DefaultRoleFileDestinationTemplate"
 	case FileCopierOptions:
 		return "FileCopierOptions"
 	default:
@@ -124,4 +124,17 @@ func (c *Config) RegisterUnpingableNode(node string) {
 func (c *Config) IsNodeUnpingable(node string) bool {
 	_, ok := c.unPingableNodes.Load(node)
 	return ok
+}
+
+// GetDefaultRoleFileTemplateValueFromExtras retrieves the default role file template value from the worker.Config,
+// and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
+// passes, for example:
+//
+//	c := worker.NewConfig( // various options )
+//	// set the default role file template in here
+//	tmplString, ok := GetDefaultRoleFileTemplateValueFromExtras(c)
+//	if !ok { // handle missing or incorrect value }
+func GetDefaultRoleFileDestinationTemplateValueFromExtras(c *Config) (string, bool) {
+	defaultRoleFileDestinationTemplateString, ok := c.Extras[DefaultRoleFileDestinationTemplate].(string)
+	return defaultRoleFileDestinationTemplateString, ok
 }

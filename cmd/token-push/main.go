@@ -464,7 +464,7 @@ func run(ctx context.Context) error {
 				worker.SetDesiredUID(uid),
 				worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
-				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileTemplate, defaultRoleFileDestinationTemplate),
+				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
 			)
 			if err != nil {
