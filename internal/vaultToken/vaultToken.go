@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -37,6 +38,7 @@ func init() {
 // If run in interactive mode, then the stdout/stderr will be displayed in the user's terminal.  This can be used, for example, if it is expected
 // that the user might have to authenticate to the vault server.
 func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, schedds []string, environ environment.CommandEnvironment, interactive bool) error {
+	var scheddWg sync.WaitGroup
 	funcLogger := log.WithField("serviceName", serviceName)
 
 	// If we're running on a cluster with multiple schedds, create CommandEnvironments for each so we store tokens in all the possible credds
@@ -47,25 +49,42 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 		environmentsForCommands = append(environmentsForCommands, newEnv)
 	}
 
-	// Get token and store it in vault
+	// Listener for all of the getTokensAndStoreInVault goroutines
 	var isError bool
-	for _, environmentForCommand := range environmentsForCommands {
-		func() {
-			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
+	errorCollectionDone := make(chan struct{}) // Channel to close when we're done determining if there was an error or not
+	errChan := make(chan error, len(schedds))
+	go func() {
+		defer close(errorCollectionDone)
+		for err := range errChan {
+			if err != nil {
 				isError = true
+			}
+		}
+	}()
+
+	// Get token and store it in vault
+	for _, environmentForCommand := range environmentsForCommands {
+		scheddWg.Add(1)
+		go func(environmentForCommand *environment.CommandEnvironment) {
+			defer scheddWg.Done()
+			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
 				if ctx.Err() == context.DeadlineExceeded {
 					funcLogger.Error("Context timeout")
-					return
+					errChan <- ctx.Err()
 				}
 				funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Errorf("Could not obtain vault token: %s", err)
-				return
+				errChan <- err
 			}
 			funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
-		}()
+			errChan <- nil
+		}(environmentForCommand)
 	}
+	scheddWg.Wait()
+	close(errChan)
+	<-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
 
 	if isError {
-		msg := "Error obtaining and/or storing vault tokens"
+		msg := "Error obtaining and/or storing vault tokens for one or more credd"
 		funcLogger.Errorf(msg)
 		return errors.New(msg)
 	}
@@ -88,15 +107,6 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 
 // TODO STILL UNDER DEVELOPMENT.  Export when ready
 func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
-	// if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
-	// 	if ctx.Err() == context.DeadlineExceeded {
-	// 		log.WithField("service", serviceName).Error("Context timeout")
-	// 		return ctx.Err()
-	// 	}
-	// 	log.WithField("service", serviceName).Errorf("Could not switch kerberos caches: %s", err)
-	// 	return err
-	// }
-
 	htgettokenArgs := []string{
 		"-d",
 		"-a",
