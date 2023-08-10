@@ -12,7 +12,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
@@ -31,10 +30,7 @@ func init() {
 	}
 }
 
-// TODO: Maybe a context value to store condor_status constraint so we don't have to hard-code jobsub_lite stuff in there?
-// Have anything that sets _condor_CREDD_HOST in the environment struct not actually set that unless
-// in the config as an override
-
+// TODO This should probably move to the worker package
 // StoreAndGetTokens will store a refresh token on the condor-configured vault server and obtain vault and bearer tokens for a service using HTCondor executables.
 // It will also store the vault and bearer token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
 // Finally, it will validate the obtained vault token using the vault token pattern expected by Hashicorp (called a Service token by Hashicorp).
@@ -42,15 +38,6 @@ func init() {
 // that the user might have to authenticate to the vault server.
 func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, schedds []string, environ environment.CommandEnvironment, interactive bool) error {
 	funcLogger := log.WithField("serviceName", serviceName)
-	// kswitch
-	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
-			return ctx.Err()
-		}
-		funcLogger.Errorf("Could not switch kerberos caches: %s", err)
-		return err
-	}
 
 	// If we're running on a cluster with multiple schedds, create CommandEnvironments for each so we store tokens in all the possible credds
 	environmentsForCommands := make([]*environment.CommandEnvironment, 0, len(schedds))
@@ -101,14 +88,14 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 
 // TODO STILL UNDER DEVELOPMENT.  Export when ready
 func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
-	if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("service", serviceName).Error("Context timeout")
-			return ctx.Err()
-		}
-		log.WithField("service", serviceName).Errorf("Could not switch kerberos caches: %s", err)
-		return err
-	}
+	// if err := kerberos.SwitchCache(ctx, userPrincipal, environ); err != nil {
+	// 	if ctx.Err() == context.DeadlineExceeded {
+	// 		log.WithField("service", serviceName).Error("Context timeout")
+	// 		return ctx.Err()
+	// 	}
+	// 	log.WithField("service", serviceName).Errorf("Could not switch kerberos caches: %s", err)
+	// 	return err
+	// }
 
 	htgettokenArgs := []string{
 		"-d",
@@ -138,6 +125,8 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 	return nil
 }
 
+// TODO This should get exported when StoreAndGetTokens gets moved to package worker.  We should also modify this os that the credd is an arg
+// to this func
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
 // using interactive=true, it will display stdout/stderr on the stdout of the caller
 func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *environment.CommandEnvironment, interactive bool) error {

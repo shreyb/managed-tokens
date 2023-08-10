@@ -15,14 +15,12 @@ import (
 )
 
 var kerberosExecutables = map[string]string{
-	"kinit":   "",
-	"klist":   "",
-	"kswitch": "",
+	"kinit": "",
+	"klist": "",
 }
 
 var kerberosTemplates = map[string]*template.Template{
-	"kinit":   template.Must(template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")),
-	"kswitch": template.Must(template.New("kswitch").Parse("-p {{.UserPrincipal}}")),
+	"kinit": template.Must(template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")),
 }
 
 var principalCheckRegexp = regexp.MustCompile("Default principal: (.+)")
@@ -105,42 +103,6 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 			funcLogger.Error(err)
 			return errors.New(err)
 		}
-	}
-	return nil
-}
-
-// SwitchCache queries the kerberos cache and switch kerberos caches to the requested principal userPrincpal
-func SwitchCache(ctx context.Context, userPrincipal string, environ environment.CommandEnvironment) error {
-	cArgs := struct{ UserPrincipal string }{
-		UserPrincipal: userPrincipal,
-	}
-	funcLogger := log.WithField("userPrincipal", userPrincipal)
-
-	args, err := utils.TemplateToCommand(kerberosTemplates["kswitch"], cArgs)
-	if err != nil {
-		var t1 *utils.TemplateExecuteError
-		if errors.As(err, &t1) {
-			retErr := fmt.Errorf("could not execute kswitch template: %w", err)
-			funcLogger.Error(retErr.Error())
-			return retErr
-		}
-		var t2 *utils.TemplateArgsError
-		if errors.As(err, &t2) {
-			retErr := fmt.Errorf("could not get kswitch command arguments from template: %w", err)
-			funcLogger.Error(retErr.Error())
-			return retErr
-		}
-	}
-
-	switchkCache := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kswitch"], args...)
-	funcLogger.WithField("command", switchkCache.String()).Debug("Switching kerberos cache")
-	if stdoutstdErr, err := switchkCache.CombinedOutput(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.WithField("caller", "SwitchKerberosCache").Error("Context timeout")
-			return ctx.Err()
-		}
-		funcLogger.Errorf("Error running kswitch to load proper principal: %s", stdoutstdErr)
-		return err
 	}
 	return nil
 }

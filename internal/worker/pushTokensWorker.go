@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/fileCopier"
-	"github.com/shreyb/managed-tokens/internal/kerberos"
 	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -93,12 +92,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer func(p *pushTokenSuccess) {
 				chans.GetSuccessChan() <- p
 			}(pushSuccess)
-
-			// kswitch
-			if err := kerberos.SwitchCache(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-				serviceLogger.Error("Could not switch kerberos cache")
-				return
-			}
 
 			currentUser, err := user.Current()
 			if err != nil {
