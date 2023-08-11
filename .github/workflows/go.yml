@@ -32,12 +32,12 @@ jobs:
 
     - name: Create missing executables
       run: >
-        touch $RUNNER_TEMP/condor_vault_storer \
-        $RUNNER_TEMP/condor_status \
-        $RUNNER_TEMP/condor_store_cred \
-        $RUNNER_TEMP/htgettoken \
-        $RUNNER_TEMP/kinit \
-        $RUNNER_TEMP/klist \
+        touch $RUNNER_TEMP/condor_vault_storer
+        $RUNNER_TEMP/condor_status
+        $RUNNER_TEMP/condor_store_cred
+        $RUNNER_TEMP/htgettoken
+        $RUNNER_TEMP/kinit
+        $RUNNER_TEMP/klist
         $RUNNER_TEMP/cd
 
     - name: Change perms on missing executables
