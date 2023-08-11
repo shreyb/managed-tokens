@@ -31,7 +31,7 @@ jobs:
       run: go build -v ./...
 
     - name: Patch missing executables
-      run: touch /tmp/condor_vault_storer /tmp/condor_status /tmp/condor_store_cred /tmp/htgettoken
+      run: touch /usr/bin/condor_vault_storer /usr/bin/condor_status /usr/bin/condor_store_cred /usr/bin/htgettoken
 
     - name: Test
-      run: export PATH="/tmp:$PATH"; go test -v ./...
+      run: go test -v ./...
