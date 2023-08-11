@@ -38,7 +38,7 @@ func init() {
 // If run in interactive mode, then the stdout/stderr will be displayed in the user's terminal.  This can be used, for example, if it is expected
 // that the user might have to authenticate to the vault server.
 func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, schedds []string, environ environment.CommandEnvironment, interactive bool) error {
-	var scheddWg sync.WaitGroup
+	var wg sync.WaitGroup
 	funcLogger := log.WithField("serviceName", serviceName)
 
 	// If we're running on a cluster with multiple schedds, create CommandEnvironments for each so we store tokens in all the possible credds
@@ -64,9 +64,9 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 
 	// Get token and store it in vault
 	for _, environmentForCommand := range environmentsForCommands {
-		scheddWg.Add(1)
+		wg.Add(1)
 		go func(environmentForCommand *environment.CommandEnvironment) {
-			defer scheddWg.Done()
+			defer wg.Done()
 			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
 				if ctx.Err() == context.DeadlineExceeded {
 					funcLogger.Error("Context timeout")
@@ -79,7 +79,7 @@ func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, s
 			errChan <- nil
 		}(environmentForCommand)
 	}
-	scheddWg.Wait()
+	wg.Wait()
 	close(errChan)
 	<-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
 

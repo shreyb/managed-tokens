@@ -76,6 +76,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 		log.Fatal("Could not parse push timeout")
 	}
 
+	var configWg sync.WaitGroup
 	for sc := range chans.GetServiceConfigChan() {
 		var successNodes, failNodes sync.Map
 		serviceLogger := log.WithFields(log.Fields{
@@ -87,151 +88,157 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 			Service: sc.Service,
 			success: true,
 		}
+		configWg.Add(1)
 
-		func() {
-			defer func(p *pushTokenSuccess) {
-				chans.GetSuccessChan() <- p
-			}(pushSuccess)
+		go func(sc *Config) {
+			defer configWg.Done()
+			func() {
+				defer func(p *pushTokenSuccess) {
+					chans.GetSuccessChan() <- p
+				}(pushSuccess)
 
-			currentUser, err := user.Current()
-			if err != nil {
-				serviceLogger.Error(err)
-				return
-			}
-			currentUID := currentUser.Uid
+				currentUser, err := user.Current()
+				if err != nil {
+					serviceLogger.Error(err)
+					return
+				}
+				currentUID := currentUser.Uid
 
-			// Prepare default role file for the service
-			// Make sure we can get the destination filename
-			defaultRoleFileDestinationFilename, err := parseDefaultRoleFileDestinationTemplateFromConfig(sc)
-			if err != nil {
-				serviceLogger.Error("Could not obtain default role file destination.  Will not push the default role file")
-				return
-			}
+				// Prepare default role file for the service
+				// Make sure we can get the destination filename
+				defaultRoleFileDestinationFilename, err := parseDefaultRoleFileDestinationTemplateFromConfig(sc)
+				if err != nil {
+					serviceLogger.Error("Could not obtain default role file destination.  Will not push the default role file")
+					return
+				}
 
-			// Write the default role file to send
-			defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
-			if err != nil {
-				serviceLogger.Error("Error creating temporary file for default role string.  Will not push the default role file")
-				return
-			}
-			// Remove the tempfile when we're done
-			defer func() {
-				if err := os.Remove(defaultRoleFile.Name()); err != nil {
-					serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error deleting temporary file for default role string. Please clean up manually")
+				// Write the default role file to send
+				defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
+				if err != nil {
+					serviceLogger.Error("Error creating temporary file for default role string.  Will not push the default role file")
+					return
+				}
+				// Remove the tempfile when we're done
+				defer func() {
+					if err := os.Remove(defaultRoleFile.Name()); err != nil {
+						serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error deleting temporary file for default role string. Please clean up manually")
+					}
+				}()
+				if _, err := defaultRoleFile.WriteString(sc.Role() + "\n"); err != nil {
+					serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
+					return
+				}
+				serviceLogger.WithField("filename", defaultRoleFile.Name()).Debug("Wrote default role file to transfer to nodes")
+
+				sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
+				destinationFilenames := []string{
+					fmt.Sprintf("/tmp/vt_u%d", sc.DesiredUID),
+					fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
+				}
+
+				// Send to nodes
+				var nodeWg sync.WaitGroup
+				for _, destinationNode := range sc.Nodes {
+					nodeWg.Add(1)
+					go func(destinationNode string) {
+						nodeLogger := serviceLogger.WithField("node", destinationNode)
+						defer nodeWg.Done()
+						var filenameWg sync.WaitGroup
+
+						// Channel for each goroutine launched below to send notifications on for later aggregation
+						nChan := make(chan notifications.Notification, len(destinationFilenames))
+						for _, destinationFilename := range destinationFilenames {
+							filenameWg.Add(1)
+							go func(destinationFilename string) {
+								defer filenameWg.Done()
+								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+								defer pushCancel()
+								nodeLogger.Debug("Attempting to push tokens to destination node")
+								if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
+									var notificationErrorString string
+									if sc.IsNodeUnpingable(destinationNode) {
+										notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
+									}
+									if pushContext.Err() != nil {
+										if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
+											notificationErrorString = notificationErrorString + pushContext.Err().Error() + " (timeout error)"
+										} else {
+											notificationErrorString = notificationErrorString + pushContext.Err().Error()
+										}
+										nodeLogger.Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
+									} else {
+										notificationErrorString = notificationErrorString + err.Error()
+										nodeLogger.Error("Error pushing vault tokens to destination node")
+									}
+									pushSuccess.changeSuccessValue(false)
+									failNodes.LoadOrStore(destinationNode, struct{}{})
+									nChan <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
+								}
+							}(destinationFilename)
+						}
+
+						// Since we're pushing the same file to two different locations,
+						// only report one failure to push a file to a node.
+						notificationsForwardDone := make(chan struct{})
+						go func() {
+							defer close(notificationsForwardDone)
+							var once sync.Once
+							sendNotificationFunc := func(n notifications.Notification) func() {
+								return func() {
+									chans.GetNotificationsChan() <- n
+								}
+							}
+							for n := range nChan {
+								once.Do(sendNotificationFunc(n))
+							}
+						}()
+						filenameWg.Wait()          // Wait until all push operations for this node are complete
+						close(nChan)               // Close aggregation chan
+						<-notificationsForwardDone // Wait until we've forwarded the message on
+
+						// Set tokenPushTime metric
+						if pushSuccess.success {
+							tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
+							successNodes.LoadOrStore(destinationNode, struct{}{})
+						}
+					}(destinationNode)
+					nodeWg.Wait()
+
+					// Send the default role file to the destination node.  If we fail here, don't count this as an error
+					pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+					defer pushCancel()
+					if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, defaultRoleFileDestinationFilename); err != nil {
+						serviceLogger.WithField("node", destinationNode).Error("Error pushing default role file to destination node")
+					} else {
+						serviceLogger.WithField("node", destinationNode).Debug("Success pushing default role file to destination node")
+					}
 				}
 			}()
-			if _, err := defaultRoleFile.WriteString(sc.Role() + "\n"); err != nil {
-				serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
-				return
-			}
-			serviceLogger.WithField("filename", defaultRoleFile.Name()).Debug("Wrote default role file to transfer to nodes")
 
-			sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
-			destinationFilenames := []string{
-				fmt.Sprintf("/tmp/vt_u%d", sc.DesiredUID),
-				fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
-			}
-
-			// Send to nodes
-			var nodeWg sync.WaitGroup
-			for _, destinationNode := range sc.Nodes {
-				nodeWg.Add(1)
-				go func(destinationNode string) {
-					nodeLogger := serviceLogger.WithField("node", destinationNode)
-					defer nodeWg.Done()
-					var filenameWg sync.WaitGroup
-
-					// Channel for each goroutine launched below to send notifications on for later aggregation
-					nChan := make(chan notifications.Notification, len(destinationFilenames))
-					for _, destinationFilename := range destinationFilenames {
-						filenameWg.Add(1)
-						go func(destinationFilename string) {
-							defer filenameWg.Done()
-							pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
-							defer pushCancel()
-							nodeLogger.Debug("Attempting to push tokens to destination node")
-							if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
-								var notificationErrorString string
-								if sc.IsNodeUnpingable(destinationNode) {
-									notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
-								}
-								if pushContext.Err() != nil {
-									if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
-										notificationErrorString = notificationErrorString + pushContext.Err().Error() + " (timeout error)"
-									} else {
-										notificationErrorString = notificationErrorString + pushContext.Err().Error()
-									}
-									nodeLogger.Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
-								} else {
-									notificationErrorString = notificationErrorString + err.Error()
-									nodeLogger.Error("Error pushing vault tokens to destination node")
-								}
-								pushSuccess.changeSuccessValue(false)
-								failNodes.LoadOrStore(destinationNode, struct{}{})
-								nChan <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
-							}
-						}(destinationFilename)
-					}
-
-					// Since we're pushing the same file to two different locations,
-					// only report one failure to push a file to a node.
-					notificationsForwardDone := make(chan struct{})
-					go func() {
-						defer close(notificationsForwardDone)
-						var once sync.Once
-						sendNotificationFunc := func(n notifications.Notification) func() {
-							return func() {
-								chans.GetNotificationsChan() <- n
-							}
-						}
-						for n := range nChan {
-							once.Do(sendNotificationFunc(n))
-						}
-					}()
-					filenameWg.Wait()          // Wait until all push operations for this node are complete
-					close(nChan)               // Close aggregation chan
-					<-notificationsForwardDone // Wait until we've forwarded the message on
-
-					// Set tokenPushTime metric
-					if pushSuccess.success {
-						tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
-						successNodes.LoadOrStore(destinationNode, struct{}{})
-					}
-				}(destinationNode)
-				nodeWg.Wait()
-
-				// Send the default role file to the destination node.  If we fail here, don't count this as an error
-				pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
-				defer pushCancel()
-				if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, defaultRoleFileDestinationFilename); err != nil {
-					serviceLogger.WithField("node", destinationNode).Error("Error pushing default role file to destination node")
+			// Aggreagte our successful and failed pushes here
+			successesSlice := make([]string, 0)
+			failuresSlice := make([]string, 0)
+			successNodes.Range(func(key, value any) bool {
+				if keyVal, ok := key.(string); ok {
+					successesSlice = append(successesSlice, keyVal)
 				} else {
-					serviceLogger.WithField("node", destinationNode).Debug("Success pushing default role file to destination node")
+					log.Errorf("Error storing node in successesSlice:  corrupt data in successNodes sync.Map of type %T: %v", key, key)
 				}
-			}
-		}()
-
-		successesSlice := make([]string, 0)
-		failuresSlice := make([]string, 0)
-		successNodes.Range(func(key, value any) bool {
-			if keyVal, ok := key.(string); ok {
-				successesSlice = append(successesSlice, keyVal)
-			} else {
-				log.Errorf("Error storing node in successesSlice:  corrupt data in successNodes sync.Map of type %T: %v", key, key)
-			}
-			return true
-		})
-		failNodes.Range(func(key, value any) bool {
-			if keyVal, ok := key.(string); ok {
-				failuresSlice = append(failuresSlice, keyVal)
-			} else {
-				log.Errorf("Error storing node in failesSlice:  corrupt data in failNodes sync.Map of type %T: %v", key, key)
-			}
-			return true
-		})
-		log.WithField("service", sc.Service.Name()).Infof("Successful nodes: %s", strings.Join(successesSlice, ", "))
-		log.WithField("service", sc.Service.Name()).Infof("Failed nodes: %s", strings.Join(failuresSlice, ", "))
+				return true
+			})
+			failNodes.Range(func(key, value any) bool {
+				if keyVal, ok := key.(string); ok {
+					failuresSlice = append(failuresSlice, keyVal)
+				} else {
+					log.Errorf("Error storing node in failesSlice:  corrupt data in failNodes sync.Map of type %T: %v", key, key)
+				}
+				return true
+			})
+			log.WithField("service", sc.Service.Name()).Infof("Successful nodes: %s", strings.Join(successesSlice, ", "))
+			log.WithField("service", sc.Service.Name()).Infof("Failed nodes: %s", strings.Join(failuresSlice, ", "))
+		}(sc)
 	}
+	configWg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
 }
 
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object

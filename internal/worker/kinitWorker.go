@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -43,9 +44,11 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 		log.Fatal("Could not parse kerberos timeout")
 	}
 
+	var wg sync.WaitGroup
 	for sc := range chans.GetServiceConfigChan() {
-		func(sc *Config) {
-
+		wg.Add(1)
+		go func(sc *Config) {
+			defer wg.Done()
 			success := &kinitSuccess{
 				Service: sc.Service,
 			}
@@ -74,6 +77,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 			success.success = true
 		}(sc)
 	}
+	wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
 }
 
 func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
