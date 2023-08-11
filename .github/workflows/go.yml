@@ -31,16 +31,23 @@ jobs:
       run: go build -v ./...
 
     - name: Create missing executables
-      run: touch $RUNNER_TEMP/condor_vault_storer $RUNNER_TEMP/condor_status $RUNNER_TEMP/condor_store_cred $RUNNER_TEMP/htgettoken $RUNNER_TEMP/kinit $RUNNER_TEMP/klist $RUNNER_TEMP/cd
+      run: touch $RUNNER_TEMP/condor_vault_storer \
+        $RUNNER_TEMP/condor_status \
+        $RUNNER_TEMP/condor_store_cred \
+        $RUNNER_TEMP/htgettoken \
+        $RUNNER_TEMP/kinit \
+        $RUNNER_TEMP/klist \
+        $RUNNER_TEMP/cd
 
     - name: Change perms on missing executables
-      run: chmod +x $RUNNER_TEMP/condor_*; chmod +x $RUNNER_TEMP/htgettoken; chmod +x $RUNNER_TEMP/kinit; chmod +x $RUNNER_TEMP/klist; chmod +x $RUNNER_TEMP/cd
+      run: chmod +x $RUNNER_TEMP/condor_*;
+        chmod +x $RUNNER_TEMP/htgettoken;
+        chmod +x $RUNNER_TEMP/kinit;
+        chmod +x $RUNNER_TEMP/klist;
+        chmod +x $RUNNER_TEMP/cd
 
     - name: Extend PATH
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
-
-    - name: DEBUG
-      run: ls -lR "$RUNNER_TEMP"
 
     - name: Test
       run: go test -v ./...
