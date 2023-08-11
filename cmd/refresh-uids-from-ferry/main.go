@@ -354,7 +354,8 @@ func run(ctx context.Context) error {
 			os.Exit(1)
 		}
 		defer func() {
-			os.RemoveAll(sc.GetValue(environment.Krb5ccname))
+			prefix := environment.FILE.String()
+			os.RemoveAll(strings.TrimPrefix(sc.GetValue(environment.Krb5ccname), prefix))
 			exeLogger.Info("Cleared kerberos cache")
 		}()
 		authFunc = withKerberosJWTAuth(sc)

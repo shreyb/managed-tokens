@@ -387,19 +387,21 @@ func run(ctx context.Context) error {
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	var kerbCacheDir string
+	kerbCacheDir, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
-		exeLogger.Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Returning")
-		return err
+		exeLogger.Error("Cannot create temporary dir for kerberos cache. Will just use os.TempDir")
+		kerbCacheDir = os.TempDir()
+	} else {
+		defer func() {
+			// Clear kerberos cache dir
+			if err := os.RemoveAll(kerbCacheDir); err != nil {
+				exeLogger.WithField("kerbCacheDir", kerbCacheDir).Error("Could not clear kerberos cache directory.  Please clean up manually")
+				return
+			}
+			exeLogger.WithField("kerbCacheDir", kerbCacheDir).Info("Cleared kerberos cache directory")
+		}()
 	}
-	defer func() {
-		// Clear kerberos cache dir
-		if err := os.RemoveAll(krb5ccname); err != nil {
-			exeLogger.WithField("kerbCacheDir", krb5ccname).Error("Could not clear kerberos cache.  Please clean up manually")
-			return
-		}
-		exeLogger.Info("Cleared kerberos cache")
-	}()
 
 	// For all services, initialize success value to false
 	initializeSuccessfulServices := make(chan string, len(services))
@@ -446,6 +448,14 @@ func run(ctx context.Context) error {
 				funcLogger.Error("Cannot have a blank userPrincipal.  Skipping service")
 				return
 			}
+
+			// Create kerberos cache for this service
+			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
+			if err != nil {
+				exeLogger.Error("Cannot create kerberos cache.  Subsequent operations will fail.  Returning")
+				return
+			}
+
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
@@ -454,7 +464,7 @@ func run(ctx context.Context) error {
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
-					func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) },
+					func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccCache.Name(), environment.FILE) },
 					func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collectorHost) },
 					func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
 				),

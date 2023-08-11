@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -44,12 +45,15 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 		log.Fatal("Could not parse vault storer timeout")
 	}
 
+	var wg sync.WaitGroup
 	for sc := range chans.GetServiceConfigChan() {
 		success := &vaultStorerSuccess{
 			Service: sc.Service,
 		}
+		wg.Add(1)
 
-		func(sc *Config) {
+		go func(sc *Config) {
+			defer wg.Done()
 			defer func(v *vaultStorerSuccess) {
 				chans.GetSuccessChan() <- v
 			}(success)
@@ -77,6 +81,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}
 		}(sc)
 	}
+	wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
 }
 
 // StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will

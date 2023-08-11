@@ -18,15 +18,17 @@ import (
 
 // Various sync.Onces to coordinate synchronization
 var (
-	logHtGettokenOptsOnce sync.Once
-	scheddStoreOnce       sync.Once
+	logHtGettokenOptsOnce      sync.Once
+	scheddStoreOnceByCollector map[string]*sync.Once
+	// FUTURE TODO:  We might have to make this map store schedds by collector and VO
 )
 
-// globalSchedds stores the schedds for use by various goroutines
-var globalSchedds *scheddCollection
+// globalSchedds stores the schedds for use by various goroutines.  The key of the map here is the collector
+var globalSchedds map[string]*scheddCollection
 
 func init() {
-	globalSchedds = newScheddCollection()
+	globalSchedds = make(map[string]*scheddCollection)
+	scheddStoreOnceByCollector = make(map[string]*sync.Once)
 }
 
 // Functional options for initialization of service Config
@@ -136,22 +138,29 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	}
 
 	// Otherwise, if we haven't run condor_status to get schedds, do that
+	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
+	funcLogger := log.WithField("collector", collectorHost)
+	var once *sync.Once
+	once, ok := scheddStoreOnceByCollector[collectorHost]
+	if !ok {
+		once = &sync.Once{}
+		scheddStoreOnceByCollector[collectorHost] = once
+	}
 	var scheddLogSourceMsg string
-	scheddStoreOnce.Do(func() {
-		log.Debug("Querying collector for schedds")
-		collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
+	once.Do(func() {
+		funcLogger.Debug("Querying collector for schedds")
 		statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
 
 		if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
 			constraint := viper.GetString(constraintKey)
-			log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+			funcLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
 			statusCmd = statusCmd.WithConstraint(constraint)
 		}
 
-		log.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
 		classads, err := statusCmd.Run()
 		if err != nil {
-			log.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+			funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
 
 		}
 
@@ -159,16 +168,17 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 			name := classad["Name"].String()
 			schedds = append(schedds, name)
 		}
-		globalSchedds.storeSchedds(schedds) // Store the schedds into the global store
+		globalSchedds[collectorHost] = newScheddCollection()
+		globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
 		scheddLogSourceMsg = "collector"
 	})
 
-	// Return the globally-stored schedds
+	// Return the globally-stored schedds from cache
 	if len(schedds) == 0 {
-		schedds = globalSchedds.getSchedds()
+		schedds = globalSchedds[collectorHost].getSchedds()
 		scheddLogSourceMsg = "cache"
 	}
-	log.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddLogSourceMsg)
+	funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddLogSourceMsg)
 	return schedds
 }
 

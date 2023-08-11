@@ -40,7 +40,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 		log.Debug("Closed PingAggregatorWorker Notifications Chan")
 	}()
 	var wg sync.WaitGroup
-	defer wg.Wait()
+	defer wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
 
 	pingTimeout, err := utils.GetProperTimeoutFromContext(ctx, pingDefaultTimeoutStr)
 	if err != nil {

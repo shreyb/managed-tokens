@@ -122,17 +122,25 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config,
 	}
 	s := service.NewService(serviceName)
 
-	// Get krb5ccname directory
-	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
+	// Create temporary dir for all kerberos caches to live in
+	var kerbCacheDir string
+	kerbCacheDir, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
-		log.Fatal("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+		exeLogger.Error("Cannot create temporary dir for kerberos cache. Will just use os.TempDir")
+		kerbCacheDir = os.TempDir()
+	}
+	// Create kerberos cache for this service
+	krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
+	if err != nil {
+		exeLogger.Error("Cannot create kerberos cache.  Subsequent operations will fail.  Returning")
+		return nil, err
 	}
 
 	userPrincipal, htgettokenopts := getUserPrincipalAndHtgettokenopts()
 	serviceConfig, err := worker.NewConfig(
 		s,
 		worker.SetCommandEnvironment(
-			func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) },
+			func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccCache.Name(), environment.FILE) },
 			func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
 		),
 		worker.SetKeytabPath(viper.GetString("ferry.serviceKeytabPath")),
@@ -140,20 +148,17 @@ func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config,
 	)
 	if err != nil {
 		log.Error("Could not create new service configuration")
-		return &worker.Config{}, err
+		return nil, err
 	}
 
-	// Get kerberos ticket and check it.  If we already have kerberos ticket, use it
-	if err := kerberos.SwitchCache(ctx, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
-		log.Warn("No kerberos ticket in cache.  Attempting to get a new one")
-		if err := kerberos.GetTicket(ctx, serviceConfig.KeytabPath, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
-			log.Error("Could not get kerberos ticket to generate JWT")
-			return &worker.Config{}, err
-		}
-		if err := kerberos.CheckPrincipal(ctx, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
-			log.Error("Verification of kerberos ticket failed")
-			return &worker.Config{}, err
-		}
+	// Get kerberos ticket and check it.
+	if err := kerberos.GetTicket(ctx, serviceConfig.KeytabPath, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
+		log.Error("Could not get kerberos ticket to generate JWT")
+		return nil, err
+	}
+	if err := kerberos.CheckPrincipal(ctx, serviceConfig.UserPrincipal, serviceConfig.CommandEnvironment); err != nil {
+		log.Error("Verification of kerberos ticket failed")
+		return nil, err
 	}
 	return serviceConfig, nil
 }
