@@ -24,6 +24,9 @@ jobs:
     - name: Go Mod Tidy
       run: go mod tidy
 
+    - name: Populate vendor dir
+      run: go mod vendor
+
     - name: Install dependencies
       run: go install ./...
 
