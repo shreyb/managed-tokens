@@ -31,13 +31,15 @@ jobs:
       run: go build -v ./...
 
     - name: Patch missing executables
-      run: touch /tmp/condor_vault_storer /tmp/condor_status /tmp/condor_store_cred /tmp/htgettoken
+      run: touch $RUNNER_TEMP/condor_vault_storer $RUNNER_TEMP/condor_status $RUNNER_TEMP/condor_store_cred $RUNNER_TEMP/htgettoken
 
     - name: Extend PATH
-      run: echo "/tmp" >> $GITHUB_PATH
+      run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
 
     - name: DEBUG
       run: echo "$PATH"
+    - name: DEBUG 2
+      run: ls -lR "$RUNNER_TEMP"
 
     - name: Test
       run: go test -v ./...
