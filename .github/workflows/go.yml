@@ -31,7 +31,8 @@ jobs:
       run: go build -v ./...
 
     - name: Create missing executables
-      run: touch $RUNNER_TEMP/condor_vault_storer \
+      run: >
+        touch $RUNNER_TEMP/condor_vault_storer \
         $RUNNER_TEMP/condor_status \
         $RUNNER_TEMP/condor_store_cred \
         $RUNNER_TEMP/htgettoken \
@@ -40,7 +41,8 @@ jobs:
         $RUNNER_TEMP/cd
 
     - name: Change perms on missing executables
-      run: chmod +x $RUNNER_TEMP/condor_*;
+      run: >
+        chmod +x $RUNNER_TEMP/condor_*;
         chmod +x $RUNNER_TEMP/htgettoken;
         chmod +x $RUNNER_TEMP/kinit;
         chmod +x $RUNNER_TEMP/klist;
