@@ -31,9 +31,10 @@ jobs:
       run: go build -v ./...
 
     - name: Patch missing executables
-      run: touch ${RUNNER_TEMP}/condor_vault_storer ${RUNNER_TEMP}/condor_status ${RUNNER_TEMP}/condor_store_cred ${RUNNER_TEMP}/htgettoken
+      run: touch $RUNNER_TEMP/condor_vault_storer $RUNNER_TEMP/condor_status $RUNNER_TEMP/condor_store_cred $RUNNER_TEMP/htgettoken
+
+    - name: Extend PATH
+      run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
 
     - name: Test
-      run: export PATH="${RUNNER_TEMP}:$PATH"; go test -v ./...
-      env:
-        PATH: "${RUNNER_TEMP}:/usr/bin:/usr/local/bin"
+      run: go test -v ./...
