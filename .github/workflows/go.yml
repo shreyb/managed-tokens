@@ -38,7 +38,6 @@ jobs:
         $RUNNER_TEMP/htgettoken
         $RUNNER_TEMP/kinit
         $RUNNER_TEMP/klist
-        $RUNNER_TEMP/cd
 
     - name: Change perms on missing executables
       run: >
@@ -46,7 +45,6 @@ jobs:
         chmod +x $RUNNER_TEMP/htgettoken;
         chmod +x $RUNNER_TEMP/kinit;
         chmod +x $RUNNER_TEMP/klist;
-        chmod +x $RUNNER_TEMP/cd
 
     - name: Extend PATH
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
