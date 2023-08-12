@@ -18,3 +18,6 @@ jobs:
 
     - name: Test
       run: which cd
+
+    - name: Test2
+      run: ls -l /usr/bin
