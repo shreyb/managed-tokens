@@ -16,6 +16,9 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: DEBUG
+      run: which cd
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
@@ -48,9 +51,6 @@ jobs:
 
     - name: Extend PATH
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
-
-    - name: DEBUG
-      run: which cd
 
     - name: Test
       run: go test -v ./...
