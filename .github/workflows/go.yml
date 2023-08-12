@@ -25,5 +25,14 @@ jobs:
     - name: Test3
       run: type -a cd
 
+    - name: Test4
+      run: type -a true
+
+    - name: Test5
+      run: type -a false
+
+    - name: Test6
+      run: type -a ls
+
     - name: Test
       run: which cd
