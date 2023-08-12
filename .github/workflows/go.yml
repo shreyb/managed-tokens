@@ -30,6 +30,9 @@ jobs:
     - name: Build
       run: go build -v ./...
 
+    # In the next two, the fake "cd" is needed because in ubuntu 22, cd is only a shell
+    # builtin with no alias to an external executable , unlike ls, true, false, etc.
+    # This can be confirmed by comparing type -a cd with type -a ls, type -a true, etc.
     - name: Create missing executables
       run: >
         touch $RUNNER_TEMP/condor_vault_storer
