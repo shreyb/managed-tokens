@@ -17,7 +17,7 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: DEBUG
-      run: which cd
+      run: which ls
 
     - name: Set up Go
       uses: actions/setup-go@v4
