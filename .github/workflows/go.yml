@@ -15,17 +15,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-  
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.20'
-        
+
+    - name: Populate vendor dir
+      run: go mod vendor
+
     - name: Install dependencies
-      run: go get -v ./...
-        
+      run: go install ./...
+
     - name: Build
       run: go build -v ./...
+
+    - name: Create missing executables
+      run: >
+        touch $RUNNER_TEMP/condor_vault_storer
+        $RUNNER_TEMP/condor_status
+        $RUNNER_TEMP/condor_store_cred
+        $RUNNER_TEMP/htgettoken
+        $RUNNER_TEMP/kinit
+        $RUNNER_TEMP/klist
+
+    - name: Change perms on missing executables
+      run: >
+        chmod +x $RUNNER_TEMP/condor_*;
+        chmod +x $RUNNER_TEMP/htgettoken;
+        chmod +x $RUNNER_TEMP/kinit;
+        chmod +x $RUNNER_TEMP/klist;
+
+    - name: Extend PATH
+      run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
 
     - name: Test
       run: go test -v ./...
