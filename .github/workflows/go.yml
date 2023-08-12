@@ -49,5 +49,8 @@ jobs:
     - name: Extend PATH
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
 
+    - name: DEBUG
+      run: which cd
+
     - name: Test
       run: go test -v ./...
