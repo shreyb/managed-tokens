@@ -16,8 +16,8 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Test
-      run: which cd
-
     - name: Test2
       run: ls -l /usr/bin
+
+    - name: Test
+      run: which cd
