@@ -22,5 +22,8 @@ jobs:
     - name: Test2
       run: ls -l /usr/local/bin
 
+    - name: Test3
+      run: type -a cd
+
     - name: Test
       run: which cd
