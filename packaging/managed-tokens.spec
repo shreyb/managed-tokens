@@ -13,6 +13,7 @@ BuildArch:      x86_64
 
 Requires:       krb5-workstation
 Requires:       condor
+Requires:       condor-credmon-vault
 Requires:       iputils
 Requires:       rsync
 Requires:       sqlite
