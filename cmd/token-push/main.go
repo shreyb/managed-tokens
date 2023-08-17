@@ -456,6 +456,12 @@ func run(ctx context.Context) error {
 				return
 			}
 
+			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
+			if err != nil {
+				exeLogger.Error("Cannot proceed without vault server.  Exiting now")
+				os.Exit(1)
+			}
+
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
@@ -469,6 +475,7 @@ func run(ctx context.Context) error {
 					func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) },
 				),
 				worker.SetSchedds(schedds),
+				worker.SetVaultServer(vaultServer),
 				worker.SetUserPrincipal(userPrincipal),
 				worker.SetKeytabPath(keytabPath),
 				worker.SetDesiredUID(uid),
