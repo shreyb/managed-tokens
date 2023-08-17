@@ -12,7 +12,7 @@ import (
 // KerberosEnvironmentWrappedCommand takes an EnvironmentMapper, extracts the kerberos-related environment variables, and
 // returns an *exec.Cmd that has those variables in its environment
 func KerberosEnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvironment, name string, arg ...string) *exec.Cmd {
-	os.Unsetenv(Krb5ccname.envVarKey())
+	os.Unsetenv(Krb5ccname.EnvVarKey())
 
 	cmd := exec.CommandContext(ctx, name, arg...)
 
@@ -29,7 +29,7 @@ func KerberosEnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvi
 func EnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvironment, name string, arg ...string) *exec.Cmd {
 	// If any of the supported CommandEnvironment keys are set, unset them now
 	for _, field := range getAllSupportedCommandEnvironmentFields() {
-		os.Unsetenv(field.envVarKey())
+		os.Unsetenv(field.EnvVarKey())
 	}
 
 	cmd := exec.CommandContext(ctx, name, arg...)
