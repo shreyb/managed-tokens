@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/user"
 	"strings"
-	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -31,63 +30,22 @@ func init() {
 	}
 }
 
-// TODO This should probably move to the worker package
-// StoreAndGetTokens will store a refresh token on the condor-configured vault server and obtain vault and bearer tokens for a service using HTCondor executables.
-// It will also store the vault and bearer token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
-// Finally, it will validate the obtained vault token using the vault token pattern expected by Hashicorp (called a Service token by Hashicorp).
-// If run in interactive mode, then the stdout/stderr will be displayed in the user's terminal.  This can be used, for example, if it is expected
-// that the user might have to authenticate to the vault server.
-func StoreAndGetTokens(ctx context.Context, userPrincipal, serviceName string, schedds []string, environ environment.CommandEnvironment, interactive bool) error {
-	var wg sync.WaitGroup
-	funcLogger := log.WithField("serviceName", serviceName)
-
-	// If we're running on a cluster with multiple schedds, create CommandEnvironments for each so we store tokens in all the possible credds
-	environmentsForCommands := make([]*environment.CommandEnvironment, 0, len(schedds))
-	for _, schedd := range schedds {
-		newEnv := environ.Copy()
-		newEnv.SetCondorCreddHost(schedd)
-		environmentsForCommands = append(environmentsForCommands, newEnv)
-	}
-
-	// Listener for all of the getTokensAndStoreInVault goroutines
-	var isError bool
-	errorCollectionDone := make(chan struct{}) // Channel to close when we're done determining if there was an error or not
-	errChan := make(chan error, len(schedds))
-	go func() {
-		defer close(errorCollectionDone)
-		for err := range errChan {
-			if err != nil {
-				isError = true
-			}
+// StoreAndValidateTokens stores a vault token in the passed in Hashicorp vault server and the passed in credd.
+func StoreAndValidateTokens(ctx context.Context, serviceName, credd, vaultServer string, environ *environment.CommandEnvironment, interactive bool) error {
+	funcLogger := log.WithFields(log.Fields{
+		"serviceName": serviceName,
+		"vaultServer": vaultServer,
+		"credd":       credd,
+	})
+	if err := getTokensandStoreinVault(ctx, serviceName, credd, vaultServer, environ, interactive); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			funcLogger.Error("Context timeout")
+			return err
 		}
-	}()
-
-	// Get token and store it in vault
-	for _, environmentForCommand := range environmentsForCommands {
-		wg.Add(1)
-		go func(environmentForCommand *environment.CommandEnvironment) {
-			defer wg.Done()
-			if err := getTokensandStoreinVault(ctx, serviceName, environmentForCommand, interactive); err != nil {
-				if ctx.Err() == context.DeadlineExceeded {
-					funcLogger.Error("Context timeout")
-					errChan <- ctx.Err()
-				}
-				funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Errorf("Could not obtain vault token: %s", err)
-				errChan <- err
-			}
-			funcLogger.WithField("credd", environmentForCommand.GetValue(environment.CondorCreddHost)).Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
-			errChan <- nil
-		}(environmentForCommand)
+		funcLogger.Errorf("Could not obtain vault token: %s", err)
+		return err
 	}
-	wg.Wait()
-	close(errChan)
-	<-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
-
-	if isError {
-		msg := "Error obtaining and/or storing vault tokens for one or more credd"
-		funcLogger.Errorf(msg)
-		return errors.New(msg)
-	}
+	funcLogger.Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
 
 	// Validate vault token
 	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
@@ -135,14 +93,14 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 	return nil
 }
 
-// TODO This should get exported when StoreAndGetTokens gets moved to package worker.  We should also modify this os that the credd is an arg
-// to this func
+// TODO Unit test giving a bogus vault server
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
 // using interactive=true, it will display stdout/stderr on the stdout of the caller
-func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *environment.CommandEnvironment, interactive bool) error {
+func getTokensandStoreinVault(ctx context.Context, serviceName, credd, vaultServer string, environ *environment.CommandEnvironment, interactive bool) error {
 	funcLogger := log.WithFields(log.Fields{
-		"service": serviceName,
-		"credd":   environ.GetValue(environment.CondorCreddHost),
+		"service":     serviceName,
+		"vaultServer": vaultServer,
+		"credd":       credd,
 	})
 
 	// Store token in vault and get new vault token
@@ -159,12 +117,18 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 	}
 	cmdArgs = append(cmdArgs, serviceName)
 
-	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, environ, vaultExecutables["condor_vault_storer"], cmdArgs...)
+	// Set _condor_CREDD_HOST and _condor_SEC_CREDENTIAL_GETTOKEN_OPTS in environment
+	newEnv := environ.Copy()
+	newEnv.SetCondorCreddHost(credd)
+	oldCondorSecCredentialGettokenOpts := newEnv.GetValue(environment.CondorSecCredentialGettokenOpts)
+	newEnv.SetCondorSecCredentialGettokenOpts(oldCondorSecCredentialGettokenOpts + fmt.Sprintf("-a %s", vaultServer))
+
+	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
 	funcLogger.Info("Storing and obtaining vault token")
 	funcLogger.WithFields(log.Fields{
 		"command":     getTokensAndStoreInVaultCmd.String(),
-		"environment": environ.String(),
+		"environment": newEnv.String(),
 	}).Debug("Running command to store vault token")
 
 	if interactive {
@@ -198,7 +162,7 @@ func getTokensandStoreinVault(ctx context.Context, serviceName string, environ *
 			return err
 		} else {
 			if len(stdoutStderr) > 0 {
-				funcLogger.WithField("environment", environ.String()).Debugf("%s", stdoutStderr)
+				funcLogger.WithField("environment", newEnv.String()).Debugf("%s", stdoutStderr)
 			}
 		}
 	}
