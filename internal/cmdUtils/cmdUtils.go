@@ -3,14 +3,19 @@
 package cmdUtils
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
+	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"sync"
 
+	"github.com/google/shlex"
 	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
@@ -180,6 +185,74 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	}
 	funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddLogSourceMsg)
 	return schedds
+}
+
+// GetVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
+// needs to store the refresh token in a vault server.  The order of precedence is:
+//
+// 1. Environment variable _condor_SEC_CREDENTIAL_GETTOKEN_OPTS
+// 2. Configuration file for managed tokens
+// 3. Condor configuration file SEC_CREDENTIAL_GETTOKEN_OPTS value
+func GetVaultServer(checkServiceConfigPath string) (string, error) {
+	// Check environment
+	if val := os.Getenv(environment.CondorSecCredentialGettokenOpts.EnvVarKey()); val != "" {
+		return parseVaultServerFromEnvSetting(val)
+	}
+
+	// Check config
+	if vaultServerConfigKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "vaultServer"); viper.IsSet(vaultServerConfigKey) {
+		return viper.GetString(vaultServerConfigKey), nil
+	}
+
+	// Then check condor
+	if val, err := getSecCredentialGettokenOptsFromCondor(); err != nil {
+		log.Error("Could not get SEC_CREDENTIAL_GETTOKEN_OPTS from HTCondor")
+	} else {
+		return parseVaultServerFromEnvSetting(val)
+	}
+
+	return "", errors.New("could not find setting for SEC_CREDENTIAL_GETTOKEN_OPTS in environment, configuration, or HTCondor")
+}
+
+// getSecCredentialGettokenOptsFromCondor checks the condor configuration for the SEC_CREDENTIAL_GETTOKEN_OPTS setting
+// and if available, returns it
+func getSecCredentialGettokenOptsFromCondor() (string, error) {
+	condorVarName := environment.CondorSecCredentialGettokenOpts.EnvVarKey()
+	varName := strings.TrimPrefix(condorVarName, "_condor_")
+
+	cmd := exec.Command("condor_config_val", varName)
+	out, err := cmd.Output()
+	if err != nil {
+		log.Errorf("Could not run condor_config_val to get SEC_CREDENTIAL_GETTOKEN_OPTS: %s", err)
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// parseVaultServerFromEnvSetting takes an environment setting meant for htgettoken to parse (for example "-a vaultserver.domain"),
+// and returns the vaultServer from that setting (in the above example, "vaultserver.domain", nil would be returned)
+func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
+	envSettingArgs, err := shlex.Split(envSetting)
+	if err != nil {
+		log.Errorf("Could not split environment setting according to shlex rules, %s", err)
+		return "", err
+	}
+
+	envSettingFlagSet := pflag.NewFlagSet("envSetting", pflag.ContinueOnError)
+	envSettingFlagSet.ParseErrorsWhitelist.UnknownFlags = true // We're ok with unknown flags - just skip them
+	var vaultServerPtr *string = envSettingFlagSet.StringP("vaultserver", "a", "", "")
+	envSettingFlagSet.Parse(envSettingArgs)
+
+	noVaultServerErr := errors.New("no vault server was stored in the environment")
+
+	if vaultServerPtr == nil {
+		return "", noVaultServerErr
+	}
+	if *vaultServerPtr == "" {
+		return "", noVaultServerErr
+	}
+
+	return *vaultServerPtr, nil
 }
 
 // Functions to set environment.CommandEnvironment inside worker.Config
