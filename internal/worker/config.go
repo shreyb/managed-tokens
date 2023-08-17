@@ -49,6 +49,7 @@ type Config struct {
 	KeytabPath    string   // The path on disk where the kerberos keytab is stored
 	DesiredUID    uint32   // The UID associated with the Account. This determines the destination filename
 	Schedds       []string // The list of schedds/credds where a StoreAndGetTokenWorker should store vault tokens
+	VaultServer   string   // The vault server hosting the Hashicorp Vault that the refresh token should be saved to
 	// Extras is a map where any value can be stored that may not fit into the above categories.
 	// To allow an external package to set an Extras value, define an exported func that sets
 	// the value directly.  For example:
