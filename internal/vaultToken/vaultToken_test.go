@@ -1,8 +1,11 @@
 package vaultToken
 
 import (
+	"context"
 	"os"
 	"testing"
+
+	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
 // TestIsServiceToken checks a number of candidate service tokens and verifies that IsServiceToken correctly identifies whether or not
@@ -110,5 +113,14 @@ func TestValidateVaultToken(t *testing.T) {
 				}
 			},
 		)
+	}
+}
+
+func TestGetTokensandStoreinVaultBogus(t *testing.T) {
+	ctx := context.Background()
+	environ := &environment.CommandEnvironment{}
+
+	if err := getTokensandStoreinVault(ctx, "service", "credd", "bogus_vault_server", environ, false); err == nil {
+		t.Errorf("Should have gotten an error from our bogus_vault_server.  Got nil instead")
 	}
 }
