@@ -19,12 +19,6 @@ var kerberosExecutables = map[string]string{
 	"klist": "",
 }
 
-var kerberosTemplates = map[string]*template.Template{
-	"kinit": template.Must(template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")),
-}
-
-var principalCheckRegexp = regexp.MustCompile("Default principal: (.+)")
-
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
 	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
@@ -44,7 +38,13 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 		"userPrincipal": userPrincipal,
 	})
 
-	args, err := utils.TemplateToCommand(kerberosTemplates["kinit"], cArgs)
+	kinitTemplate, err := template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")
+	if err != nil {
+		funcLogger.Error("could not parse kinit template")
+		return err
+	}
+
+	args, err := utils.TemplateToCommand(kinitTemplate, cArgs)
 	var t1 *utils.TemplateExecuteError
 	if errors.As(err, &t1) {
 		retErr := fmt.Errorf("could not execute kinit template: %w", err)
@@ -74,6 +74,8 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 
 // CheckPrincipal verifies that the kerberos ticket principal matches checkPrincipal
 func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
+	principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
+
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
 	funcLogger := log.WithField("caller", "CheckKerberosPrincipal")
 
