@@ -28,36 +28,38 @@ func init() {
 
 // GetTicket uses the keytabPath and userPrincipal to obtain a kerberos ticket
 func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ environment.CommandEnvironment) error {
-	cArgs := struct{ KeytabPath, UserPrincipal string }{
-		KeytabPath:    keytabPath,
-		UserPrincipal: userPrincipal,
-	}
-
 	funcLogger := log.WithFields(log.Fields{
 		"keytabPath":    keytabPath,
 		"userPrincipal": userPrincipal,
 	})
 
+	// Parse and execute kinit template
 	kinitTemplate, err := template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")
 	if err != nil {
 		funcLogger.Error("could not parse kinit template")
 		return err
 	}
 
-	args, err := utils.TemplateToCommand(kinitTemplate, cArgs)
-	var t1 *utils.TemplateExecuteError
-	if errors.As(err, &t1) {
-		retErr := fmt.Errorf("could not execute kinit template: %w", err)
-		funcLogger.Error(retErr.Error())
-		return retErr
+	cArgs := struct{ KeytabPath, UserPrincipal string }{
+		KeytabPath:    keytabPath,
+		UserPrincipal: userPrincipal,
 	}
+	args, err := utils.TemplateToCommand(kinitTemplate, cArgs)
+
+	var t1 *utils.TemplateExecuteError
 	var t2 *utils.TemplateArgsError
-	if errors.As(err, &t2) {
-		retErr := fmt.Errorf("could not get kinit command arguments from template: %w", err)
+	var retErr error
+	if errors.As(err, &t1) {
+		retErr = fmt.Errorf("could not execute kinit template: %w", err)
+	} else if errors.As(err, &t2) {
+		retErr = fmt.Errorf("could not get kinit command arguments from template: %w", err)
+	}
+	if retErr != nil {
 		funcLogger.Error(retErr.Error())
 		return retErr
 	}
 
+	// Run kinit to get kerberos ticket from keytab
 	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
 	funcLogger.WithField("command", createKerberosTicket.String()).Debug("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
@@ -74,13 +76,12 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 
 // CheckPrincipal verifies that the kerberos ticket principal matches checkPrincipal
 func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
-	principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
-
-	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
 	funcLogger := log.WithField("caller", "CheckKerberosPrincipal")
 
+	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
 	funcLogger.Debug("Checking user principal against configured principal")
-	if stdoutStderr, err := checkForKerberosTicket.CombinedOutput(); err != nil {
+	stdoutStderr, err := checkForKerberosTicket.CombinedOutput()
+	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			funcLogger.Error("Context timeout")
 			return ctx.Err()
@@ -88,23 +89,25 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 		funcLogger.Errorf("Error running klist:\n %s", stdoutStderr)
 		return err
 
-	} else {
-		funcLogger.Debugf("%s", stdoutStderr)
+	}
 
-		matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
-		if len(matches) != 2 {
-			err := "could not find principal in kinit output"
-			funcLogger.Error(err)
-			return errors.New(err)
-		}
-		principal := string(matches[1])
-		funcLogger.Debugf("Found principal: %s", principal)
+	funcLogger.Debugf("%s", stdoutStderr)
 
-		if principal != checkPrincipal {
-			err := fmt.Sprintf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
-			funcLogger.Error(err)
-			return errors.New(err)
-		}
+	// Check output of klist to get principal
+	principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
+	matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
+	if len(matches) != 2 {
+		err := "could not find principal in kinit output"
+		funcLogger.Error(err)
+		return errors.New(err)
+	}
+	principal := string(matches[1])
+	funcLogger.Debugf("Found principal: %s", principal)
+
+	if principal != checkPrincipal {
+		err := fmt.Sprintf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
+		funcLogger.Error(err)
+		return errors.New(err)
 	}
 	return nil
 }
