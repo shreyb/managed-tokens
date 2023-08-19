@@ -592,3 +592,46 @@ func TestGetTokenLifetimeStringFromConfiguration(t *testing.T) {
 		)
 	}
 }
+
+func TestGetConstraintFromConfiguration(t *testing.T) {
+	type testCase struct {
+		description       string
+		configSetupFunc   func()
+		serviceConfigPath string
+		expectedResult    string
+	}
+
+	testCases := []testCase{
+		{
+			"No constraint in configuration",
+			func() {},
+			"myexpt",
+			"",
+		},
+		{
+			"Constraint at global level for config",
+			func() { viper.Set("condorScheddConstraint", "foobar") },
+			"myexpt",
+			"foobar",
+		},
+		{
+			"Constraint set at override level",
+			func() { viper.Set("myexpt.condorScheddConstraintOverride", "baz") },
+			"myexpt",
+			"baz",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				defer viper.Reset()
+				test.configSetupFunc()
+				if result := getConstraintFromConfiguration(test.serviceConfigPath); result != test.expectedResult {
+					t.Errorf("Did not get expected result.  Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}

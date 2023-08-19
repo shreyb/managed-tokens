@@ -21,15 +21,9 @@ import (
 	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
-// Various sync.Onces to coordinate synchronization
 var (
-	logHtGettokenOptsOnce sync.Once
-	// Map of Mutexes per collector to ensure that only one goroutine will attempt to write schedds to globalSchedds for a given collector at a time
-	// Without this extra set of mutexes, since all writers act before all readers for a sync.Map, multiple goroutines will attempt to write to globalSchedds.
-	// While this isn't a data race, it's inefficient.
-	collectorMutexes sync.Map
-	globalSchedds    sync.Map // globalSchedds stores the schedds for use by various goroutines.  The key of the map here is the collector
-	// FUTURE TODO:  We might have to make this map store schedds by collector and VO
+	logHtGettokenOptsOnce sync.Once   // Only log our environment's HTGETTOKENOPTS once
+	globalScheddCache     scheddCache // Global cache for the schedds, sorted by collector host
 )
 
 // Functional options for initialization of service Config
@@ -148,106 +142,71 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
-//
-// A note on the mutexes.  Originally, this func was implemented by using a map of *sync.Once objects, where each Once was called to query the
-// condor collector.  This works for concurrent access, but the correct way to make it work puts the collector-calling code BEFORE the cache
-// reading code, which I think is confusing for the reader.  The fallthrough logic to obtain the schedds is really
-// override --> cache --> condor collector, and having the condor collector-querying code appear before the cache code obscures this fact.
-//
-// The next possible solution was to possibly store in the global cache the *scheddCollections alongside mutexes to access them, wrapped in a struct,
-// all in one map.  This introduces a race condition, though not one that threatens data integrity, just efficiency.  If the first goroutine
-// to run this method runs a sync.Map.Load (or LoadAndStore) on the cache map and sees that no value was returned, it will go ahead and query
-// the condor collector.  Before the first one is finished storing the schedd values in the cache map, if the SECOND goroutine tries to read
-// from the map, it will ALSO see that no value is yet stored, and query the condor collector.
-//
-// By decoupling the cache data and the cache mutexes, we can take advantage of LoadAndStore on the cache mutex map, and if a mutex doesn't exist
-// for a collector, quickly store a new mutex there and acquire the Lock.  If the mutex does exist, we only want to read the data, so we can
-// acquire the RLock, which will wait for our first goroutine to give up the Lock (presumably after it writes the schedds to cache)
-// to proceed with the read.  This is the basic logic of the locks here.
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
+	var scheddSourceForLog string
 	schedds := make([]string, 0)
 
 	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
-	if creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost"); viper.IsSet(creddOverrideVar) {
+	creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
+	if viper.IsSet(creddOverrideVar) {
+		scheddSourceForLog = "override"
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
-		funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from override")
+		funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddSourceForLog)
 		return schedds
 	}
 
-	// 2.  Try cache
-	// Get our collector so we can see if the schedds are in cache
+	// 2.  Try globalScheddCache
+	// See if we already have the schedds in the globalScheddCache for the collectorHost
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	collectorLogger := funcLogger.WithField("collector", collectorHost)
-	collectorTryRWMutex := &sync.RWMutex{} // We'll store this mutex in collectorsQueriedForSchedds if that map doesn't already have a mutex
-	// stored for this collectorHost
-
-	if val, loaded := collectorMutexes.LoadOrStore(collectorHost, collectorTryRWMutex); loaded {
-		// If we've queried this collector before, the schedds should be in cache.  Return those schedds
-		// Acquire the read lock on this collector
-		if valAsRWMutex, isRWMutex := val.(*sync.RWMutex); isRWMutex {
-			valAsRWMutex.RLock()
-			defer valAsRWMutex.RUnlock()
-			if scheddCol, scheddOk := globalSchedds.Load(collectorHost); scheddOk {
-				if scheddColVal, isScheddColPtr := scheddCol.(*scheddCollection); isScheddColPtr {
-					schedds = scheddColVal.getSchedds()
-					collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
-					return schedds
-				}
-			}
+	cacheEntry, loaded := globalScheddCache.cache.Load(collectorHost)
+	if !loaded {
+		// Create a new *scheddCacheEntry, which we'll populate later, and store it into the globalScheddCache
+		cacheEntry = &scheddCacheEntry{
+			newScheddCollection(),
+			&sync.Once{},
 		}
+		globalScheddCache.cache.Store(collectorHost, cacheEntry)
+	} else {
+		scheddSourceForLog = "cache"
 	}
 
-	// 3.  Query collector
-	// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache, then return the schedds
-	// Use the mutex we just stored and lock it for writing
-	collectorTryRWMutex.Lock()
-	defer collectorTryRWMutex.Unlock()
+	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
+	// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
+	// This way we are guaranteed that the cache will always be populated.
+	cacheEntryVal, ok := cacheEntry.(*scheddCacheEntry)
+	if ok {
+		cacheEntryVal.once.Do(
+			func() {
+				// 3.  Query collector
+				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
+				scheddSourceForLog = "collector"
+				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
+				cacheEntryVal.populateFromCollector(collectorHost, constraint)
+			},
+		)
+	}
 
-	// Get constraint, if it's set
+	// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
+	schedds = cacheEntryVal.scheddCollection.getSchedds()
+	funcLogger.WithFields(log.Fields{
+		"schedds":       schedds,
+		"collectorHost": collectorHost,
+	}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
+	return schedds
+}
+
+// getConstraintFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to a condor constraint
+// If the override does not exist, it returns the globally-configured condor constraint.
+func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 	var constraint string
 	constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
 	if viper.IsSet(constraintKey) {
 		constraint = viper.GetString(constraintKey)
-		collectorLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+		log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
 	}
-
-	schedds = getScheddsFromCondor(collectorHost, constraint)
-
-	// Add schedds to cache
-	scheddCollectionToStore := newScheddCollection()
-	scheddCollectionToStore.storeSchedds(schedds)
-	globalSchedds.Store(collectorHost, scheddCollectionToStore) // Store the schedds into the global store
-
-	collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
-	return schedds
-
-}
-
-// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
-func getScheddsFromCondor(collectorHost, constraint string) []string {
-	funcLogger := log.WithField("collector", collectorHost)
-
-	funcLogger.Debug("Querying collector for schedds")
-	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
-	if constraint != "" {
-		statusCmd = statusCmd.WithConstraint(constraint)
-	}
-
-	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
-	classads, err := statusCmd.Run()
-	if err != nil {
-		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
-	}
-
-	schedds := make([]string, 0)
-	for _, classad := range classads {
-		name := classad["Name"].String()
-		schedds = append(schedds, name)
-	}
-	return schedds
+	return constraint
 }
 
 // GetVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
@@ -346,4 +305,47 @@ func GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) 
 		return overrideConfigPath, true
 	}
 	return
+}
+
+// scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a sync.Map,
+// which contains a map[string]*scheddCacheEntry, where the key is the collector host
+type scheddCache struct {
+	cache sync.Map
+}
+
+// scheddCacheEntry is an entry that contains a *scheddCollection and a *sync.Once to ensure that it is populated exactly once
+type scheddCacheEntry struct {
+	*scheddCollection
+	once *sync.Once
+}
+
+// populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
+func (s *scheddCacheEntry) populateFromCollector(collectorHost, constraint string) {
+	schedds := getScheddsFromCondor(collectorHost, constraint)
+	s.scheddCollection.storeSchedds(schedds)
+}
+
+// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
+func getScheddsFromCondor(collectorHost, constraint string) []string {
+	funcLogger := log.WithField("collector", collectorHost)
+
+	funcLogger.Debug("Querying collector for schedds")
+	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
+	if constraint != "" {
+		statusCmd = statusCmd.WithConstraint(constraint)
+	}
+
+	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+	classads, err := statusCmd.Run()
+	if err != nil {
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+
+	}
+
+	schedds := make([]string, 0)
+	for _, classad := range classads {
+		name := classad["Name"].String()
+		schedds = append(schedds, name)
+	}
+	return schedds
 }
