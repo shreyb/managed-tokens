@@ -49,7 +49,6 @@ func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
 	if userPrincipalOverrideConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "userPrincipal"); ok {
 		return viper.GetString(userPrincipalOverrideConfigPath)
 	} else {
-		var b strings.Builder
 		kerberosPrincipalPattern, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "kerberosPrincipalPattern")
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString(kerberosPrincipalPattern))
 		if err != nil {
@@ -58,6 +57,8 @@ func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
 		}
 		account := viper.GetString(checkServiceConfigPath + ".account")
 		templateArgs := struct{ Account string }{Account: account}
+
+		var b strings.Builder
 		if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
 			log.WithField("account", account).Error("Could not execute kerberos prinicpal template")
 			return ""
@@ -85,32 +86,46 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath s
 
 	// Look for HTGETTOKKENOPTS in environment.  If it's given here, take as is, but add credkey if it's absent
 	if viper.IsSet("ORIG_HTGETTOKENOPTS") {
-		log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", viper.GetString("ORIG_HTGETTOKENOPTS"))
-		// If we have the right credkey in the HTGETTOKENOPTS, leave it be
-		if strings.Contains(viper.GetString("ORIG_HTGETTOKENOPTS"), credKey) {
-			htgettokenOpts = viper.GetString("ORIG_HTGETTOKENOPTS")
-			return
-		} else {
-			logHtGettokenOptsOnce.Do(
-				func() {
-					log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
-				},
-			)
-			htgettokenOpts = viper.GetString("ORIG_HTGETTOKENOPTS") + " --credkey=" + credKey
-			return
-		}
-	}
-	// Calculate minimum vault token lifetime from config
-	var lifetimeString string
-	defaultLifetimeString := "10s"
-	if viper.IsSet("minTokenLifetime") {
-		lifetimeString = viper.GetString("minTokenLifetime")
-	} else {
-		lifetimeString = defaultLifetimeString
+		htgettokenOpts = resolveHtgettokenOptsFromConfig(credKey)
+		return
 	}
 
+	// HTGETTOKENOPTS was not in the environment.  Use our defaults.
+	// Calculate minimum vault token lifetime from config
+	lifetimeString := getTokenLifetimeStringFromConfiguration()
 	htgettokenOpts = "--vaulttokenminttl=" + lifetimeString + " --credkey=" + credKey
+
 	return
+}
+
+// TODO Unit test this
+// resolveHtgettokenOptsFromConfig checks the config for the "ORIG_HTGETTOKENOPTS" key.  If that is set, check the ORIG_HTGETTOKENOPTS value for the
+// given credKey.  If the credKey is present, return the ORIG_HTGETTOKENOPTS value.  Otherwise, return the ORIG_HTGETTOKENOPTS value with the credKey
+// appended
+func resolveHtgettokenOptsFromConfig(credKey string) string {
+	log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", viper.GetString("ORIG_HTGETTOKENOPTS"))
+	// If we have the right credkey in the HTGETTOKENOPTS, leave it be
+	if strings.Contains(viper.GetString("ORIG_HTGETTOKENOPTS"), credKey) {
+		return viper.GetString("ORIG_HTGETTOKENOPTS")
+	}
+	logHtGettokenOptsOnce.Do(
+		func() {
+			log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
+		},
+	)
+	htgettokenOpts := viper.GetString("ORIG_HTGETTOKENOPTS") + " --credkey=" + credKey
+	return htgettokenOpts
+}
+
+// TODO Unit test this
+// getTokenLifetimeStringFromConfiguration checks the configuration for the "minTokenLifetime" key.  If it is set, the value is returned.  Otherwise,
+// a default is returned.
+func getTokenLifetimeStringFromConfiguration() string {
+	defaultLifetimeString := "10s"
+	if viper.IsSet("minTokenLifetime") {
+		return viper.GetString("minTokenLifetime")
+	}
+	return defaultLifetimeString
 }
 
 // GetKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the kerberos keytab.
@@ -145,45 +160,60 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	// Otherwise, if we haven't run condor_status to get schedds, do that
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
 	funcLogger := log.WithField("collector", collectorHost)
+
+	var constraint string
+	if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
+		constraint = viper.GetString(constraintKey)
+		funcLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+	}
+
 	var once *sync.Once
 	once, ok := scheddStoreOnceByCollector[collectorHost]
 	if !ok {
 		once = &sync.Once{}
 		scheddStoreOnceByCollector[collectorHost] = once
 	}
-	var scheddLogSourceMsg string
+	var scheddsAreSetFromCollector bool
 	once.Do(func() {
-		funcLogger.Debug("Querying collector for schedds")
-		statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
-
-		if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
-			constraint := viper.GetString(constraintKey)
-			funcLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
-			statusCmd = statusCmd.WithConstraint(constraint)
-		}
-
-		funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
-		classads, err := statusCmd.Run()
-		if err != nil {
-			funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
-		}
-
-		for _, classad := range classads {
-			name := classad["Name"].String()
-			schedds = append(schedds, name)
-		}
+		schedds = getScheddsFromCondor(collectorHost, constraint)
 		globalSchedds[collectorHost] = newScheddCollection()
 		globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
-		scheddLogSourceMsg = "collector"
+		funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
+		scheddsAreSetFromCollector = true
 	})
 
-	// Return the globally-stored schedds from cache
-	if len(schedds) == 0 {
-		schedds = globalSchedds[collectorHost].getSchedds()
-		scheddLogSourceMsg = "cache"
+	if scheddsAreSetFromCollector {
+		return schedds
 	}
-	funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddLogSourceMsg)
+
+	schedds = globalSchedds[collectorHost].getSchedds()
+	funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
+	return schedds
+}
+
+// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
+func getScheddsFromCondor(collectorHost, constraint string) []string {
+	funcLogger := log.WithField("collector", collectorHost)
+
+	funcLogger.Debug("Querying collector for schedds")
+	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
+	if constraint != "" {
+		statusCmd = statusCmd.WithConstraint(constraint)
+	}
+
+	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+	classads, err := statusCmd.Run()
+	if err != nil {
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+
+	}
+
+	schedds := make([]string, 0)
+
+	for _, classad := range classads {
+		name := classad["Name"].String()
+		schedds = append(schedds, name)
+	}
 	return schedds
 }
 
