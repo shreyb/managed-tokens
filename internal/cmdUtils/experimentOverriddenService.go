@@ -11,10 +11,10 @@ import (
 type ExperimentOverriddenService struct {
 	// Service should contain the actual experiment name (the overridden experiment name), not the configuration key
 	service.Service
-	// configExperiment is the configuration key under the experiments section where this
+	// ConfigExperiment is the configuration key under the experiments section where this
 	// experiment can be found
 	ConfigExperiment string
-	// configService is the service obtained by using the configExperiment concatenated with an underscore, and Service.Role()
+	// ConfigService is the service obtained by using the configExperiment concatenated with an underscore, and Service.Role()
 	ConfigService string
 }
 
@@ -34,7 +34,7 @@ func (e *ExperimentOverriddenService) Role() string       { return e.Service.Rol
 // Name returns the ExperimentOverriddenService's Service.Name field
 func (e *ExperimentOverriddenService) Name() string { return e.Service.Name() }
 
-// ConfigName returns the value stored in the configService key, meant to be a concatenation
+// ConfigName returns the value stored in the ConfigService key, meant to be a concatenation
 // of the return value of the Experiment() method, "_", and the return value of the Role() method
 // The reason for having this separate method is to avoid duplicated service names for
 // multiple experiment configurations that have the same overridden experiment values and roles
@@ -42,7 +42,7 @@ func (e *ExperimentOverriddenService) Name() string { return e.Service.Name() }
 func (e *ExperimentOverriddenService) ConfigName() string { return e.ConfigService }
 
 // GetServiceName type checks the service.Service passed in, and returns the appropriate service name for registration
-// and logging purposes
+// and logging purposes.
 func GetServiceName(s service.Service) string {
 	if serv, ok := s.(*ExperimentOverriddenService); ok {
 		return serv.ConfigName()
