@@ -24,16 +24,13 @@ import (
 // Various sync.Onces to coordinate synchronization
 var (
 	logHtGettokenOptsOnce sync.Once
-	collectorMutexes      sync.Map
+	// Map of Mutexes per collector to ensure that only one goroutine will attempt to write schedds to globalSchedds for a given collector at a time
+	// Without this extra set of mutexes, since all writers act before all readers for a sync.Map, multiple goroutines will attempt to write to globalSchedds.
+	// While this isn't a data race, it's inefficient.
+	collectorMutexes sync.Map
+	globalSchedds    sync.Map // globalSchedds stores the schedds for use by various goroutines.  The key of the map here is the collector
 	// FUTURE TODO:  We might have to make this map store schedds by collector and VO
 )
-
-// globalSchedds stores the schedds for use by various goroutines.  The key of the map here is the collector
-var globalSchedds map[string]*scheddCollection
-
-func init() {
-	globalSchedds = make(map[string]*scheddCollection)
-}
 
 // Functional options for initialization of service Config
 
@@ -177,9 +174,13 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 		if valAsRWMutex, isRWMutex := val.(*sync.RWMutex); isRWMutex {
 			valAsRWMutex.RLock()
 			defer valAsRWMutex.RUnlock()
-			schedds = globalSchedds[collectorHost].getSchedds()
-			collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
-			return schedds
+			if scheddCol, scheddOk := globalSchedds.Load(collectorHost); scheddOk {
+				if scheddColVal, isScheddColPtr := scheddCol.(*scheddCollection); isScheddColPtr {
+					schedds = scheddColVal.getSchedds()
+					collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
+					return schedds
+				}
+			}
 		}
 	}
 
@@ -200,8 +201,9 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	schedds = getScheddsFromCondor(collectorHost, constraint)
 
 	// Add schedds to cache
-	globalSchedds[collectorHost] = newScheddCollection()
-	globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
+	scheddCollectionToStore := newScheddCollection()
+	scheddCollectionToStore.storeSchedds(schedds)
+	globalSchedds.Store(collectorHost, scheddCollectionToStore) // Store the schedds into the global store
 
 	collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
 	return schedds
