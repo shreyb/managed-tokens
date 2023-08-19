@@ -23,8 +23,8 @@ import (
 
 // Various sync.Onces to coordinate synchronization
 var (
-	logHtGettokenOptsOnce      sync.Once
-	scheddStoreOnceByCollector map[string]*sync.Once
+	logHtGettokenOptsOnce       sync.Once
+	collectorsQueriedForSchedds map[string]struct{}
 	// FUTURE TODO:  We might have to make this map store schedds by collector and VO
 )
 
@@ -33,7 +33,7 @@ var globalSchedds map[string]*scheddCollection
 
 func init() {
 	globalSchedds = make(map[string]*scheddCollection)
-	scheddStoreOnceByCollector = make(map[string]*sync.Once)
+	collectorsQueriedForSchedds = make(map[string]struct{})
 }
 
 // Functional options for initialization of service Config
@@ -98,7 +98,6 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath s
 	return
 }
 
-// TODO Unit test this
 // resolveHtgettokenOptsFromConfig checks the config for the "ORIG_HTGETTOKENOPTS" key.  If that is set, check the ORIG_HTGETTOKENOPTS value for the
 // given credKey.  If the credKey is present, return the ORIG_HTGETTOKENOPTS value.  Otherwise, return the ORIG_HTGETTOKENOPTS value with the credKey
 // appended
@@ -117,7 +116,6 @@ func resolveHtgettokenOptsFromConfig(credKey string) string {
 	return htgettokenOpts
 }
 
-// TODO Unit test this
 // getTokenLifetimeStringFromConfiguration checks the configuration for the "minTokenLifetime" key.  If it is set, the value is returned.  Otherwise,
 // a default is returned.
 func getTokenLifetimeStringFromConfiguration() string {
@@ -157,38 +155,37 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 		return schedds
 	}
 
-	// Otherwise, if we haven't run condor_status to get schedds, do that
+	// Get our collector so we can see if the schedds are in cache
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
 	funcLogger := log.WithField("collector", collectorHost)
 
+	// If we've queried this collector before, the schedds should be in cache.  Return those schedds
+	if _, ok := collectorsQueriedForSchedds[collectorHost]; ok {
+		schedds = globalSchedds[collectorHost].getSchedds()
+		funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
+		return schedds
+	}
+
+	// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache, then return the schedds
+	// Get constraint, if it's set
 	var constraint string
-	if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
+	constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
+	if viper.IsSet(constraintKey) {
 		constraint = viper.GetString(constraintKey)
 		funcLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
 	}
 
-	var once *sync.Once
-	once, ok := scheddStoreOnceByCollector[collectorHost]
-	if !ok {
-		once = &sync.Once{}
-		scheddStoreOnceByCollector[collectorHost] = once
-	}
-	var scheddsAreSetFromCollector bool
-	once.Do(func() {
-		schedds = getScheddsFromCondor(collectorHost, constraint)
-		globalSchedds[collectorHost] = newScheddCollection()
-		globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
-		funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
-		scheddsAreSetFromCollector = true
-	})
+	schedds = getScheddsFromCondor(collectorHost, constraint)
 
-	if scheddsAreSetFromCollector {
-		return schedds
-	}
+	// Add schedds to cache
+	globalSchedds[collectorHost] = newScheddCollection()
+	globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
 
-	schedds = globalSchedds[collectorHost].getSchedds()
-	funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
+	funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
+	collectorsQueriedForSchedds[collectorHost] = struct{}{} // Mark this collector as having been queried
+
 	return schedds
+
 }
 
 // getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
@@ -209,7 +206,6 @@ func getScheddsFromCondor(collectorHost, constraint string) []string {
 	}
 
 	schedds := make([]string, 0)
-
 	for _, classad := range classads {
 		name := classad["Name"].String()
 		schedds = append(schedds, name)
