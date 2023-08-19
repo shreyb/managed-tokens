@@ -507,3 +507,88 @@ func TestParseVaultServerFromEnvSetting(t *testing.T) {
 		)
 	}
 }
+
+func TestResolveHtgettokenOptsFromConfig(t *testing.T) {
+	type testCase struct {
+		description     string
+		configSetupFunc func()
+		credKey         string
+		expectedResult  string
+	}
+
+	testCases := []testCase{
+		{
+			"ORIG_HTGETTOKENOPTS in config, has credkey and other things",
+			func() { viper.Set("ORIG_HTGETTOKENOPTS", "--flag1 arg1 --credkey mycredkey --flag2 arg2") },
+			"mycredkey",
+			"--flag1 arg1 --credkey mycredkey --flag2 arg2",
+		},
+		{
+			"ORIG_HTGETTOKENOPTS in config, does not have credkey at all",
+			func() { viper.Set("ORIG_HTGETTOKENOPTS", "--flag1 arg1 --flag2 arg2") },
+			"mycredkey",
+			"--flag1 arg1 --flag2 arg2 --credkey=mycredkey",
+		},
+		{
+			"ORIG_HTGETTOKENOPTS in config, has different credkey and other things",
+			func() { viper.Set("ORIG_HTGETTOKENOPTS", "--flag1 arg1 --credkey differentcredkey --flag2 arg2") },
+			"mycredkey",
+			"--flag1 arg1 --credkey differentcredkey --flag2 arg2 --credkey=mycredkey",
+		},
+		{
+			"ORIG_HTGETTOKENOPTS not in configuration",
+			func() {},
+			"mycredkey",
+			"--credkey=mycredkey",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				defer viper.Reset()
+				test.configSetupFunc()
+				if result := resolveHtgettokenOptsFromConfig(test.credKey); result != test.expectedResult {
+					t.Errorf("Did not get expected result.  Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+
+	}
+
+}
+
+func TestGetTokenLifetimeStringFromConfiguration(t *testing.T) {
+	type testCase struct {
+		description                     string
+		configMinTokenLifetimeSetupFunc func()
+		expectedResult                  string
+	}
+
+	testCases := []testCase{
+		{
+			"No minTokenLifetime configured",
+			func() {},
+			"10s",
+		},
+		{
+			"minTokenLifetime configured",
+			func() { viper.Set("minTokenLifetime", "30s") },
+			"30s",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				defer viper.Reset()
+				test.configMinTokenLifetimeSetupFunc()
+				if result := getTokenLifetimeStringFromConfiguration(); result != test.expectedResult {
+					t.Errorf("Did not get expected result.  Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}

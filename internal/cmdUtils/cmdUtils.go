@@ -102,17 +102,24 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath s
 // given credKey.  If the credKey is present, return the ORIG_HTGETTOKENOPTS value.  Otherwise, return the ORIG_HTGETTOKENOPTS value with the credKey
 // appended
 func resolveHtgettokenOptsFromConfig(credKey string) string {
-	log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", viper.GetString("ORIG_HTGETTOKENOPTS"))
+	origHtgettokenOpts := viper.GetString("ORIG_HTGETTOKENOPTS")
+
+	// ORIG_HTGETTOKENOPTS not set in config
+	if origHtgettokenOpts == "" {
+		return "--credkey=" + credKey
+	}
+
+	log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", origHtgettokenOpts)
 	// If we have the right credkey in the HTGETTOKENOPTS, leave it be
-	if strings.Contains(viper.GetString("ORIG_HTGETTOKENOPTS"), credKey) {
-		return viper.GetString("ORIG_HTGETTOKENOPTS")
+	if strings.Contains(origHtgettokenOpts, credKey) {
+		return origHtgettokenOpts
 	}
 	logHtGettokenOptsOnce.Do(
 		func() {
 			log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
 		},
 	)
-	htgettokenOpts := viper.GetString("ORIG_HTGETTOKENOPTS") + " --credkey=" + credKey
+	htgettokenOpts := origHtgettokenOpts + " --credkey=" + credKey
 	return htgettokenOpts
 }
 
