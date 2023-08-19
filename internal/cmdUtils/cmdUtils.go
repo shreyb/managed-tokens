@@ -148,6 +148,22 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
+//
+// A note on the mutexes.  Originally, this func was implemented by using a map of *sync.Once objects, where each Once was called to query the
+// condor collector.  This works for concurrent access, but the correct way to make it work puts the collector-calling code BEFORE the cache
+// reading code, which I think is confusing for the reader.  The fallthrough logic to obtain the schedds is really
+// override --> cache --> condor collector, and having the condor collector-querying code appear before the cache code obscures this fact.
+//
+// The next possible solution was to possibly store in the global cache the *scheddCollections alongside mutexes to access them, wrapped in a struct,
+// all in one map.  This introduces a race condition, though not one that threatens data integrity, just efficiency.  If the first goroutine
+// to run this method runs a sync.Map.Load (or LoadAndStore) on the cache map and sees that no value was returned, it will go ahead and query
+// the condor collector.  Before the first one is finished storing the schedd values in the cache map, if the SECOND goroutine tries to read
+// from the map, it will ALSO see that no value is yet stored, and query the condor collector.
+//
+// By decoupling the cache data and the cache mutexes, we can take advantage of LoadAndStore on the cache mutex map, and if a mutex doesn't exist
+// for a collector, quickly store a new mutex there and acquire the Lock.  If the mutex does exist, we only want to read the data, so we can
+// acquire the RLock, which will wait for our first goroutine to give up the Lock (presumably after it writes the schedds to cache)
+// to proceed with the read.  This is the basic logic of the locks here.
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
 	schedds := make([]string, 0)
@@ -167,9 +183,8 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	collectorTryRWMutex := &sync.RWMutex{} // We'll store this mutex in collectorsQueriedForSchedds if that map doesn't already have a mutex
 	// stored for this collectorHost
 
-	val, ok := collectorMutexes.LoadOrStore(collectorHost, collectorTryRWMutex)
-	// If we've queried this collector before, the schedds should be in cache.  Return those schedds
-	if ok {
+	if val, loaded := collectorMutexes.LoadOrStore(collectorHost, collectorTryRWMutex); loaded {
+		// If we've queried this collector before, the schedds should be in cache.  Return those schedds
 		// Acquire the read lock on this collector
 		if valAsRWMutex, isRWMutex := val.(*sync.RWMutex); isRWMutex {
 			valAsRWMutex.RLock()
