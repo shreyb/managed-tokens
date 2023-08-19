@@ -23,8 +23,8 @@ import (
 
 // Various sync.Onces to coordinate synchronization
 var (
-	logHtGettokenOptsOnce       sync.Once
-	collectorsQueriedForSchedds map[string]struct{}
+	logHtGettokenOptsOnce sync.Once
+	collectorMutexes      sync.Map
 	// FUTURE TODO:  We might have to make this map store schedds by collector and VO
 )
 
@@ -33,7 +33,6 @@ var globalSchedds map[string]*scheddCollection
 
 func init() {
 	globalSchedds = make(map[string]*scheddCollection)
-	collectorsQueriedForSchedds = make(map[string]struct{})
 }
 
 // Functional options for initialization of service Config
@@ -153,33 +152,49 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
+	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
 	schedds := make([]string, 0)
 
+	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
 	if creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost"); viper.IsSet(creddOverrideVar) {
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
-		log.WithField("schedds", schedds).Debug("Set schedds successfully from override")
+		funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from override")
 		return schedds
 	}
 
+	// 2.  Try cache
 	// Get our collector so we can see if the schedds are in cache
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	funcLogger := log.WithField("collector", collectorHost)
+	collectorLogger := funcLogger.WithField("collector", collectorHost)
+	collectorTryRWMutex := &sync.RWMutex{} // We'll store this mutex in collectorsQueriedForSchedds if that map doesn't already have a mutex
+	// stored for this collectorHost
 
+	val, ok := collectorMutexes.LoadOrStore(collectorHost, collectorTryRWMutex)
 	// If we've queried this collector before, the schedds should be in cache.  Return those schedds
-	if _, ok := collectorsQueriedForSchedds[collectorHost]; ok {
-		schedds = globalSchedds[collectorHost].getSchedds()
-		funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
-		return schedds
+	if ok {
+		// Acquire the read lock on this collector
+		if valAsRWMutex, isRWMutex := val.(*sync.RWMutex); isRWMutex {
+			valAsRWMutex.RLock()
+			defer valAsRWMutex.RUnlock()
+			schedds = globalSchedds[collectorHost].getSchedds()
+			collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from cache")
+			return schedds
+		}
 	}
 
+	// 3.  Query collector
 	// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache, then return the schedds
+	// Use the mutex we just stored and lock it for writing
+	collectorTryRWMutex.Lock()
+	defer collectorTryRWMutex.Unlock()
+
 	// Get constraint, if it's set
 	var constraint string
 	constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
 	if viper.IsSet(constraintKey) {
 		constraint = viper.GetString(constraintKey)
-		funcLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+		collectorLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
 	}
 
 	schedds = getScheddsFromCondor(collectorHost, constraint)
@@ -188,9 +203,7 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	globalSchedds[collectorHost] = newScheddCollection()
 	globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
 
-	funcLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
-	collectorsQueriedForSchedds[collectorHost] = struct{}{} // Mark this collector as having been queried
-
+	collectorLogger.WithField("schedds", schedds).Debug("Set schedds successfully from collector")
 	return schedds
 
 }
