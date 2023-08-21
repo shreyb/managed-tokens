@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"strings"
 
@@ -30,14 +31,14 @@ func init() {
 	}
 }
 
-// StoreAndValidateTokens stores a vault token in the passed in Hashicorp vault server and the passed in credd.
-func StoreAndValidateTokens(ctx context.Context, serviceName, credd, vaultServer string, environ *environment.CommandEnvironment, interactive bool) error {
+// StoreAndValidateToken stores a vault token in the passed in Hashicorp vault server and the passed in credd.
+func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) error {
 	funcLogger := log.WithFields(log.Fields{
-		"serviceName": serviceName,
-		"vaultServer": vaultServer,
-		"credd":       credd,
+		"serviceName": t.getServiceName(),
+		"vaultServer": t.getVaultServer(),
+		"credd":       t.getCredd(),
 	})
-	if err := getTokensandStoreinVault(ctx, serviceName, credd, vaultServer, environ, interactive); err != nil {
+	if err := t.getTokensAndStoreInVault(ctx, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			funcLogger.Error("Context timeout")
 			return err
@@ -47,15 +48,8 @@ func StoreAndValidateTokens(ctx context.Context, serviceName, credd, vaultServer
 	}
 	funcLogger.Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
 
-	// Validate vault token
-	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
-	if err != nil {
-		funcLogger.Error("Could not get default vault token location")
-		return err
-	}
-
-	if err := validateVaultToken(vaultTokenFilename); err != nil {
-		funcLogger.Error("Could not validate vault token")
+	if err := t.validateToken(); err != nil {
+		funcLogger.Error("Could not validate vault token for TokenStorer")
 		return err
 	}
 
@@ -63,47 +57,126 @@ func StoreAndValidateTokens(ctx context.Context, serviceName, credd, vaultServer
 	return nil
 }
 
-// TODO STILL UNDER DEVELOPMENT.  Export when ready
-func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
-	htgettokenArgs := []string{
-		"-d",
-		"-a",
-		vaultServer,
-		"-i",
-		serviceName,
-	}
+// TokenStorer contains the methods needed to store a vault token in the condor credd and a hashicorp vault.  It should be passed into
+// StoreAndValidateTokens so that any token that is stored is also validated
+type TokenStorer interface {
+	getServiceName() string
+	getCredd() string
+	getVaultServer() string
+	getTokensAndStoreInVault(context.Context, *environment.CommandEnvironment) error
+	validateToken() error
+}
 
-	htgettokenCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["htgettoken"], htgettokenArgs...)
-	// TODO Get rid of all this when it works
-	htgettokenCmd.Stdout = os.Stdout
-	htgettokenCmd.Stderr = os.Stderr
-	log.Debug(htgettokenCmd.Args)
+// InteractiveTokenStorer is a type to use when it is anticipated that the token storing action will require user interaction
+type InteractiveTokenStorer struct {
+	serviceName string
+	credd       string
+	vaultServer string
+}
 
-	log.WithField("service", serviceName).Info("Running htgettoken to get vault and bearer tokens")
-	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
+func (t *InteractiveTokenStorer) getServiceName() string { return t.serviceName }
+func (t *InteractiveTokenStorer) getCredd() string       { return t.credd }
+func (t *InteractiveTokenStorer) getVaultServer() string { return t.vaultServer }
+func (t *InteractiveTokenStorer) validateToken() error {
+	return validateServiceVaultToken(t.serviceName)
+}
+
+// getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
+// It allows for the token-storing command to prompt the user for action
+func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
+	funcLogger := log.WithFields(log.Fields{
+		"service":     t.serviceName,
+		"vaultServer": t.vaultServer,
+		"credd":       t.credd,
+	})
+	getTokensAndStoreInVaultCmd := setupCmdWithEnvironmentForTokenStorer(ctx, t, environ)
+
+	// We need to capture stdout and stderr on the terminal so the user can authenticate
+	getTokensAndStoreInVaultCmd.Stdout = os.Stdout
+	getTokensAndStoreInVaultCmd.Stderr = os.Stderr
+
+	if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("service", serviceName).Error("Context timeout")
+			funcLogger.Error("Context timeout")
 			return ctx.Err()
 		}
-		log.WithField("service", serviceName).Errorf("Could not get vault token:\n%s", string(stdoutStderr[:]))
+		funcLogger.Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
 		return err
 	}
-
-	log.WithField("service", serviceName).Debug("Successfully got vault token")
+	if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			funcLogger.Error("Context timeout")
+			return ctx.Err()
+		}
+		funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+		return err
+	}
 	return nil
 }
 
-// TODO Unit test giving a bogus vault server
-// getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
-// using interactive=true, it will display stdout/stderr on the stdout of the caller
-func getTokensandStoreinVault(ctx context.Context, serviceName, credd, vaultServer string, environ *environment.CommandEnvironment, interactive bool) error {
-	funcLogger := log.WithFields(log.Fields{
-		"service":     serviceName,
-		"vaultServer": vaultServer,
-		"credd":       credd,
-	})
+// NonInteractiveTokenStorer is a type to use when it is anticipated that the token storing action will not require user interaction
+type NonInteractiveTokenStorer struct {
+	serviceName string
+	credd       string
+	vaultServer string
+}
 
-	// Store token in vault and get new vault token
+func (t *NonInteractiveTokenStorer) getServiceName() string { return t.serviceName }
+func (t *NonInteractiveTokenStorer) getCredd() string       { return t.credd }
+func (t *NonInteractiveTokenStorer) getVaultServer() string { return t.vaultServer }
+func (t *NonInteractiveTokenStorer) validateToken() error {
+	return validateServiceVaultToken(t.serviceName)
+}
+
+// getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
+// It doew not allow for the token-storing command to prompt the user for action
+func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
+	funcLogger := log.WithFields(log.Fields{
+		"service":     t.serviceName,
+		"vaultServer": t.vaultServer,
+		"credd":       t.credd,
+	})
+	getTokensAndStoreInVaultCmd := setupCmdWithEnvironmentForTokenStorer(ctx, t, environ)
+
+	// For non-interactive use, it is an error condition if the user is prompted to authenticate, so we want to just run the command
+	// and capture the output
+	if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			funcLogger.Error("Context timeout")
+			return ctx.Err()
+		}
+		funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+		funcLogger.Errorf("%s", stdoutStderr)
+		return err
+	} else {
+		if len(stdoutStderr) > 0 {
+			funcLogger.Debugf("%s", stdoutStderr)
+		}
+	}
+	return nil
+}
+
+func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) *exec.Cmd {
+	funcLogger := log.WithFields(log.Fields{
+		"service":     t.getServiceName(),
+		"vaultServer": t.getVaultServer(),
+		"credd":       t.getCredd(),
+	})
+	cmdArgs := getCmdArgsForTokenStorer(ctx, t.getServiceName())
+	newEnv := setupEnvironmentForTokenStorer(environ, t.getCredd(), t.getVaultServer())
+	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
+
+	funcLogger.Info("Storing and obtaining vault token")
+	funcLogger.WithFields(log.Fields{
+		"command":     getTokensAndStoreInVaultCmd.String(),
+		"environment": newEnv.String(),
+	}).Debug("Command to store vault token")
+
+	return getTokensAndStoreInVaultCmd
+}
+
+func getCmdArgsForTokenStorer(ctx context.Context, serviceName string) []string {
+	funcLogger := log.WithField("service", serviceName)
 	cmdArgs := make([]string, 0, 2)
 	verbose, err := utils.GetVerboseFromContext(ctx)
 	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
@@ -111,83 +184,98 @@ func getTokensandStoreinVault(ctx context.Context, serviceName, credd, vaultServ
 		funcLogger.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
 	}
 	funcLogger.Debugf("Verbose is set to %t", verbose)
-
 	if verbose {
 		cmdArgs = append(cmdArgs, "-v")
 	}
 	cmdArgs = append(cmdArgs, serviceName)
+	return cmdArgs
+}
 
-	// Set _condor_CREDD_HOST and _condor_SEC_CREDENTIAL_GETTOKEN_OPTS in environment
+// // func setupEnvironmentForTokenStorer() {
+
+// // }
+
+// // TODO Split this into interactive, non-interactive case so we don't have to pass "interactive" in.
+
+// // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.  If run
+// // using interactive=true, it will display stdout/stderr on the stdout of the caller
+// func getTokensandStoreinVault(ctx context.Context, serviceName, credd, vaultServer string, environ *environment.CommandEnvironment, interactive bool) error {
+// 	funcLogger := log.WithFields(log.Fields{
+// 		"service":     serviceName,
+// 		"vaultServer": vaultServer,
+// 		"credd":       credd,
+// 	})
+
+// 	// Store token in vault and get new vault token
+// 	cmdArgs := make([]string, 0, 2)
+// 	verbose, err := utils.GetVerboseFromContext(ctx)
+// 	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
+// 	if !errors.Is(err, utils.ErrContextKeyNotStored) && err != nil {
+// 		funcLogger.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
+// 	}
+// 	funcLogger.Debugf("Verbose is set to %t", verbose)
+
+// 	if verbose {
+// 		cmdArgs = append(cmdArgs, "-v")
+// 	}
+// 	cmdArgs = append(cmdArgs, serviceName)
+
+// 	// Set _condor_CREDD_HOST and _condor_SEC_CREDENTIAL_GETTOKEN_OPTS in environment
+// 	newEnv := setupEnvironmentForTokenStorer(environ, credd, vaultServer)
+
+// 	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
+
+// 	funcLogger.Info("Storing and obtaining vault token")
+// 	funcLogger.WithFields(log.Fields{
+// 		"command":     getTokensAndStoreInVaultCmd.String(),
+// 		"environment": newEnv.String(),
+// 	}).Debug("Running command to store vault token")
+
+// 	if interactive {
+// 		// We need to capture stdout and stderr on the terminal so the user can authenticate
+// 		getTokensAndStoreInVaultCmd.Stdout = os.Stdout
+// 		getTokensAndStoreInVaultCmd.Stderr = os.Stderr
+
+// 		if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
+// 			if ctx.Err() == context.DeadlineExceeded {
+// 				funcLogger.Error("Context timeout")
+// 				return ctx.Err()
+// 			}
+// 			funcLogger.Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
+// 		}
+// 		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
+// 			if ctx.Err() == context.DeadlineExceeded {
+// 				funcLogger.Error("Context timeout")
+// 				return ctx.Err()
+// 			}
+// 			funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+// 			return err
+// 		}
+// 	} else {
+// 		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
+// 			if ctx.Err() == context.DeadlineExceeded {
+// 				funcLogger.Error("Context timeout")
+// 				return ctx.Err()
+// 			}
+// 			funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+// 			funcLogger.Errorf("%s", stdoutStderr)
+// 			return err
+// 		} else {
+// 			if len(stdoutStderr) > 0 {
+// 				funcLogger.WithField("environment", newEnv.String()).Debugf("%s", stdoutStderr)
+// 			}
+// 		}
+// 	}
+// 	return nil
+// }
+
+// setupEnvironmentForTokenStorer sets _condor_CREDD_HOST and _condor_SEC_CREDENTIAL_GETTOKEN_OPTS in a new environment for condor_vault_storer
+func setupEnvironmentForTokenStorer(environ *environment.CommandEnvironment, credd string, vaultServer string) *environment.CommandEnvironment {
 	newEnv := environ.Copy()
 	newEnv.SetCondorCreddHost(credd)
 	oldCondorSecCredentialGettokenOpts := newEnv.GetValue(environment.CondorSecCredentialGettokenOpts)
 	newEnv.SetCondorSecCredentialGettokenOpts(oldCondorSecCredentialGettokenOpts + fmt.Sprintf("-a %s", vaultServer))
-
-	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
-
-	funcLogger.Info("Storing and obtaining vault token")
-	funcLogger.WithFields(log.Fields{
-		"command":     getTokensAndStoreInVaultCmd.String(),
-		"environment": newEnv.String(),
-	}).Debug("Running command to store vault token")
-
-	if interactive {
-		// We need to capture stdout and stderr on the terminal so the user can authenticate
-		getTokensAndStoreInVaultCmd.Stdout = os.Stdout
-		getTokensAndStoreInVaultCmd.Stderr = os.Stderr
-
-		if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
-			if ctx.Err() == context.DeadlineExceeded {
-				funcLogger.Error("Context timeout")
-				return ctx.Err()
-			}
-			funcLogger.Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
-		}
-		if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
-			if ctx.Err() == context.DeadlineExceeded {
-				funcLogger.Error("Context timeout")
-				return ctx.Err()
-			}
-			funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
-			return err
-		}
-	} else {
-		if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
-			if ctx.Err() == context.DeadlineExceeded {
-				funcLogger.Error("Context timeout")
-				return ctx.Err()
-			}
-			funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
-			funcLogger.Errorf("%s", stdoutStderr)
-			return err
-		} else {
-			if len(stdoutStderr) > 0 {
-				funcLogger.WithField("environment", newEnv.String()).Debugf("%s", stdoutStderr)
-			}
-		}
-	}
-	return nil
-}
-
-// validateVaultToken verifies that a vault token (service token as Hashicorp calls them) indicated by the filename is valid
-func validateVaultToken(vaultTokenFilename string) error {
-	vaultTokenBytes, err := os.ReadFile(vaultTokenFilename)
-	if err != nil {
-		log.WithField("filename", vaultTokenFilename).Error("Could not read tokenfile for verification.")
-		return err
-	}
-
-	vaultTokenString := string(vaultTokenBytes[:])
-
-	if !IsServiceToken(vaultTokenString) {
-		errString := "vault token failed validation"
-		log.WithField("filename", vaultTokenFilename).Error(errString)
-		return &InvalidVaultTokenError{
-			vaultTokenFilename,
-			errString,
-		}
-	}
-	return nil
+	return newEnv
 }
 
 // Borrowed from hashicorp's vault API, since we ONLY need this func
@@ -302,4 +390,70 @@ func getDefaultVaultTokenLocation() (string, error) {
 	}
 	currentUID := currentUser.Uid
 	return fmt.Sprintf("/tmp/vt_u%s", currentUID), nil
+}
+
+func validateServiceVaultToken(serviceName string) error {
+	funcLogger := log.WithField("serviceName", serviceName)
+	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
+	if err != nil {
+		funcLogger.Error("Could not get default vault token location")
+		return err
+	}
+
+	if err := validateVaultToken(vaultTokenFilename); err != nil {
+		funcLogger.Error("Could not validate vault token")
+		return err
+	}
+	return nil
+}
+
+// validateVaultToken verifies that a vault token (service token as Hashicorp calls them) indicated by the filename is valid
+func validateVaultToken(vaultTokenFilename string) error {
+	vaultTokenBytes, err := os.ReadFile(vaultTokenFilename)
+	if err != nil {
+		log.WithField("filename", vaultTokenFilename).Error("Could not read tokenfile for verification.")
+		return err
+	}
+
+	vaultTokenString := string(vaultTokenBytes[:])
+
+	if !IsServiceToken(vaultTokenString) {
+		errString := "vault token failed validation"
+		log.WithField("filename", vaultTokenFilename).Error(errString)
+		return &InvalidVaultTokenError{
+			vaultTokenFilename,
+			errString,
+		}
+	}
+	return nil
+}
+
+// TODO STILL UNDER DEVELOPMENT.  Export when ready
+func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
+	htgettokenArgs := []string{
+		"-d",
+		"-a",
+		vaultServer,
+		"-i",
+		serviceName,
+	}
+
+	htgettokenCmd := environment.EnvironmentWrappedCommand(ctx, &environ, vaultExecutables["htgettoken"], htgettokenArgs...)
+	// TODO Get rid of all this when it works
+	htgettokenCmd.Stdout = os.Stdout
+	htgettokenCmd.Stderr = os.Stderr
+	log.Debug(htgettokenCmd.Args)
+
+	log.WithField("service", serviceName).Info("Running htgettoken to get vault and bearer tokens")
+	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			log.WithField("service", serviceName).Error("Context timeout")
+			return ctx.Err()
+		}
+		log.WithField("service", serviceName).Errorf("Could not get vault token:\n%s", string(stdoutStderr[:]))
+		return err
+	}
+
+	log.WithField("service", serviceName).Debug("Successfully got vault token")
+	return nil
 }
