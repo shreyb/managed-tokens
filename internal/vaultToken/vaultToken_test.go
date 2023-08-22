@@ -1,11 +1,11 @@
 package vaultToken
 
 import (
-	"context"
+	"errors"
+	"fmt"
 	"os"
+	"os/user"
 	"testing"
-
-	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
 // TestIsServiceToken checks a number of candidate service tokens and verifies that IsServiceToken correctly identifies whether or not
@@ -116,11 +116,123 @@ func TestValidateVaultToken(t *testing.T) {
 	}
 }
 
-func TestGetTokensandStoreinVaultBogus(t *testing.T) {
-	ctx := context.Background()
-	environ := &environment.CommandEnvironment{}
+func TestValidateServiceVaultToken(t *testing.T) {
+	serviceName := "myservice"
+	badServiceName := "notmyservice"
 
-	if err := getTokensandStoreinVault(ctx, "service", "credd", "bogus_vault_server", environ, false); err == nil {
-		t.Errorf("Should have gotten an error from our bogus_vault_server.  Got nil instead")
+	validTokenString := "hvs.123456"
+	invalidTokenString := "thiswillnotwork"
+
+	type testCase struct {
+		description                      string
+		serviceName                      string
+		writeTokenFileFunc               func() string
+		expectedErrorNil                 bool
+		expectedErrorIsInvalidVaultToken bool
 	}
+
+	testCases := []testCase{
+		// Make sure to delete vault token each time.   The fake service name should keep this separate from real stuff:w
+		{
+			"Valid vault token, service can be found",
+			serviceName,
+			func() string {
+				tokenFileName, _ := getCondorVaultTokenLocation(serviceName)
+				b := []byte(validTokenString)
+				os.WriteFile(tokenFileName, b, 0644)
+				return tokenFileName
+			},
+			true,
+			false,
+		},
+		{
+			"Valid vault token, service can't be found",
+			badServiceName,
+			func() string {
+				tokenFile, _ := os.CreateTemp(os.TempDir(), "managed-tokens-test")
+				tokenFileName := tokenFile.Name()
+				b := []byte(validTokenString)
+				os.WriteFile(tokenFileName, b, 0644)
+				return tokenFileName
+			},
+			false,
+			false,
+		},
+		{
+			"invalid vault token, service can't be found",
+			badServiceName,
+			func() string {
+				tokenFile, _ := os.CreateTemp(os.TempDir(), "managed-tokens-test")
+				tokenFileName := tokenFile.Name()
+				b := []byte(validTokenString)
+				os.WriteFile(tokenFileName, b, 0644)
+				return tokenFileName
+			},
+			false,
+			false,
+		},
+		{
+			"invalid vault token, service can be found",
+			serviceName,
+			func() string {
+				tokenFileName, _ := getCondorVaultTokenLocation(serviceName)
+				b := []byte(invalidTokenString)
+				os.WriteFile(tokenFileName, b, 0644)
+				return tokenFileName
+			},
+			false,
+			true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				tokenFile := test.writeTokenFileFunc()
+				defer os.Remove(tokenFile)
+				err := validateServiceVaultToken(test.serviceName)
+				if err != nil && test.expectedErrorNil {
+					t.Errorf("Expected nil error.  Got %s instead", err)
+				}
+				if err == nil && !test.expectedErrorNil {
+					t.Error("Got nil error, but expected non-nil error")
+				}
+				if err != nil && !test.expectedErrorNil && test.expectedErrorIsInvalidVaultToken {
+					var e *InvalidVaultTokenError
+					if !errors.As(err, &e) {
+						t.Errorf("Got wrong kind of error.  Expected InvalidVaultTokenError, got %T", err)
+					}
+				}
+			},
+		)
+	}
+}
+
+func TestGetCondorVaultTokenLocation(t *testing.T) {
+	currentUser, _ := user.Current()
+	uid := currentUser.Uid
+	serviceName := "myService"
+	expectedResult := fmt.Sprintf("/tmp/vt_u%s-%s", uid, serviceName)
+	result, err := getCondorVaultTokenLocation(serviceName)
+	if err != nil {
+		t.Errorf("Expected nil error.  Got %s", err)
+	}
+	if result != expectedResult {
+		t.Errorf("Got wrong result for condor vault token location.  Expected %s, got %s", expectedResult, result)
+	}
+}
+
+func TestGetDefaultVaultTokenLocation(t *testing.T) {
+	currentUser, _ := user.Current()
+	uid := currentUser.Uid
+	expectedResult := fmt.Sprintf("/tmp/vt_u%s", uid)
+	result, err := getDefaultVaultTokenLocation()
+	if err != nil {
+		t.Errorf("Expected nil error.  Got %s", err)
+	}
+	if result != expectedResult {
+		t.Errorf("Got wrong result for condor vault token location.  Expected %s, got %s", expectedResult, result)
+	}
+
 }
