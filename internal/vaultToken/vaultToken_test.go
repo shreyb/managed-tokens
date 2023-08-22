@@ -81,9 +81,9 @@ func TestValidateVaultToken(t *testing.T) {
 		},
 	}
 
+	tempDir := t.TempDir()
 	for index, test := range testCases {
-		tempFile, _ := os.CreateTemp(os.TempDir(), "testManagedTokens")
-		defer os.Remove(tempFile.Name())
+		tempFile, _ := os.CreateTemp(tempDir, "testManagedTokens")
 		func() {
 			defer tempFile.Close()
 			_, _ = tempFile.WriteString(test.rawString)
@@ -123,6 +123,8 @@ func TestValidateServiceVaultToken(t *testing.T) {
 	validTokenString := "hvs.123456"
 	invalidTokenString := "thiswillnotwork"
 
+	tempDir := t.TempDir()
+
 	type testCase struct {
 		description                      string
 		serviceName                      string
@@ -149,7 +151,7 @@ func TestValidateServiceVaultToken(t *testing.T) {
 			"Valid vault token, service can't be found",
 			badServiceName,
 			func() string {
-				tokenFile, _ := os.CreateTemp(os.TempDir(), "managed-tokens-test")
+				tokenFile, _ := os.CreateTemp(tempDir, "managed-tokens-test")
 				tokenFileName := tokenFile.Name()
 				b := []byte(validTokenString)
 				os.WriteFile(tokenFileName, b, 0644)
@@ -162,7 +164,7 @@ func TestValidateServiceVaultToken(t *testing.T) {
 			"invalid vault token, service can't be found",
 			badServiceName,
 			func() string {
-				tokenFile, _ := os.CreateTemp(os.TempDir(), "managed-tokens-test")
+				tokenFile, _ := os.CreateTemp(tempDir, "managed-tokens-test")
 				tokenFileName := tokenFile.Name()
 				b := []byte(validTokenString)
 				os.WriteFile(tokenFileName, b, 0644)
