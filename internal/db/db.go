@@ -34,41 +34,64 @@ type ManagedTokensDatabase struct {
 // OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
 // exists at the filename provided, it will open that database as long as the ApplicationId matches
 func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
-	m := ManagedTokensDatabase{filename: filename}
 	funcLog := log.WithField("dbLocation", filename)
+
+	m := ManagedTokensDatabase{filename: filename}
 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
-		err = m.initialize()
-		if err != nil {
-			msg := "Could not initialize database"
-			funcLog.Error(msg)
-			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
-				funcLog.Error("Could not remove corrupt database file.  Please do so manually")
-				return &ManagedTokensDatabase{}, err
-			}
+		if err = m.create(); err != nil {
 			return nil, err
 		}
 		funcLog.Debug("Created new ManagedTokensDatabase")
 	} else {
-		m.db, err = sql.Open("sqlite3", filename)
-		if err != nil {
-			msg := "Could not open the managed tokens database file"
-			funcLog.Errorf("%s: %s", msg, err)
-			return nil, &databaseOpenError{filename, err}
+		if err = m.open(); err != nil {
+			return nil, err
 		}
 		funcLog.Debug("ManagedTokensDatabase file already exists.  Will try to use it")
 	}
-	// Enforce foreign key constraints
-	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
-		funcLog.Error(err)
+
+	if err := m.addForeignKeyConstraintsToDB(); err != nil {
 		return nil, err
 	}
+
 	if err := m.check(); err != nil {
-		msg := "ManagedTokensDatabase failed check"
-		funcLog.Error(msg)
+		funcLog.Error("ManagedTokensDatabase failed check")
 		return nil, err
 	}
+
 	funcLog.Debug("ManagedTokensDatabase connection ready")
 	return &m, nil
+}
+
+func (m *ManagedTokensDatabase) create() error {
+	funcLog := log.WithField("dbLocation", m.filename)
+	if err := m.initialize(); err != nil {
+		funcLog.Error("Could not initialize database")
+		if err2 := os.Remove(m.filename); errors.Is(err2, os.ErrNotExist) {
+			funcLog.Error("Could not remove corrupt database file.  Please do so manually")
+			return err2
+		}
+		return err
+	}
+	return nil
+}
+
+func (m *ManagedTokensDatabase) open() error {
+	var err error
+	m.db, err = sql.Open("sqlite3", m.filename)
+	if err != nil {
+		msg := "Could not open the managed tokens database file"
+		log.WithField("dbLocation", m.filename).Errorf("%s: %s", msg, err)
+		return &databaseOpenError{m.filename, err}
+	}
+	return nil
+}
+
+func (m *ManagedTokensDatabase) addForeignKeyConstraintsToDB() error {
+	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		log.WithField("dbLocation", m.filename).Error(err)
+		return err
+	}
+	return nil
 }
 
 // Close closes the FERRYUIDDatabase
@@ -120,6 +143,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
+	// Query the DB
 	rows, err := db.QueryContext(dbContext, getStatementString, args...)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
@@ -131,18 +155,16 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	}
 	defer rows.Close()
 
+	// Get column names so we can get the length of each row
 	cols, err := rows.Columns()
 	if err != nil {
 		log.Error("Error getting columns from query results")
 		return data, err
 	}
 
+	// Scan our rows and add them to data
 	for rows.Next() {
-		resultRow := make([]any, len(cols))
-		resultRowPtrs := make([]any, len(cols))
-		for idx := range resultRow {
-			resultRowPtrs[idx] = &resultRow[idx]
-		}
+		resultRow, resultRowPtrs := prepareDataAndPointerSliceForDBRows(len(cols))
 		err := rows.Scan(resultRowPtrs...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
@@ -152,6 +174,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 			log.Errorf("Error retrieving results of SELECT query: %s", err)
 			return data, err
 		}
+
 		data = append(data, resultRow)
 		log.Debugf("Got row values from database: %s", resultRow...)
 	}
@@ -161,6 +184,16 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 		return data, err
 	}
 	return data, nil
+}
+
+// prepareDataAndPointerSliceForDBRows gives us a slice of pointers that point back to the row values themselves
+func prepareDataAndPointerSliceForDBRows(length int) ([]any, []any) {
+	resultRow := make([]any, length)
+	resultRowPtrs := make([]any, length)
+	for idx := range resultRow {
+		resultRowPtrs[idx] = &resultRow[idx]
+	}
+	return resultRow, resultRowPtrs
 }
 
 // insertValues is a bridge interface that contains a values() method.  This values method should
@@ -213,7 +246,7 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	}
 	defer insertStatement.Close()
 
-	// Run the passed-in insertFunc on insertData
+	// Run the passed-in insert statement on insertData
 	for _, datum := range insertData {
 		datumValues := datum.values()
 		_, err := insertStatement.ExecContext(dbContext, datumValues...)
@@ -222,7 +255,7 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 				log.Error("Context timeout")
 				return dbContext.Err()
 			}
-			log.Errorf("Could not insert FERRY data into database: %s", err)
+			log.Errorf("Could not insert data into database: %s", err)
 			return err
 		}
 	}

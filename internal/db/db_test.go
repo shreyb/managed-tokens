@@ -8,6 +8,8 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -38,6 +40,121 @@ func TestOpenOrCreateDatabase(t *testing.T) {
 		t.Errorf("Could not open previously-created database, %s", err)
 	}
 	goodTestDb.Close()
+}
+
+func TestCreateManagedTokensDatabase(t *testing.T) {
+	tempDir := t.TempDir()
+	goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+
+	type testCase struct {
+		description string
+		dbLocation  string
+		expectedErr error
+	}
+
+	testCases := []testCase{
+		{
+			"OK location",
+			goodDbLocation,
+			nil,
+		},
+		{
+			"devnull - should fail",
+			os.DevNull,
+			&databaseCreateError{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				m := &ManagedTokensDatabase{filename: test.dbLocation}
+				if err := m.create(); err != nil {
+					if test.expectedErr == nil {
+						t.Errorf("Expected nil error from initializing in test %s.  Got %s", test.description, err)
+					}
+					var e1 *databaseOpenError
+					if errors.As(test.expectedErr, &e1) && !errors.As(err, &e1) {
+						t.Errorf("Got wrong error type.  Expected %T, got %T", e1, err)
+					}
+				} else {
+					defer m.Close()
+
+					if err := checkSchema(m); err != nil {
+						t.Errorf("Schema check failed for test %s: %v", test.description, err)
+					}
+				}
+			},
+		)
+	}
+}
+
+func TestOpenManagedTokensDatabase(t *testing.T) {
+	tempDir := t.TempDir()
+	goodDbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+
+	type testCase struct {
+		description string
+		dbLocation  string
+		expectedErr error
+	}
+
+	testCases := []testCase{
+		{
+			"OK location",
+			goodDbLocation,
+			nil,
+		},
+		{
+			"devnull - should fail",
+			os.DevNull,
+			&databaseCreateError{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				m := &ManagedTokensDatabase{filename: test.dbLocation}
+				if err := m.open(); err != nil {
+					if test.expectedErr == nil {
+						t.Errorf("Expected nil error from opening DB file in test %s.  Got %s", test.description, err)
+					}
+					var e1 *databaseOpenError
+					if errors.As(test.expectedErr, &e1) && !errors.As(err, &e1) {
+						t.Errorf("Got wrong error type.  Expected %T, got %T", e1, err)
+					}
+				}
+				m.Close()
+			},
+		)
+	}
+}
+
+func TestAddForeignKeyConstraintsToDB(t *testing.T) {
+	tempDir := t.TempDir()
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	m := &ManagedTokensDatabase{filename: dbLocation}
+
+	var err error
+	if m.db, err = sql.Open("sqlite3", dbLocation); err != nil {
+		t.Error(err)
+	}
+	defer m.Close()
+
+	if err = m.addForeignKeyConstraintsToDB(); err != nil {
+		t.Error(err)
+	}
+
+	var foreignKeysSetting int
+	if err := m.db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeysSetting); err != nil {
+		t.Error(err)
+	}
+	if foreignKeysSetting != 1 {
+		t.Error("Expected PRAGMA foreign_keys to be 1.  Got 0 instead")
+	}
 }
 
 // TestCheckDatabaseBadApplicationId checks that if we open a database with the wrong ApplicationId, we get the correct error type
@@ -72,21 +189,21 @@ func TestCheckDatabaseBadApplicationId(t *testing.T) {
 // returns those values
 func TestGetValuesTransactionRunner(t *testing.T) {
 	// Set up test data
-	type expectedData struct {
+	type expectedDatum struct {
 		id       int
 		fakeName string
 	}
 	type testCase struct {
-		description string
-		insertFunc  func(id int, fakeName string, m *ManagedTokensDatabase) error
-		expectedData
+		description     string
+		insertFunc      func(id int, fakeName string, m *ManagedTokensDatabase) error
+		expectedResults []expectedDatum
 	}
 
 	testCases := []testCase{
 		{
 			"No data inserted",
 			func(id int, fakeName string, m *ManagedTokensDatabase) error { return nil },
-			expectedData{},
+			[]expectedDatum{},
 		},
 		{
 			"One row of data inserted",
@@ -94,12 +211,34 @@ func TestGetValuesTransactionRunner(t *testing.T) {
 				_, err := m.db.Exec("INSERT INTO test_table VALUES (?, ?)", id, fakeName)
 				return err
 			},
-			expectedData{
-				id:       12345,
-				fakeName: "foobar",
+			[]expectedDatum{
+				{
+					id:       12345,
+					fakeName: "foobar",
+				},
 			},
 		},
-	}
+		{
+			"Multiple rows of data inserted",
+			func(id int, fakeName string, m *ManagedTokensDatabase) error {
+				_, err := m.db.Exec("INSERT INTO test_table VALUES (?, ?)", id, fakeName)
+				return err
+			},
+			[]expectedDatum{
+				{
+					id:       12345,
+					fakeName: "foobar",
+				},
+				{
+					id:       23456,
+					fakeName: "noway",
+				},
+				{
+					id:       34567,
+					fakeName: "barbaz",
+				},
+			},
+		}}
 
 	tempDir := t.TempDir()
 	for _, test := range testCases {
@@ -116,9 +255,11 @@ func TestGetValuesTransactionRunner(t *testing.T) {
 					return
 				}
 				// Insert our test data
-				if err = test.insertFunc(test.expectedData.id, test.expectedData.fakeName, m); err != nil {
-					t.Errorf("Failed to run insert func for TestGetValuesTransactionRunner: %s: %s", test.description, err)
-					return
+				for _, d := range test.expectedResults {
+					if err = test.insertFunc(d.id, d.fakeName, m); err != nil {
+						t.Errorf("Failed to run insert func for TestGetValuesTransactionRunner: %s: %s", test.description, err)
+						return
+					}
 				}
 
 				// The actual test
@@ -129,25 +270,70 @@ func TestGetValuesTransactionRunner(t *testing.T) {
 					t.Errorf("Could not obtain values from database for TestGetValuesTransactionRunner: %s: %s", test.description, err)
 					return
 				}
-				var noExpectedData expectedData
-				if test.expectedData == noExpectedData {
-					if len(data) != 0 {
-						t.Errorf("Should not have gotten any data back.  Got %v", data)
-					}
-					return
+				transformedData := make([]expectedDatum, 0, len(data))
+				for _, datum := range data {
+					idVal := datum[0].(int64)
+					fakeNameVal := datum[1].(string)
+					transformedData = append(transformedData, expectedDatum{int(idVal), fakeNameVal})
 				}
-				if dataId, ok := data[0][0].(int64); !ok {
-					t.Errorf("Got wrong data type for id value.  Expected int, got %T", dataId)
-				} else {
-					if int(dataId) != test.expectedData.id {
-						t.Errorf("Returned id value does not match expected id value.  Expected %d, got %d", test.expectedData.id, dataId)
-					}
+
+				if !slices.Equal[[]expectedDatum, expectedDatum](transformedData, test.expectedResults) {
+					t.Errorf("Data and expectedResults do not match.  Expected %v, got %v", test.expectedResults, transformedData)
 				}
-				if dataFakeName, ok := data[0][1].(string); !ok {
-					t.Errorf("Got wrong data type for fake_name value.  Expected string, got %T", dataFakeName)
-				} else {
-					if dataFakeName != test.expectedData.fakeName {
-						t.Errorf("Returned fake_name value does not match expected fake_name value.  Expected %s, got %s", test.expectedData.fakeName, dataFakeName)
+			},
+		)
+	}
+}
+
+func TestPrepareDataAndPointerSliceForDBRows(t *testing.T) {
+	type expectedResultUnit struct {
+		values   []any
+		pointers []any
+	}
+	type testCase struct {
+		length int
+		expectedResultUnit
+	}
+
+	testCases := []testCase{
+		{
+			0,
+			expectedResultUnit{
+				[]any{},
+				[]any{},
+			},
+		},
+		{
+			1,
+			expectedResultUnit{
+				[]any{nil},
+				[]any{nil},
+			},
+		},
+		{
+			2,
+			expectedResultUnit{
+				[]any{nil, nil},
+				[]any{nil, nil},
+			},
+		}}
+
+	for _, test := range testCases {
+		t.Run(
+			strconv.Itoa(test.length),
+			func(t *testing.T) {
+				values, ptrs := prepareDataAndPointerSliceForDBRows(test.length)
+				// Make sure that we get the right set of slices
+				if !slices.Equal[[]any, any](values, test.expectedResultUnit.values) {
+					t.Errorf("Got wrong values.  Expected %v, got %v", test.expectedResultUnit.values, values)
+				}
+				// Make sure that the ptrs slice is actually a slice of pointers to values elements
+				if len(values) > 0 {
+					testValue := any(42)
+					ptrTest := ptrs[0].(*any)
+					*ptrTest = testValue
+					if values[0] != testValue {
+						t.Errorf("Pointers slices does not properly point to values slice.  Expected the value %d to be stored.  Got %v instead", testValue, values[0])
 					}
 				}
 			},
