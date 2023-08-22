@@ -75,10 +75,15 @@ type environmentVariableSetting string
 // The values of the fields are meant to be the full environment variable assignment statement, e.g.
 //
 //	c := CommandEnvironment{
-//	Krb5ccname: "KRB5CCNAME=/tmp/mykrb5ccdir",
+//	CondorCreddHost: "my.credd.host",
 //	}
 //
-// It is recommended to set the fields of the CommandEnvironment using the exported methods SetKrb5ccname, SetCondorCreddHost, etc.
+// To set the fields of the CommandEnvironment, use the exported methods SetKrb5ccname, SetCondorCreddHost, etc.
+// These methods will prepend the correct environment variable name.  For example, to get the above CommandEnvironment,
+// use
+//
+// c := new(CommandEnvironment)
+// c.SetCondorCreddHost = "my.credd.host"
 type CommandEnvironment struct {
 	// Krb5ccname is the environment variable assignment for the cache directory for kerberos credentials
 	// Values should be of the form "KRB5CCNAME=DIR:/my/kerberos/cache/dir"
@@ -97,7 +102,8 @@ type CommandEnvironment struct {
 	CondorSecCredentialGettokenOpts environmentVariableSetting
 }
 
-// SetKrb5CCName sets Krb5ccname field in the CommandEnvironment
+// SetKrb5CCName sets Krb5ccname field in the CommandEnvironment.  The kerberosCCache type corresponds to one of the
+// following Supported Credential Cache Types:  "DIR:", "FILE:"
 func (c *CommandEnvironment) SetKrb5ccname(value string, t kerberosCCacheType) {
 	c.Krb5ccname = environmentVariableSetting(Krb5ccname.EnvVarKey() + "=" + t.String() + value)
 }
