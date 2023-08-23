@@ -265,7 +265,8 @@ func TestUnpackUIDDataRow(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				datum, err := unpackUIDDataRow(test.resultRow)
+				var u ferryUidDatum
+				datum, err := u.unpackDataRow(test.resultRow)
 				if test.expectedErr == nil && err != nil {
 					t.Errorf("Expected nil error.  Got %s instead", err)
 					return
@@ -287,8 +288,12 @@ func TestUnpackUIDDataRow(t *testing.T) {
 				}
 
 				if test.expectedResult != nil && datum != nil {
-					if *datum != *test.expectedResult {
-						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datum)
+					datumValue, ok := datum.(*ferryUidDatum)
+					if !ok {
+						t.Errorf("Got wrong type in result.  Expected %T, got %T", *test.expectedResult, datum)
+					}
+					if *datumValue != *test.expectedResult {
+						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datumValue)
 					}
 				}
 			},
