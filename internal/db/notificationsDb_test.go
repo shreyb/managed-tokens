@@ -174,7 +174,7 @@ func TestGetNamedDimensionStringValues(t *testing.T) {
 
 				// The test
 				ctx := context.Background()
-				data, err := m.getNamedDimensionStringValues(ctx, test.sqlGetStatement)
+				data, err := getNamedDimensionStringValues(ctx, m.db, test.sqlGetStatement)
 				if !errors.Is(err, test.expectedErr) {
 					t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
 				}
@@ -1073,7 +1073,8 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				datum, err := unpackSetupErrorDataRow(test.resultRow)
+				var s *setupErrorCount
+				datum, err := s.unpackDataRow(test.resultRow)
 				if test.expectedErr == nil && err != nil {
 					t.Errorf("Expected nil error.  Got %s instead", err)
 					return
@@ -1095,8 +1096,12 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 				}
 
 				if test.expectedResult != nil && datum != nil {
-					if *datum != *test.expectedResult {
-						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datum)
+					datumValue, ok := datum.(*setupErrorCount)
+					if !ok {
+						t.Errorf("Got wrong type in result.  Expected %T, got %T", *test.expectedResult, datum)
+					}
+					if *datumValue != *test.expectedResult {
+						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datumValue)
 					}
 				}
 			},
