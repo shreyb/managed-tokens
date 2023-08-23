@@ -346,7 +346,7 @@ type fakeDatum struct {
 	fakeName string
 }
 
-func (f *fakeDatum) values() []any { return []any{f.id, f.fakeName} }
+func (f *fakeDatum) insertValues() []any { return []any{f.id, f.fakeName} }
 
 // TestInsertValuesTransactionRunner checks that insertValuesTransactionRunner properly inserts values into a test database
 func TestInsertValuesTransactionRunner(t *testing.T) {

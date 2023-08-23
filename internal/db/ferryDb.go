@@ -42,7 +42,8 @@ type ferryUidDatum struct {
 	uid      int
 }
 
-func (f *ferryUidDatum) values() []any { return []any{f.username, f.uid, f.uid} }
+// f.uid is doubled here because of the ON CONFLICT...UPDATE clause
+func (f *ferryUidDatum) insertValues() []any { return []any{f.username, f.uid, f.uid} }
 
 func (f *ferryUidDatum) Username() string { return f.username }
 func (f *ferryUidDatum) Uid() int         { return f.uid }
@@ -78,12 +79,12 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
 	if err != nil {
 		funcLogger.Error("Could not get usernames and uids from database")
-		return dataConverted, err
+		return nil, err
 	}
 
 	if len(data) == 0 {
 		funcLogger.Debug("No uids in database")
-		return dataConverted, nil
+		return nil, nil
 	}
 
 	// Unpack data
@@ -91,7 +92,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 		rowDatum, err := unpackUIDDataRow(resultRow)
 		if err != nil {
 			funcLogger.Error("Error unpacking UID Data row")
-			return dataConverted, err
+			return nil, err
 		}
 		dataConverted = append(dataConverted, rowDatum)
 	}

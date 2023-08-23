@@ -202,15 +202,15 @@ func prepareDataAndPointerSliceForDBRows(length int) ([]any, []any) {
 // of type (string, int), we would do something like the following:
 //
 //	type myType struct {
-//			stringField string
-//			intField    int
+//		stringField string
+//		intField    int
 //	}
 //
-// func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
+//	func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
 //
 // And then pass in a []*myType as the insertData parameter in insertTransactionRunner
 type insertValues interface {
-	values() []any
+	insertValues() []any
 }
 
 // insertTransactionRunner inserts data into a database.  Besides the context to be used and the databse
@@ -248,7 +248,7 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 
 	// Run the passed-in insert statement on insertData
 	for _, datum := range insertData {
-		datumValues := datum.values()
+		datumValues := datum.insertValues()
 		_, err := insertStatement.ExecContext(dbContext, datumValues...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
@@ -272,6 +272,20 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 
 	log.Debug("Inserted data into database")
 	return nil
+}
+
+// // valuesDatum applies to any type that can express its values as a slice of any
+// type valuesDatum interface {
+// 	values() []any
+// }
+
+// // valuesDatumWrapper is for types that can wrap their values into a valuesDatum object
+// type valuesDatumWrapper interface {
+// 	wrapToValuesDatum() (valuesDatum, error)
+// }
+
+type dataRowUnpacker interface {
+	unpackDataRow([]any) (dataRowUnpacker, error)
 }
 
 // databaseCheckError is returned when the database fails the verification check

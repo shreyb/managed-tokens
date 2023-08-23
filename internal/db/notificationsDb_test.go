@@ -1026,3 +1026,80 @@ func TestUpdatePushErrorsTable(t *testing.T) {
 		)
 	}
 }
+
+func TestUnpackSetupErrorDataRow(t *testing.T) {
+	type testCase struct {
+		description    string
+		resultRow      []any
+		expectedResult *setupErrorCount
+		expectedErr    error
+	}
+
+	testCases := []testCase{
+		{
+			"Valid data",
+			[]any{
+				"string",
+				int64(42),
+			},
+			&setupErrorCount{
+				"string",
+				42,
+			},
+			nil,
+		},
+		{
+			"Invalid data - wrong structure",
+			[]any{
+				"string",
+				int64(42),
+				int64(43),
+			},
+			nil,
+			errDatabaseDataWrongStructure,
+		},
+		{
+			"Invalid data - wrong types",
+			[]any{
+				"string",
+				"string2",
+			},
+			nil,
+			errDatabaseDataWrongType,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				datum, err := unpackSetupErrorDataRow(test.resultRow)
+				if test.expectedErr == nil && err != nil {
+					t.Errorf("Expected nil error.  Got %s instead", err)
+					return
+				}
+				testErrors := []error{errDatabaseDataWrongStructure, errDatabaseDataWrongType}
+				for _, testError := range testErrors {
+					if errors.Is(test.expectedErr, testError) {
+						if !errors.Is(err, testError) {
+							t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+							return
+						}
+						break
+					}
+				}
+
+				if (test.expectedResult == nil && datum != nil) ||
+					(test.expectedResult != nil && datum == nil) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datum)
+				}
+
+				if test.expectedResult != nil && datum != nil {
+					if *datum != *test.expectedResult {
+						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datum)
+					}
+				}
+			},
+		)
+	}
+}

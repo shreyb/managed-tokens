@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
@@ -138,17 +139,20 @@ type setupErrorCount struct {
 
 func (s *setupErrorCount) Service() string { return s.service }
 func (s *setupErrorCount) Count() int      { return s.count }
-func (s *setupErrorCount) values() []any   { return []any{s.service, s.count, s.count} }
+
+// s.count is doubled here because of the ON CONFLICT...UPDATE clause
+func (s *setupErrorCount) insertValues() []any { return []any{s.service, s.count, s.count} }
 
 // GetSetupErrorsInfo queries the ManagedTokensDatabase for setup error counts.  It returns the data in the form of a slice of SetupErrorCounts
 // that the caller can unpack using the interface methods Service() and Count()
 func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]SetupErrorCount, error) {
 	funcLogger := log.WithField("dbLocation", m.filename)
+
 	dataConverted := make([]SetupErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsStatement)
 	if err != nil {
 		funcLogger.Error("Could not get setup errors information from ManagedTokensDatabase")
-		return dataConverted, err
+		return nil, err
 	}
 
 	if len(data) == 0 {
@@ -158,23 +162,14 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 
 	// Unpack data
 	for _, resultRow := range data {
-		// Make sure we have the right number of values
-		if len(resultRow) != 2 {
-			msg := "setup error data has wrong structure"
-			funcLogger.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errDatabaseDataWrongStructure
+		rowDatum, err := unpackSetupErrorDataRow(resultRow)
+		if err != nil {
+			funcLogger.Error("Error unpacking setupError data")
+			return nil, err
 		}
-		// Type check each element
-		serviceVal, serviceTypeOk := resultRow[0].(string)
-		countVal, countTypeOk := resultRow[1].(int64)
-		if !(serviceTypeOk && countTypeOk) {
-			msg := "setup errors query result has wrong type.  Expected (int, string)"
-			funcLogger.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
-			return dataConverted, errDatabaseDataWrongType
-		}
-		funcLogger.Debugf("Got SetupError row: %s, %d", serviceVal, countVal)
-		dataConverted = append(dataConverted, &setupErrorCount{serviceVal, int(countVal)})
+		dataConverted = append(dataConverted, rowDatum)
 	}
+
 	return dataConverted, nil
 }
 
@@ -200,20 +195,25 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 	}
 
 	resultRow := data[0]
+	return unpackSetupErrorDataRow(resultRow)
+}
+
+func unpackSetupErrorDataRow(resultRow []any) (*setupErrorCount, error) {
+	// Make sure we have the right number of values
 	if len(resultRow) != 2 {
 		msg := "setup error data has wrong structure"
-		funcLogger.Errorf("%s: %v", msg, resultRow)
+		log.Errorf("%s: %v", msg, resultRow)
 		return nil, errDatabaseDataWrongStructure
 	}
 	// Type check each element
 	serviceVal, serviceTypeOk := resultRow[0].(string)
 	countVal, countTypeOk := resultRow[1].(int64)
 	if !(serviceTypeOk && countTypeOk) {
-		msg := "setup errors query result has wrong type.  Expected (int, string)"
-		funcLogger.Errorf("%s: got (%T, %T)", msg, serviceVal, countVal)
+		msg := "setup errors query result has wrong type.  Expected (string, int64)"
+		log.Errorf("%s: got (%T, %T)", msg, resultRow[0], resultRow[1])
 		return nil, errDatabaseDataWrongType
 	}
-	funcLogger.Debugf("Got SetupError row: %s, %d", serviceVal, countVal)
+	log.Debugf("Got SetupError row: %s, %d", serviceVal, countVal)
 	return &setupErrorCount{serviceVal, int(countVal)}, nil
 }
 
@@ -225,7 +225,7 @@ type PushErrorCount interface {
 	Count() int
 }
 
-// pushErrorCount is an internal-facing type that implements both PushErrorCount and insertData
+// pushErrorCount is an internal-facing type that implements both PushErrorCount and insertValues
 type pushErrorCount struct {
 	service string
 	node    string
@@ -235,44 +235,173 @@ type pushErrorCount struct {
 func (p *pushErrorCount) Service() string { return p.service }
 func (p *pushErrorCount) Node() string    { return p.node }
 func (p *pushErrorCount) Count() int      { return p.count }
-func (p *pushErrorCount) values() []any   { return []any{p.service, p.node, p.count, p.count} }
+
+// p.count is doubled here because of the ON CONFLICT...UPDATE clause
+func (p *pushErrorCount) insertValues() []any { return []any{p.service, p.node, p.count, p.count} }
+
+// type pushErrorCountValues struct {
+// 	values []any
+// }
+
+// func (p *pushErrorCountValues) wrapToValuesDatum() (valuesDatum, error) {
+// 	if len(p.values) != 3 {
+// 		return nil, errors.New("Invalid values length for pushErrorCountValues type.  Should be 3.")
+// 	}
+// 	stringVal0, ok := p.values[0].(string)
+// 	if !ok {
+// 		return nil, fmt.Errorf("Invalid type stored at values[0].  Should be string, is %T", p.values[0])
+// 	}
+// 	stringVal1, ok := p.values[1].(string)
+// 	if !ok {
+// 		return nil, fmt.Errorf("Invalid type stored at values[1].  Should be string, is %T", p.values[1])
+// 	}
+// 	intVal, ok := p.values[2].(int)
+// 	if !ok {
+// 		int64Val, ok := p.values[2].(int64)
+// 		if !ok {
+// 			return nil, fmt.Errorf("Invalid type stored at values[2].  Should be int, is %T", p.values[1])
+// 		}
+// 		intVal = int(int64Val)
+// 	}
+// 	return &pushErrorCount{stringVal0, stringVal1, intVal}, nil
+// }
 
 // GetPushErrorsInfo queries the ManagedTokensDatabase for push error counts.  It returns the data in the form of a slice of PushErrorCounts
 // that the caller can unpack using the interface methods Service(), Node(), and Count()
 func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushErrorCount, error) {
 	funcLogger := log.WithField("dbLocation", m.filename)
-	dataConverted := make([]PushErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsStatement)
 	if err != nil {
 		funcLogger.Error("Could not get push errors information from ManagedTokensDatabase")
-		return dataConverted, err
+		return nil, err
 	}
 
 	if len(data) == 0 {
 		funcLogger.Debug("No push error data in database")
-		return dataConverted, sql.ErrNoRows
+		return nil, sql.ErrNoRows
 	}
 
 	// Unpack data
-	for _, resultRow := range data {
-		if len(resultRow) != 3 {
-			msg := "push error data has wrong structure"
-			funcLogger.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errDatabaseDataWrongStructure
-		}
-		// Type check each element
-		serviceVal, serviceTypeOk := resultRow[0].(string)
-		nodeVal, nodeTypeOk := resultRow[1].(string)
-		countVal, countTypeOk := resultRow[2].(int64)
-		if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
-			msg := "push errors query result has wrong type.  Expected (string, string, int)"
-			funcLogger.Errorf("%s: got (%T, %T, %T)", msg, serviceVal, nodeVal, countVal)
-			return dataConverted, errDatabaseDataWrongType
-		}
-		funcLogger.Debugf("Got PushErrorCount row: %s, %s, %d", serviceVal, nodeVal, countVal)
-		dataConverted = append(dataConverted, &pushErrorCount{serviceVal, nodeVal, int(countVal)})
+	unpackedData, err := unpackData[*pushErrorCount](data)
+	if err != nil {
+		funcLogger.Error("Could not unpack data from database")
+		return nil, err
 	}
-	return dataConverted, nil
+	convertedData := make([]PushErrorCount, 0, len(unpackedData))
+	for _, datum := range unpackedData {
+		convertedData = append(convertedData, datum)
+	}
+	return convertedData, nil
+
+	// dataConverted := make([]PushErrorCount, 0, len(data))
+	// for _, resultRow := range data {
+	// 	p := &pushErrorCount{}
+	// 	if err := p.unpackDataRow(resultRow); err != nil {
+	// 		log.Error("Error unpacking pushError data")
+	// 		return nil, err
+	// 	}
+	// rowDatum, err := unpackPushErrorDataRow(resultRow)
+	// if err != nil {
+	// 	log.Error("Error unpacking pushError data")
+	// 	return nil, err
+	// }
+	// 	dataConverted = append(dataConverted, p)
+	// }
+	// return dataConverted, nil
+}
+
+func unpackData[T dataRowUnpacker](data [][]any) ([]T, error) {
+	unpackedData := make([]T, 0, len(data))
+	for _, row := range data {
+		var datum T
+		datumGen, err := datum.unpackDataRow(row)
+		if err != nil {
+			log.Error("Error unpacking data")
+			return nil, err
+		}
+		datumVal, ok := datumGen.(T)
+		if !ok {
+			msg := "unpackDataRow returned wrong type"
+			log.Error(msg)
+			return nil, errors.New(msg)
+		}
+		unpackedData = append(unpackedData, datumVal)
+	}
+	return unpackedData, nil
+}
+
+func (p *pushErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error) {
+	// Make sure we have the right number of values
+	if len(resultRow) != 3 {
+		msg := "push error data has wrong structure"
+		log.Errorf("%s: %v", msg, resultRow)
+		return nil, errDatabaseDataWrongStructure
+	}
+	// Type check each element
+	serviceVal, serviceTypeOk := resultRow[0].(string)
+	nodeVal, nodeTypeOk := resultRow[1].(string)
+	countVal, countTypeOk := resultRow[2].(int64)
+	if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
+		msg := "push errors query result has wrong type.  Expected (string, string, int64)"
+		log.Errorf("%s: got (%T, %T, %T)", msg, resultRow[0], resultRow[1], resultRow[2])
+		return nil, errDatabaseDataWrongType
+	}
+	log.Debugf("Got PushErrorCount row: %s, %s, %d", serviceVal, nodeVal, countVal)
+
+	p2 := pushErrorCount{serviceVal, nodeVal, int(countVal)}
+
+	// p.service = serviceVal
+	// p.node = nodeVal
+	// p.count = int(countVal)
+	return &p2, nil
+}
+
+// func unpackPushErrorData(data [][]any) ([]*pushErrorCount, error) {
+// 	dataConverted := make([]*pushErrorCount, 0, len(data))
+// 	for _, resultRow := range data {
+// 		rowDatum, err := unpackPushErrorDataRow(resultRow)
+// 		if err != nil {
+// 			log.Error("Error unpacking pushError data")
+// 			return nil, err
+// 		}
+// 		dataConverted = append(dataConverted, rowDatum)
+// 	}
+// 	return dataConverted, nil
+// }
+
+// // TODO
+// func dataUnpacker(data []valuesDatumWrapper, unpackerFunc func(valuesDatumWrapper) (valuesDatum, error)) ([]valuesDatumWrapper, error) {
+// 	unpackedData := make([]valuesDatum, 0, len(data))
+// 	for _, resultRow := range data {
+// 		rowDatum, err := unpackerFunc(resultRow)
+// 		if err != nil {
+// 			log.Error("Error unpacking data")
+// 			return nil, err
+// 		}
+// 		unpackedData = append(unpackedData, rowDatum)
+// 	}
+// 	return unpackedData, nil
+// }
+
+// TODO May not need this
+func unpackPushErrorDataRow(resultRow []any) (*pushErrorCount, error) {
+	// Make sure we have the right number of values
+	if len(resultRow) != 3 {
+		msg := "push error data has wrong structure"
+		log.Errorf("%s: %v", msg, resultRow)
+		return nil, errDatabaseDataWrongStructure
+	}
+	// Type check each element
+	serviceVal, serviceTypeOk := resultRow[0].(string)
+	nodeVal, nodeTypeOk := resultRow[1].(string)
+	countVal, countTypeOk := resultRow[2].(int64)
+	if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
+		msg := "push errors query result has wrong type.  Expected (string, string, int64)"
+		log.Errorf("%s: got (%T, %T, %T)", msg, resultRow[0], resultRow[1], resultRow[2])
+		return nil, errDatabaseDataWrongType
+	}
+	log.Debugf("Got PushErrorCount row: %s, %s, %d", serviceVal, nodeVal, countVal)
+	return &pushErrorCount{serviceVal, nodeVal, int(countVal)}, nil
 }
 
 // GetPushErrorsInfoByService queries the database for the push errors for a specific service.  It returns the data as a slice of PushErrorCounts
@@ -316,7 +445,7 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 // serviceDatum is an internal type that implements the insertValues interface.  It holds the name of a service as its value.
 type serviceDatum string
 
-func (s *serviceDatum) values() []any { return []any{s} }
+func (s *serviceDatum) insertValues() []any { return []any{s} }
 
 // UpdateServices updates the services table in the ManagedTokensDatabase.  It takes a slice
 // of strings for the service names, and inserts them if they don't already exist in the
@@ -340,7 +469,7 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 // nodeDatum is an internal type that implements the insertValues interface.  It holds the name of a node as its value.
 type nodeDatum string
 
-func (n *nodeDatum) values() []any { return []any{n} }
+func (n *nodeDatum) insertValues() []any { return []any{n} }
 
 // UpdateNodes updates the nodes table in the ManagedTokensDatabase.  It takes a slice
 // of strings for the node names, and inserts them if they don't already exist in the
