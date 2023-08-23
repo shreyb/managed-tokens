@@ -101,19 +101,14 @@ func (m *ManagedTokensDatabase) Close() error {
 
 // check makes sure that an object claiming to be a ManagedTokensDatabase actually is, by checking the ApplicationID
 func (m *ManagedTokensDatabase) check() error {
-	var dbApplicationId int
 	funcLog := log.WithField("dbLocation", m.filename)
-	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
-		msg := "Could not get application_id from ManagedTokensDatabase"
-		funcLog.Error(msg)
-		return &databaseCheckError{msg, err}
+
+	err := m.checkApplicationId()
+	if err != nil {
+		funcLog.Error("ApplicationId check failed")
+		return err
 	}
-	// Make sure our application IDs match
-	if dbApplicationId != ApplicationId {
-		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
-		funcLog.Errorf(errMsg)
-		return &databaseCheckError{errMsg, nil}
-	}
+
 	// Migrate to the right userVersion of the database
 	var userVersion int
 	if err := m.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
@@ -127,6 +122,24 @@ func (m *ManagedTokensDatabase) check() error {
 		}
 	} else if userVersion > schemaVersion {
 		funcLog.Warn("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
+	}
+	return nil
+}
+
+// TODO unit test this
+func (m *ManagedTokensDatabase) checkApplicationId() error {
+	var dbApplicationId int
+	funcLog := log.WithField("dbLocation", m.filename)
+	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
+		msg := "Could not get application_id from ManagedTokensDatabase"
+		funcLog.Error(msg)
+		return &databaseCheckError{msg, err}
+	}
+	// Make sure our application IDs match
+	if dbApplicationId != ApplicationId {
+		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
+		funcLog.Errorf(errMsg)
+		return &databaseCheckError{errMsg, nil}
 	}
 	return nil
 }
@@ -196,6 +209,51 @@ func prepareDataAndPointerSliceForDBRows(length int) ([]any, []any) {
 	return resultRow, resultRowPtrs
 }
 
+// getNamedDimensionStringValues queries a table as given in the sqlGetStatement provided that each row returned by the query
+// in sqlGetStatement is a single string (one column of string type). An example of a valid query for sqlGetStatement would be
+// "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table"
+func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatement string) ([]string, error) {
+	data, err := getValuesTransactionRunner(ctx, db, sqlGetStatement)
+	if err != nil {
+		log.Error("Could not get values from database")
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No values in database")
+		return nil, nil
+	}
+
+	unpackedData, err := unpackNamedDimensionData(data)
+	if err != nil {
+		log.Error("Error unpacking named dimension data")
+		return nil, err
+	}
+
+	return unpackedData, nil
+}
+
+// TODO UNIT TEST
+func unpackNamedDimensionData(data [][]any) ([]string, error) {
+	dataConverted := make([]string, 0, len(data))
+	for _, resultRow := range data {
+		if len(resultRow) != 1 {
+			msg := "dimension name data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return nil, errDatabaseDataWrongStructure
+		}
+		if val, ok := resultRow[0].(string); !ok {
+			msg := "dimension name query result has wrong type.  Expected string"
+			log.Errorf("%s: got %T", msg, val)
+			return nil, errDatabaseDataWrongType
+		} else {
+			log.Debugf("Got dimension row: %s", val)
+			dataConverted = append(dataConverted, val)
+		}
+	}
+	return dataConverted, nil
+}
+
 // insertValues is a bridge interface that contains a values() method.  This values method should
 // return a []any, where each element is any(value).  For each element, the type of value should
 // match the intended database column type.  For example, to use this interface to insert to columns
@@ -213,7 +271,7 @@ type insertValues interface {
 	insertValues() []any
 }
 
-// insertTransactionRunner inserts data into a database.  Besides the context to be used and the databse
+// insertTransactionRunner inserts data into a database.  Besides the context to be used and the database
 // itself, it also takes an insertStatementString string that contains the SQL query to be prepared and
 // filled in with the values given by each element of insertData.
 func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
@@ -274,18 +332,51 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	return nil
 }
 
-// // valuesDatum applies to any type that can express its values as a slice of any
-// type valuesDatum interface {
-// 	values() []any
-// }
-
-// // valuesDatumWrapper is for types that can wrap their values into a valuesDatum object
-// type valuesDatumWrapper interface {
-// 	wrapToValuesDatum() (valuesDatum, error)
-// }
-
 type dataRowUnpacker interface {
 	unpackDataRow([]any) (dataRowUnpacker, error)
+}
+
+// unpackData takes row data and applies the unpackDataRow method of the type T to return a slice of type T
+func unpackData[T dataRowUnpacker](data [][]any) ([]T, error) {
+	unpackedData := make([]T, 0, len(data))
+	for _, row := range data {
+		var datum T
+		datumGen, err := datum.unpackDataRow(row)
+		if err != nil {
+			log.Error("Error unpacking data")
+			return nil, err
+		}
+		datumVal, ok := datumGen.(T)
+		if !ok {
+			msg := "unpackDataRow returned wrong type"
+			log.Error(msg)
+			return nil, errors.New(msg)
+		}
+		unpackedData = append(unpackedData, datumVal)
+	}
+	return unpackedData, nil
+}
+
+// TODO unit test this
+
+// convertStringSliceToInsertValuesSlice takes a string slice and converts it to a slice of types
+func convertStringSliceToInsertValuesSlice(converter func(string) insertValues, stringSlice []string) []insertValues {
+	sl := make([]insertValues, 0, len(stringSlice))
+	for _, elt := range stringSlice {
+		valToAdd := converter(elt)
+		sl = append(sl, valToAdd)
+	}
+	return sl
+}
+
+// TODO Unit test
+func newInsertValuesFromUnderlyingString[T1 interface {
+	*T2
+	insertValues
+}, T2 ~string](s string) insertValues {
+	underlyingTypeValue := T2(s)
+	pointerToTypeValue := T1(&underlyingTypeValue)
+	return insertValues(pointerToTypeValue)
 }
 
 // databaseCheckError is returned when the database fails the verification check

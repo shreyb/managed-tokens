@@ -429,6 +429,112 @@ func checkSchema(m *ManagedTokensDatabase) error {
 	return nil
 }
 
+type testDataUnpacker struct {
+	data any
+}
+
+func (t *testDataUnpacker) unpackDataRow(resultRow []any) (dataRowUnpacker, error) {
+	return &testDataUnpacker{data: resultRow}, nil
+}
+
+func TestUnpackData(t *testing.T) {
+	type testCase struct {
+		description string
+		data        [][]any
+	}
+
+	testCases := []testCase{
+		{
+			"3-tuple of data",
+			[][]any{
+				{
+					"foo",
+					"bar",
+					"123",
+				},
+				{
+					"foo",
+					"bar",
+					"345",
+				},
+			},
+		},
+		{
+			"2-tuple of data",
+			[][]any{
+				{
+					"foo",
+					"123",
+				},
+			},
+		},
+		{
+			"empty",
+			[][]any{
+				{},
+			},
+		},
+		{
+			"Shouldn't happen, but mixed n-tuples of data",
+			[][]any{
+				{
+					"foo",
+					"123",
+				},
+				{
+					"foo",
+					"bar",
+					"345",
+				},
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				expectedData := make([]testDataUnpacker, 0, len(test.data))
+				for _, datum := range test.data {
+					expectedData = append(expectedData, testDataUnpacker{datum})
+				}
+
+				unpackedDataPtrs, err := unpackData[*testDataUnpacker](test.data)
+				if err != nil {
+					t.Errorf("Unexpected error, %v", err)
+				}
+				unpackedData := make([]testDataUnpacker, 0, len(unpackedDataPtrs))
+				for _, elt := range unpackedDataPtrs {
+					unpackedData = append(unpackedData, *elt)
+				}
+
+				if !slices.EqualFunc[[]testDataUnpacker, []testDataUnpacker, testDataUnpacker](
+					expectedData,
+					unpackedData,
+					func(t1 testDataUnpacker, t2 testDataUnpacker) bool {
+						t1Slice, ok1 := t1.data.([]any)
+						t2Slice, ok2 := t2.data.([]any)
+						ok := ok1 && ok2
+						if !ok {
+							t.Errorf("One of the testDataUnpackers does not contain a slice")
+							return false
+						}
+						if !slices.Equal(t1Slice, t2Slice) {
+							t.Errorf("Got wrong result.  Expected %v, got %v", t1Slice, t2Slice)
+							return false
+						}
+						return true
+
+					},
+				) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", expectedData, unpackedData)
+				}
+
+			},
+		)
+	}
+}
+
 // standardizeSpaces is a simple utility function to reprint any string with only a single space character separating.  This
 // helps to compare two strings that have the same text, but different spacing schemes/indents/newlines, etc.
 // For example:
