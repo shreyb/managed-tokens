@@ -53,6 +53,7 @@ func (f *ferryUidDatum) String() string   { return fmt.Sprintf("%s, %d", f.usern
 // with the information in the FERRYUIDDatum
 func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
 	funcLogger := log.WithField("dbLocation", m.filename)
+
 	ferryUIDDatumSlice := make([]insertValues, 0)
 	for _, ferryDatum := range ferryData {
 		ferryUIDDatumSlice = append(ferryUIDDatumSlice,
@@ -72,6 +73,7 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 // a FERRYUIDDatum slice
 func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
 	funcLogger := log.WithField("dbLocation", m.filename)
+
 	dataConverted := make([]FerryUIDDatum, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
 	if err != nil {
@@ -86,24 +88,33 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 
 	// Unpack data
 	for _, resultRow := range data {
-		// Make sure we have the right number of values
-		if len(resultRow) != 2 {
-			msg := "uid data has wrong structure"
-			funcLogger.Errorf("%s: %v", msg, resultRow)
-			return dataConverted, errDatabaseDataWrongStructure
+		rowDatum, err := unpackUIDDataRow(resultRow)
+		if err != nil {
+			funcLogger.Error("Error unpacking UID Data row")
+			return dataConverted, err
 		}
-		// Type check each element
-		usernameVal, usernameOk := resultRow[0].(string)
-		uidVal, uidOk := resultRow[1].(int64)
-		if !(usernameOk && uidOk) {
-			msg := "uid query result datum has wrong type.  Expected (string, int)"
-			funcLogger.Errorf("%s: got (%T, %T)", msg, usernameVal, uidVal)
-			return dataConverted, errDatabaseDataWrongType
-		}
-		funcLogger.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
-		dataConverted = append(dataConverted, &ferryUidDatum{usernameVal, int(uidVal)})
+		dataConverted = append(dataConverted, rowDatum)
 	}
 	return dataConverted, nil
+}
+
+func unpackUIDDataRow(resultRow []any) (*ferryUidDatum, error) {
+	// Make sure we have the right number of values
+	if len(resultRow) != 2 {
+		msg := "uid data has wrong structure"
+		log.Errorf("%s: %v", msg, resultRow)
+		return nil, errDatabaseDataWrongStructure
+	}
+	// Type check each element
+	usernameVal, usernameOk := resultRow[0].(string)
+	uidVal, uidOk := resultRow[1].(int64)
+	if !(usernameOk && uidOk) {
+		msg := "uid query result datum has wrong type.  Expected (string, int64)"
+		log.Errorf("%s: got (%T, %T)", msg, resultRow[0], resultRow[1])
+		return nil, errDatabaseDataWrongType
+	}
+	log.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
+	return &ferryUidDatum{usernameVal, int(uidVal)}, nil
 }
 
 // GetUIDByUsername queries the ManagedTokensDatabase for a UID, given a username
