@@ -98,25 +98,6 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 	return dataConverted, nil
 }
 
-func unpackUIDDataRow(resultRow []any) (*ferryUidDatum, error) {
-	// Make sure we have the right number of values
-	if len(resultRow) != 2 {
-		msg := "uid data has wrong structure"
-		log.Errorf("%s: %v", msg, resultRow)
-		return nil, errDatabaseDataWrongStructure
-	}
-	// Type check each element
-	usernameVal, usernameOk := resultRow[0].(string)
-	uidVal, uidOk := resultRow[1].(int64)
-	if !(usernameOk && uidOk) {
-		msg := "uid query result datum has wrong type.  Expected (string, int64)"
-		log.Errorf("%s: got (%T, %T)", msg, resultRow[0], resultRow[1])
-		return nil, errDatabaseDataWrongType
-	}
-	log.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
-	return &ferryUidDatum{usernameVal, int(uidVal)}, nil
-}
-
 // GetUIDByUsername queries the ManagedTokensDatabase for a UID, given a username
 func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
 	funcLogger := log.WithField("dbLocation", m.filename)
@@ -151,4 +132,23 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 		return uid, err
 	}
 	return uid, nil
+}
+
+func unpackUIDDataRow(resultRow []any) (*ferryUidDatum, error) {
+	// Make sure we have the right number of values
+	if len(resultRow) != 2 {
+		msg := "uid data has wrong structure"
+		log.Errorf("%s: %v", msg, resultRow)
+		return nil, errDatabaseDataWrongStructure
+	}
+	// Type check each element
+	usernameVal, usernameOk := resultRow[0].(string)
+	uidVal, uidOk := resultRow[1].(int64)
+	if !(usernameOk && uidOk) {
+		msg := "uid query result datum has wrong type.  Expected (string, int64)"
+		log.Errorf("%s: got (%T, %T)", msg, resultRow[0], resultRow[1])
+		return nil, errDatabaseDataWrongType
+	}
+	log.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
+	return &ferryUidDatum{usernameVal, int(uidVal)}, nil
 }
