@@ -34,29 +34,10 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	})
 
 	// Parse and execute kinit template
-	kinitTemplate, err := template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")
+	args, err := parseAndExecuteKinitTemplate(keytabPath, userPrincipal)
 	if err != nil {
-		funcLogger.Error("could not parse kinit template")
+		funcLogger.Error("Could not parse and execute kinit template")
 		return err
-	}
-
-	cArgs := struct{ KeytabPath, UserPrincipal string }{
-		KeytabPath:    keytabPath,
-		UserPrincipal: userPrincipal,
-	}
-	args, err := utils.TemplateToCommand(kinitTemplate, cArgs)
-	if err != nil {
-		var t1 *utils.TemplateExecuteError
-		var t2 *utils.TemplateArgsError
-		var retErr error
-		if errors.As(err, &t1) {
-			retErr = fmt.Errorf("could not execute kinit template: %w", err)
-		}
-		if errors.As(err, &t2) {
-			retErr = fmt.Errorf("could not get kinit command arguments from template: %w", err)
-		}
-		funcLogger.Error(retErr.Error())
-		return retErr
 	}
 
 	// Run kinit to get kerberos ticket from keytab
@@ -92,15 +73,11 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	funcLogger.Debugf("%s", stdoutStderr)
 
 	// Check output of klist to get principal
-	principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
-	matches := principalCheckRegexp.FindSubmatch(stdoutStderr)
-	if len(matches) != 2 {
-		err := "could not find principal in kinit output"
-		funcLogger.Error(err)
-		return errors.New(err)
+	principal, err := getKerberosPrincipalFromKerbListOutput(stdoutStderr)
+	if err != nil {
+		funcLogger.Error("Could not get kerberos principal")
+		return err
 	}
-	principal := string(matches[1])
-	funcLogger.Debugf("Found principal: %s", principal)
 
 	if principal != checkPrincipal {
 		err := fmt.Errorf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
@@ -108,4 +85,45 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 		return err
 	}
 	return nil
+}
+
+func parseAndExecuteKinitTemplate(keytabPath, userPrincipal string) ([]string, error) {
+	kinitTemplate, err := template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")
+	if err != nil {
+		log.Error("could not parse kinit template")
+		return nil, err
+	}
+
+	cArgs := struct{ KeytabPath, UserPrincipal string }{
+		KeytabPath:    keytabPath,
+		UserPrincipal: userPrincipal,
+	}
+	args, err := utils.TemplateToCommand(kinitTemplate, cArgs)
+	if err != nil {
+		var t1 *utils.TemplateExecuteError
+		var t2 *utils.TemplateArgsError
+		var retErr error
+		if errors.As(err, &t1) {
+			retErr = fmt.Errorf("could not execute kinit template: %w", err)
+		}
+		if errors.As(err, &t2) {
+			retErr = fmt.Errorf("could not get kinit command arguments from template: %w", err)
+		}
+		log.Error(retErr.Error())
+		return nil, retErr
+	}
+	return args, nil
+}
+
+func getKerberosPrincipalFromKerbListOutput(output []byte) (string, error) {
+	principalCheckRegexp := regexp.MustCompile("Default principal: (.+)")
+	matches := principalCheckRegexp.FindSubmatch(output)
+	if len(matches) != 2 {
+		err := "could not find principal in klist output"
+		log.Error(err)
+		return "", errors.New(err)
+	}
+	principal := string(matches[1])
+	log.Debugf("Found principal: %s", principal)
+	return principal, nil
 }
