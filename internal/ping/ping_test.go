@@ -3,6 +3,7 @@ package ping
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -134,4 +135,16 @@ func TestPingAllNodesTimeout(t *testing.T) {
 		}
 	}
 	cancelTimeout()
+}
+
+func TestParseAndExecutePingTemplate(t *testing.T) {
+	node := "mynode"
+	expected := []string{"-W", "5", "-c", "1", node}
+
+	if result, err := parseAndExecutePingTemplate(node); !slices.Equal(result, expected) {
+		t.Errorf("Got wrong result.  Expected %v, got %v", expected, result)
+	} else if err != nil {
+		t.Errorf("Should have gotten nil error.  Got %v instead", err)
+	}
+
 }

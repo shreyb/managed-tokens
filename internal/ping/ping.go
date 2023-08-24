@@ -3,9 +3,9 @@ package ping
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
-	"strings"
 	"sync"
 	"text/template"
 
@@ -14,13 +14,10 @@ import (
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
-const pingArgs = "-W 5 -c 1 {{.Node}}"
-
 var (
 	pingExecutables = map[string]string{
 		"ping": "",
 	}
-	pingTemplate = template.Must(template.New("ping").Parse(pingArgs))
 )
 
 // PingNoder is an interface that wraps the PingNode method. It is meant to be used where pinging a node is necessary.  PingNoders also implement the Stringer interface.
@@ -37,23 +34,11 @@ func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
 func (n Node) PingNode(ctx context.Context) error {
-	var b strings.Builder
-	var pArgs = map[string]string{
-		"Node": string(n),
-	}
+
 	funcLogger := log.WithField("node", string(n))
-
-	if err := pingTemplate.Execute(&b, pArgs); err != nil {
-		err := fmt.Errorf("could not execute ping template: %w", err)
-		funcLogger.Error(err)
-		return err
-	}
-
-	args, err := utils.GetArgsFromTemplate(b.String())
-
+	args, err := parseAndExecutePingTemplate(string(n))
 	if err != nil {
-		err := fmt.Errorf("could not get ping command arguments from template: %w", err)
-		funcLogger.WithField("templateStringsBuilder", b.String()).Error(err)
+		funcLogger.Error("Could not parse and execute ping template")
 		return err
 	}
 
@@ -109,4 +94,31 @@ func init() {
 	if err := utils.CheckForExecutables(pingExecutables); err != nil {
 		log.WithField("executableGroup", "ping").Error("One or more required executables were not found in $PATH.  Will still attempt to run, but this will probably fail")
 	}
+}
+
+func parseAndExecutePingTemplate(node string) ([]string, error) {
+	pingTemplate, err := template.New("ping").Parse("-W 5 -c 1 {{.Node}}")
+	if err != nil {
+		log.Error("could not parse kinit template")
+		return nil, err
+	}
+
+	var pArgs = map[string]string{
+		"Node": node,
+	}
+	args, err := utils.TemplateToCommand(pingTemplate, pArgs)
+	if err != nil {
+		var t1 *utils.TemplateExecuteError
+		var t2 *utils.TemplateArgsError
+		var retErr error
+		if errors.As(err, &t1) {
+			retErr = fmt.Errorf("could not execute ping template: %w", err)
+		}
+		if errors.As(err, &t2) {
+			retErr = fmt.Errorf("could not get ping command arguments from template: %w", err)
+		}
+		log.Error(retErr.Error())
+		return nil, retErr
+	}
+	return args, nil
 }
