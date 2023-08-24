@@ -105,15 +105,16 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	}
 
 	args, err := utils.TemplateToCommand(rsyncTemplate, cArgs)
-	var t1 *utils.TemplateExecuteError
-	if errors.As(err, &t1) {
-		retErr := fmt.Errorf("could not execute rsync template: %w", err)
-		funcLogger.Error(retErr.Error())
-		return retErr
-	}
-	var t2 *utils.TemplateArgsError
-	if errors.As(err, &t2) {
-		retErr := fmt.Errorf("could not get rsync command arguments from template: %w", err)
+	if err != nil {
+		var t1 *utils.TemplateExecuteError
+		var t2 *utils.TemplateArgsError
+		var retErr error
+		if errors.As(err, &t1) {
+			retErr = fmt.Errorf("could not execute rsync template: %w", err)
+		}
+		if errors.As(err, &t2) {
+			retErr = fmt.Errorf("could not get rsync command arguments from template: %w", err)
+		}
 		funcLogger.Error(retErr.Error())
 		return retErr
 	}
