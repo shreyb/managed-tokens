@@ -45,16 +45,16 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 		UserPrincipal: userPrincipal,
 	}
 	args, err := utils.TemplateToCommand(kinitTemplate, cArgs)
-
-	var t1 *utils.TemplateExecuteError
-	var t2 *utils.TemplateArgsError
-	var retErr error
-	if errors.As(err, &t1) {
-		retErr = fmt.Errorf("could not execute kinit template: %w", err)
-	} else if errors.As(err, &t2) {
-		retErr = fmt.Errorf("could not get kinit command arguments from template: %w", err)
-	}
-	if retErr != nil {
+	if err != nil {
+		var t1 *utils.TemplateExecuteError
+		var t2 *utils.TemplateArgsError
+		var retErr error
+		if errors.As(err, &t1) {
+			retErr = fmt.Errorf("could not execute kinit template: %w", err)
+		}
+		if errors.As(err, &t2) {
+			retErr = fmt.Errorf("could not get kinit command arguments from template: %w", err)
+		}
 		funcLogger.Error(retErr.Error())
 		return retErr
 	}
@@ -88,9 +88,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 		}
 		funcLogger.Errorf("Error running klist:\n %s", stdoutStderr)
 		return err
-
 	}
-
 	funcLogger.Debugf("%s", stdoutStderr)
 
 	// Check output of klist to get principal
@@ -105,9 +103,9 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	funcLogger.Debugf("Found principal: %s", principal)
 
 	if principal != checkPrincipal {
-		err := fmt.Sprintf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
+		err := fmt.Errorf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
 		funcLogger.Error(err)
-		return errors.New(err)
+		return err
 	}
 	return nil
 }
