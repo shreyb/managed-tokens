@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"sync"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
@@ -34,8 +33,8 @@ func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
 func (n Node) PingNode(ctx context.Context) error {
-
 	funcLogger := log.WithField("node", string(n))
+
 	args, err := parseAndExecutePingTemplate(string(n))
 	if err != nil {
 		funcLogger.Error("Could not parse and execute ping template")
@@ -64,30 +63,6 @@ func (n Node) String() string { return string(n) }
 type PingNodeStatus struct {
 	PingNoder
 	Err error
-}
-
-// PingAllNodes will launch goroutines, which each ping a PingNoder from the nodes variadic.  It returns a channel,
-// on which it reports the pingNodeStatuses signifying success or error
-func PingAllNodes(ctx context.Context, nodes ...PingNoder) <-chan PingNodeStatus {
-	// Buffered Channel to report on
-	c := make(chan PingNodeStatus, len(nodes))
-	var wg sync.WaitGroup
-	wg.Add(len(nodes))
-	for _, n := range nodes {
-		go func(n PingNoder) {
-			defer wg.Done()
-			p := PingNodeStatus{n, n.PingNode(ctx)}
-			c <- p
-		}(n)
-	}
-
-	// Wait for all goroutines to finish, then close channel so that the caller knows all objects have been sent
-	go func() {
-		defer close(c)
-		wg.Wait()
-	}()
-
-	return c
 }
 
 func init() {
