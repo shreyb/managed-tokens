@@ -535,6 +535,297 @@ func TestUnpackData(t *testing.T) {
 	}
 }
 
+func TestCheckApplicationId(t *testing.T) {
+	tempDir := t.TempDir()
+
+	type testCase struct {
+		description   string
+		dbSetupFunc   func() *ManagedTokensDatabase
+		expectedError error
+	}
+
+	testCases := []testCase{
+		{
+			"Valid case",
+			func() *ManagedTokensDatabase {
+				m, _ := createAndOpenTestDatabaseWithApplicationId(tempDir)
+				return m
+			},
+			nil,
+		},
+		{
+			"Database where we can't get application ID",
+			func() *ManagedTokensDatabase {
+				dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m := &ManagedTokensDatabase{filename: dbLocation}
+				defer m.Close()
+
+				var err error
+				if m.db, err = sql.Open("sqlite3", dbLocation); err != nil {
+					return nil
+				}
+				return m
+			},
+			&databaseCheckError{"foobar", nil}, // We don't care about the contents here - just that we get the right error type returned
+		},
+		{
+			"Improper applicationId",
+			func() *ManagedTokensDatabase {
+				dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+				m := &ManagedTokensDatabase{filename: dbLocation}
+
+				var err error
+				if m.db, err = sql.Open("sqlite3", dbLocation); err != nil {
+					return nil
+				}
+
+				// Set the application ID
+				if _, err = m.db.Exec(fmt.Sprintf("PRAGMA application_id=%d;", 42)); err != nil {
+					return nil
+				}
+				return m
+			},
+			&databaseCheckError{"foobar", nil}, // We don't care about the contents here - just that we get the right error type returned
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				m := test.dbSetupFunc()
+				if m != nil {
+					defer m.Close()
+				}
+				var e *databaseCheckError
+				err := m.checkApplicationId()
+				if err != nil && test.expectedError == nil {
+					t.Errorf("Expected application ID check to pass.  Got error %s instead", err)
+				} else if test.expectedError != nil {
+					if err == nil {
+						t.Errorf("Expected error %s, got nil instead", test.expectedError)
+					} else if !errors.As(err, &e) {
+						t.Errorf("Got wrong error type from application ID check.  Expected *databaseCheckError, got %T instead", err)
+					}
+				}
+			},
+		)
+	}
+}
+
+func TestUnpackNamedDimensionData(t *testing.T) {
+	type testCase struct {
+		description     string
+		data            [][]any
+		expectedResults []string
+		expectedErr     error
+	}
+
+	testCases := []testCase{
+		{
+			"Good data",
+			[][]any{
+				{
+					"foo",
+				},
+				{
+					"bar",
+				},
+				{
+					"baz",
+				},
+			},
+			[]string{"foo", "bar", "baz"},
+			nil,
+		},
+		{
+			"No data",
+			[][]any{},
+			[]string{},
+			nil,
+		},
+		{
+			"Dimension row has more than 1 elt errDatabaseDataWrongStructure",
+			[][]any{
+				{
+					"foo",
+					"bar",
+				},
+				{
+					"bar",
+					"baz",
+				},
+			},
+			nil,
+			errDatabaseDataWrongStructure,
+		},
+		{
+			"Dimension row has no elts.  Like []{[]{ }} errDatabaseDataWrongStructure",
+			[][]any{
+				{},
+				{},
+			},
+			nil,
+			errDatabaseDataWrongStructure,
+		},
+		{
+			"Dimension row is not a string value errDatabaseDataWrongType",
+			[][]any{
+				{42},
+				{21},
+			},
+			nil,
+			errDatabaseDataWrongType,
+		},
+
+		{
+			"Mixed good, wrong structure rows (bad last) errDatabaseDataWrongStructure",
+			[][]any{
+				{"foo"},
+				{"bar"},
+				{"baz", "noooo"},
+			},
+			nil,
+			errDatabaseDataWrongStructure,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				results, err := unpackNamedDimensionData(test.data)
+				if !slices.Equal(results, test.expectedResults) {
+					t.Errorf("Got wrong results.  Expected %v, got %v", test.expectedResults, results)
+				}
+				if !errors.Is(err, test.expectedErr) {
+					t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+				}
+			},
+		)
+	}
+}
+
+type fakeInsertValuesString string
+
+func (f *fakeInsertValuesString) insertValues() []any { return []any{string(*f)} }
+
+func TestConvertStringSliceToInsertValuesSlice(t *testing.T) {
+	// func convertStringSliceToInsertValuesSlice(converter func(string) insertValues, stringSlice []string) []insertValues {
+	type testCase struct {
+		description         string
+		converter           func(string) insertValues
+		stringSlice         []string
+		expectedResultsFunc func() []insertValues
+	}
+
+	testCases := []testCase{
+		{
+			"non-empty string",
+			func(s string) insertValues {
+				val := fakeInsertValuesString(s)
+				return insertValues(&val)
+			},
+			[]string{
+				"foo",
+				"bar",
+				"baz",
+			},
+			func() []insertValues {
+				val1 := fakeInsertValuesString("foo")
+				val2 := fakeInsertValuesString("bar")
+				val3 := fakeInsertValuesString("baz")
+				return []insertValues{&val1, &val2, &val3}
+			},
+		},
+		{
+			"empty string",
+			func(s string) insertValues {
+				val := fakeInsertValuesString(s)
+				return insertValues(&val)
+			},
+			[]string{},
+			func() []insertValues {
+				return []insertValues{}
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				results := convertStringSliceToInsertValuesSlice(test.converter, test.stringSlice)
+				if !slices.EqualFunc(
+					results,
+					test.expectedResultsFunc(),
+					func(elt1 insertValues, elt2 insertValues) bool {
+						val1, ok := elt1.(*fakeInsertValuesString)
+						if !ok {
+							t.Errorf("Got wrong type in results.  Expected *fakeInsertValuesString, got %T", elt1)
+							return false
+						}
+						val2, _ := elt2.(*fakeInsertValuesString)
+						if *val1 != *val2 {
+							t.Errorf("Got wrong value in results.  Expected %v, got %v", val2, val1)
+							return false
+						}
+						return true
+					},
+				) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResultsFunc(), results)
+				}
+			},
+		)
+	}
+}
+
+func TestNewInsertValuesFromUnderlyingString(t *testing.T) {
+	type testCase struct {
+		description        string
+		inputString        string
+		expectedOutputFunc func() insertValues
+	}
+
+	testCases := []testCase{
+		{
+			"Normal string",
+			"foobar",
+			func() insertValues {
+				s := fakeInsertValuesString("foobar")
+				return insertValues(&s)
+			},
+		},
+		{
+			"Empty string",
+			"",
+			func() insertValues {
+				s := fakeInsertValuesString("")
+				return insertValues(&s)
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				result := newInsertValuesFromUnderlyingString[*fakeInsertValuesString](test.inputString)
+				exp := test.expectedOutputFunc()
+				resultVal, ok := result.(*fakeInsertValuesString)
+				if !ok {
+					t.Errorf("Got wrong underlying type in result.  Expected *fakeInsertValuesString, got %T", result)
+				}
+				expVal, _ := exp.(*fakeInsertValuesString)
+
+				if *resultVal != *expVal {
+					t.Errorf("Got wrong result.  Expected %v, got %v", expVal, resultVal)
+				}
+			},
+		)
+	}
+}
+
 // standardizeSpaces is a simple utility function to reprint any string with only a single space character separating.  This
 // helps to compare two strings that have the same text, but different spacing schemes/indents/newlines, etc.
 // For example:

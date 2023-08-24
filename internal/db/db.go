@@ -126,7 +126,6 @@ func (m *ManagedTokensDatabase) check() error {
 	return nil
 }
 
-// TODO unit test this
 func (m *ManagedTokensDatabase) checkApplicationId() error {
 	var dbApplicationId int
 	funcLog := log.WithField("dbLocation", m.filename)
@@ -233,7 +232,9 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 	return unpackedData, nil
 }
 
-// TODO UNIT TEST
+// unpackNamedDimensionData takes a slice of data, and makes sure it's legitimate dimension data, meaning after type checks, it should
+// be [][]string, where len([]string) is 1.  It then extracts the single element in each []string, combines them,
+// and returns those values as a []string
 func unpackNamedDimensionData(data [][]any) ([]string, error) {
 	dataConverted := make([]string, 0, len(data))
 	for _, resultRow := range data {
@@ -357,8 +358,6 @@ func unpackData[T dataRowUnpacker](data [][]any) ([]T, error) {
 	return unpackedData, nil
 }
 
-// TODO unit test this
-
 // convertStringSliceToInsertValuesSlice takes a string slice and converts it to a slice of types
 func convertStringSliceToInsertValuesSlice(converter func(string) insertValues, stringSlice []string) []insertValues {
 	sl := make([]insertValues, 0, len(stringSlice))
@@ -369,7 +368,10 @@ func convertStringSliceToInsertValuesSlice(converter func(string) insertValues, 
 	return sl
 }
 
-// TODO Unit test
+// newInsertValuesFromUnderlyingString takes a string and wraps it in the insertValues interface.  The underlying type of the return
+// value is given with the type parameters (note that *T2 has to implement insertValues), for example:
+//
+//	myVal := newInsertValuesFromUnderlyingString[*myType, myType]("mystring")
 func newInsertValuesFromUnderlyingString[T1 interface {
 	*T2
 	insertValues
