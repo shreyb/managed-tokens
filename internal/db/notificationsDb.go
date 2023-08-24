@@ -99,8 +99,6 @@ var (
 	`
 )
 
-// External-facing functions to modify db
-
 // GetAllServices queries the ManagedTokensDatabase for the registered services
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, error) {
@@ -122,6 +120,8 @@ func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, erro
 	}
 	return dataConverted, nil
 }
+
+// Setup Errors
 
 // SetupErrorCount is an interface that wraps the Service and Count methods.  It is meant to be used both by this package and importing packages to
 // retrieve service and count information about setupErrors.
@@ -223,6 +223,36 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 	return unpackedData[0], nil
 }
 
+// UpdateSetupErrorsTable updates the setup errors table of the ManagedTokens database.  The information to be modified
+// in the database should be given as a slice of SetupErrorCount (setupErrorsByService)
+func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setupErrorsByService []SetupErrorCount) error {
+	funcLogger := log.WithField("dbLocation", m.filename)
+
+	setupErrorDatumSlice := setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorsByService)
+
+	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
+		funcLogger.Error("Could not update setup errors in ManagedTokensDatabase")
+		return err
+	}
+	funcLogger.Debug("Updated setup errors in ManagedTokensDatabase")
+	return nil
+}
+
+// setupErrorCountInterfaceSliceToInsertValuesSlice converts a []SetupErrorCount to []insertValues
+func setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorCountInterfaceSlice []SetupErrorCount) []insertValues {
+	sl := make([]insertValues, 0, len(setupErrorCountInterfaceSlice))
+	for _, datum := range setupErrorCountInterfaceSlice {
+		sl = append(sl,
+			&setupErrorCount{
+				service: datum.Service(),
+				count:   datum.Count(),
+			})
+	}
+	return sl
+}
+
+// Push Errors
+
 // PushErrorCount is an interface that wraps the Service, Node, and Count methods.  It is meant to be used both by this package and
 // importing packages to retrieve service, node, and count information about pushErrors.
 type PushErrorCount interface {
@@ -245,7 +275,6 @@ func (p *pushErrorCount) Count() int      { return p.count }
 // p.count is doubled here because of the ON CONFLICT...UPDATE clause
 func (p *pushErrorCount) insertValues() []any { return []any{p.service, p.node, p.count, p.count} }
 
-// TODO unit test this
 func (p *pushErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error) {
 	// Make sure we have the right number of values
 	if len(resultRow) != 3 {
@@ -323,6 +352,36 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 	return convertedData, nil
 }
 
+// UpdatePushErrorsTable updates the push errors table of the ManagedTokens database.  The information to be modified
+// in the database should be given as a slice of PushErrorCount (pushErrorsByServiceAndNode)
+func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode []PushErrorCount) error {
+	funcLogger := log.WithField("dbLocation", m.filename)
+	pushErrorDatumSlice := pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorsByServiceAndNode)
+
+	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
+		funcLogger.Error("Could not update push errors in ManagedTokensDatabase")
+		return err
+	}
+	funcLogger.Debug("Updated push errors in ManagedTokensDatabase")
+	return nil
+}
+
+// pushErrorCountInterfaceSliceToInsertValuesSlice converts a []PushErrorCount to []insertValues
+func pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorCountInterfaceSlice []PushErrorCount) []insertValues {
+	sl := make([]insertValues, 0, len(pushErrorCountInterfaceSlice))
+	for _, datum := range pushErrorCountInterfaceSlice {
+		sl = append(sl,
+			&pushErrorCount{
+				service: datum.Service(),
+				node:    datum.Node(),
+				count:   datum.Count(),
+			})
+	}
+	return sl
+}
+
+// Dimension data
+
 // serviceDatum is an internal type that implements the insertValues interface.  It holds the name of a service as its value.
 type serviceDatum string
 
@@ -370,60 +429,4 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 	funcLogger.Debug("Updated nodes in ManagedTokensDatabase")
 	return nil
 
-}
-
-// UpdateSetupErrorsTable updates the setup errors table of the ManagedTokens database.  The information to be modified
-// in the database should be given as a slice of SetupErrorCount (setupErrorsByService)
-func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setupErrorsByService []SetupErrorCount) error {
-	funcLogger := log.WithField("dbLocation", m.filename)
-
-	setupErrorDatumSlice := setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorsByService)
-
-	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
-		funcLogger.Error("Could not update setup errors in ManagedTokensDatabase")
-		return err
-	}
-	funcLogger.Debug("Updated setup errors in ManagedTokensDatabase")
-	return nil
-}
-
-// TODO unit test
-func setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorCountInterfaceSlice []SetupErrorCount) []insertValues {
-	sl := make([]insertValues, 0, len(setupErrorCountInterfaceSlice))
-	for _, datum := range setupErrorCountInterfaceSlice {
-		sl = append(sl,
-			&setupErrorCount{
-				service: datum.Service(),
-				count:   datum.Count(),
-			})
-	}
-	return sl
-}
-
-// UpdatePushErrorsTable updates the push errors table of the ManagedTokens database.  The information to be modified
-// in the database should be given as a slice of PushErrorCount (pushErrorsByServiceAndNode)
-func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode []PushErrorCount) error {
-	funcLogger := log.WithField("dbLocation", m.filename)
-	pushErrorDatumSlice := pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorsByServiceAndNode)
-
-	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
-		funcLogger.Error("Could not update push errors in ManagedTokensDatabase")
-		return err
-	}
-	funcLogger.Debug("Updated push errors in ManagedTokensDatabase")
-	return nil
-}
-
-// TODO unit test
-func pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorCountInterfaceSlice []PushErrorCount) []insertValues {
-	sl := make([]insertValues, 0, len(pushErrorCountInterfaceSlice))
-	for _, datum := range pushErrorCountInterfaceSlice {
-		sl = append(sl,
-			&pushErrorCount{
-				service: datum.Service(),
-				node:    datum.Node(),
-				count:   datum.Count(),
-			})
-	}
-	return sl
 }
