@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"path"
+	"slices"
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/testUtils"
@@ -295,6 +296,71 @@ func TestUnpackUIDDataRow(t *testing.T) {
 					if *datumValue != *test.expectedResult {
 						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datumValue)
 					}
+				}
+			},
+		)
+	}
+}
+
+func TestFerryUIDDatumInterfaceSlicetoInsertValuesSlice(t *testing.T) {
+	type testCase struct {
+		description  string
+		inputData    []FerryUIDDatum
+		expectedData []insertValues
+	}
+
+	testCases := []testCase{
+		{
+			"non-zero length slice",
+			[]FerryUIDDatum{
+				&ferryUidDatum{"foo", 1},
+				&ferryUidDatum{"bar", 2},
+			},
+			[]insertValues{
+				&ferryUidDatum{"foo", 1},
+				&ferryUidDatum{"bar", 2},
+			},
+		},
+		{
+			"zero length slice",
+			[]FerryUIDDatum{},
+			[]insertValues{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				result := ferryUIDDatumInterfaceSlicetoInsertValuesSlice(test.inputData)
+				if !slices.EqualFunc[[]insertValues, []insertValues, insertValues, insertValues](
+					result,
+					test.expectedData,
+					func(resultElt insertValues, expectedElt insertValues) bool {
+						if resultElt == nil && expectedElt == nil {
+							return true
+						}
+						if expectedElt != nil {
+							if resultElt == nil {
+								t.Errorf("Got nil for result, but expected %v", expectedElt)
+								return false
+							}
+
+							expectedEltVal, _ := expectedElt.(*ferryUidDatum)
+							resultEltVal, ok := resultElt.(*ferryUidDatum)
+							if !ok {
+								t.Errorf("Got wrong type in result.  Expected *ferryUidDatum, got %T", resultElt)
+							}
+
+							if *expectedEltVal != *resultEltVal {
+								t.Errorf("Got wrong result.  Expected %v, got %v", *expectedEltVal, *resultEltVal)
+								return false
+							}
+						}
+						return true
+					},
+				) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedData, result)
 				}
 			},
 		)

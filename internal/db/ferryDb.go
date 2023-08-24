@@ -84,17 +84,6 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 	return nil
 }
 
-// TODO unit test
-func ferryUIDDatumInterfaceSlicetoInsertValuesSlice(data []FerryUIDDatum) []insertValues {
-	sl := make([]insertValues, 0, len(data))
-	for _, ferryDatum := range data {
-		sl = append(sl,
-			&ferryUidDatum{ferryDatum.Username(), ferryDatum.Uid()},
-		)
-	}
-	return sl
-}
-
 // ConfirmUIDsInTable returns all the user to UID mapping information in the ManagedTokensDatabase in the form of
 // a FERRYUIDDatum slice
 func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
@@ -159,4 +148,16 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 		return uid, err
 	}
 	return uid, nil
+}
+
+// Helper funcs
+
+func ferryUIDDatumInterfaceSlicetoInsertValuesSlice(data []FerryUIDDatum) []insertValues {
+	sl := make([]insertValues, 0, len(data))
+	for _, ferryDatum := range data {
+		sl = append(sl,
+			&ferryUidDatum{ferryDatum.Username(), ferryDatum.Uid()},
+		)
+	}
+	return sl
 }
