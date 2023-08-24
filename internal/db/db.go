@@ -23,7 +23,8 @@ const (
 	schemaVersion              = 1
 )
 
-// ManagedTokensDatabase is a database in which FERRY username to uid mappings are stored
+// ManagedTokensDatabase is a database in which FERRY username to uid mappings are stored.  It is the main type that external packages
+// will use to interact with the database.
 type ManagedTokensDatabase struct {
 	filename string
 	db       *sql.DB
@@ -143,7 +144,10 @@ func (m *ManagedTokensDatabase) checkApplicationId() error {
 	return nil
 }
 
-// getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.
+// Main funcs to use internally for interacting with the database
+
+// getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.  This is the main func to run
+// from this library for retrieving data from the database
 func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string, args ...any) ([][]any, error) {
 	data := make([][]any, 0)
 
@@ -198,19 +202,10 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	return data, nil
 }
 
-// prepareDataAndPointerSliceForDBRows gives us a slice of pointers that point back to the row values themselves
-func prepareDataAndPointerSliceForDBRows(length int) ([]any, []any) {
-	resultRow := make([]any, length)
-	resultRowPtrs := make([]any, length)
-	for idx := range resultRow {
-		resultRowPtrs[idx] = &resultRow[idx]
-	}
-	return resultRow, resultRowPtrs
-}
-
 // getNamedDimensionStringValues queries a table as given in the sqlGetStatement provided that each row returned by the query
 // in sqlGetStatement is a single string (one column of string type). An example of a valid query for sqlGetStatement would be
-// "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table"
+// "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table".  This is the main func to use to get
+// dimension-like data in this library
 func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatement string) ([]string, error) {
 	data, err := getValuesTransactionRunner(ctx, db, sqlGetStatement)
 	if err != nil {
@@ -232,49 +227,10 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 	return unpackedData, nil
 }
 
-// unpackNamedDimensionData takes a slice of data, and makes sure it's legitimate dimension data, meaning after type checks, it should
-// be [][]string, where len([]string) is 1.  It then extracts the single element in each []string, combines them,
-// and returns those values as a []string
-func unpackNamedDimensionData(data [][]any) ([]string, error) {
-	dataConverted := make([]string, 0, len(data))
-	for _, resultRow := range data {
-		if len(resultRow) != 1 {
-			msg := "dimension name data has wrong structure"
-			log.Errorf("%s: %v", msg, resultRow)
-			return nil, errDatabaseDataWrongStructure
-		}
-		if val, ok := resultRow[0].(string); !ok {
-			msg := "dimension name query result has wrong type.  Expected string"
-			log.Errorf("%s: got %T", msg, val)
-			return nil, errDatabaseDataWrongType
-		} else {
-			log.Debugf("Got dimension row: %s", val)
-			dataConverted = append(dataConverted, val)
-		}
-	}
-	return dataConverted, nil
-}
-
-// insertValues is a bridge interface that contains a values() method.  This values method should
-// return a []any, where each element is any(value).  For each element, the type of value should
-// match the intended database column type.  For example, to use this interface to insert to columns
-// of type (string, int), we would do something like the following:
-//
-//	type myType struct {
-//		stringField string
-//		intField    int
-//	}
-//
-//	func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
-//
-// And then pass in a []*myType as the insertData parameter in insertTransactionRunner
-type insertValues interface {
-	insertValues() []any
-}
-
 // insertTransactionRunner inserts data into a database.  Besides the context to be used and the database
 // itself, it also takes an insertStatementString string that contains the SQL query to be prepared and
-// filled in with the values given by each element of insertData.
+// filled in with the values given by each element of insertData.  This is the main func to use in this library to insert
+// values into the database
 func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
@@ -333,8 +289,73 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	return nil
 }
 
+// Helper interfaces
+
+// insertValues is a bridge interface that contains a values() method.  This values method should
+// return a []any, where each element is any(value).  For each element, the type of value should
+// match the intended database column type.  For example, to use this interface to insert to columns
+// of type (string, int), we would do something like the following:
+//
+//	type myType struct {
+//		stringField string
+//		intField    int
+//	}
+//
+//	func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
+//
+// And then pass in a []*myType as the insertData parameter in insertTransactionRunner
+type insertValues interface {
+	insertValues() []any
+}
+
+// dataRowUnpacker is an interface to wrap types that support unpacking slices of data.
+// Generally, the unpackDataRow method for each implementing type should return an instance of dataRowUnpacker whose underlying type is the pointer to
+// the implementing type, and for which the underlying value is populated from the slice of data.  For example, if we have a type myType that
+// implements dataRowUnpacker, it should be structured as follows:
+//
+//	type myType struct{ // fields }
+//	func (*m myType) unpackDataRow(data []any) (dataRowUnpacker, error) {
+//	  var m2 myType
+//	  m2 = doSomethingWithData()
+//	  return dataRowUnpacker(&m2)
+//	}
 type dataRowUnpacker interface {
 	unpackDataRow([]any) (dataRowUnpacker, error)
+}
+
+// Helper funcs
+
+// prepareDataAndPointerSliceForDBRows gives us a slice of pointers that point back to the row values themselves
+func prepareDataAndPointerSliceForDBRows(length int) ([]any, []any) {
+	resultRow := make([]any, length)
+	resultRowPtrs := make([]any, length)
+	for idx := range resultRow {
+		resultRowPtrs[idx] = &resultRow[idx]
+	}
+	return resultRow, resultRowPtrs
+}
+
+// unpackNamedDimensionData takes a slice of data, and makes sure it's legitimate dimension data, meaning after type checks, it should
+// be [][]string, where len([]string) is 1.  It then extracts the single element in each []string, combines them,
+// and returns those values as a []string
+func unpackNamedDimensionData(data [][]any) ([]string, error) {
+	dataConverted := make([]string, 0, len(data))
+	for _, resultRow := range data {
+		if len(resultRow) != 1 {
+			msg := "dimension name data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return nil, errDatabaseDataWrongStructure
+		}
+		if val, ok := resultRow[0].(string); !ok {
+			msg := "dimension name query result has wrong type.  Expected string"
+			log.Errorf("%s: got %T", msg, val)
+			return nil, errDatabaseDataWrongType
+		} else {
+			log.Debugf("Got dimension row: %s", val)
+			dataConverted = append(dataConverted, val)
+		}
+	}
+	return dataConverted, nil
 }
 
 // unpackData takes row data and applies the unpackDataRow method of the type T to return a slice of type T
@@ -342,12 +363,12 @@ func unpackData[T dataRowUnpacker](data [][]any) ([]T, error) {
 	unpackedData := make([]T, 0, len(data))
 	for _, row := range data {
 		var datum T
-		datumGen, err := datum.unpackDataRow(row)
+		unpackedDatum, err := datum.unpackDataRow(row)
 		if err != nil {
 			log.Error("Error unpacking data")
 			return nil, err
 		}
-		datumVal, ok := datumGen.(T)
+		datumVal, ok := unpackedDatum.(T)
 		if !ok {
 			msg := "unpackDataRow returned wrong type"
 			log.Error(msg)
@@ -369,9 +390,11 @@ func convertStringSliceToInsertValuesSlice(converter func(string) insertValues, 
 }
 
 // newInsertValuesFromUnderlyingString takes a string and wraps it in the insertValues interface.  The underlying type of the return
-// value is given with the type parameters (note that *T2 has to implement insertValues), for example:
+// value is given with the type parameters, for example:
 //
 //	myVal := newInsertValuesFromUnderlyingString[*myType, myType]("mystring")
+//
+// The underlying type myType in the above example must have underlying type string and its pointer must implement insertValues.
 func newInsertValuesFromUnderlyingString[T1 interface {
 	*T2
 	insertValues
@@ -380,6 +403,8 @@ func newInsertValuesFromUnderlyingString[T1 interface {
 	pointerToTypeValue := T1(&underlyingTypeValue)
 	return insertValues(pointerToTypeValue)
 }
+
+// Errors
 
 // databaseCheckError is returned when the database fails the verification check
 type databaseCheckError struct {
