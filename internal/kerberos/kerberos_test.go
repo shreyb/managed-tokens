@@ -15,8 +15,10 @@ func TestParseAndExecuteKinitTemplate(t *testing.T) {
 		userPrincipal,
 	}
 
-	if result, _ := parseAndExecuteKinitTemplate(keytabPath, userPrincipal); !slices.Equal(result, expected) {
+	if result, err := parseAndExecuteKinitTemplate(keytabPath, userPrincipal); !slices.Equal(result, expected) {
 		t.Errorf("Got wrong result.  Expected %v, got %v", expected, result)
+	} else if err != nil {
+		t.Errorf("Should have gotten nil error.  Got %v instead", err)
 	}
 }
 
