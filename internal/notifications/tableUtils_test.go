@@ -40,8 +40,7 @@ func TestPrepareTableStringFromMap(t *testing.T) {
 		t.Error("Expected table and test table are of different sizes")
 	}
 
-	if ok, err := utils.IsSliceSubSlice(expectedTableSlice, mapTableSlice); !ok {
-		t.Error(err)
+	if ok := utils.IsSliceSubSlice(expectedTableSlice, mapTableSlice); !ok {
 		t.Errorf("Expected line does not appear in test table")
 		t.Errorf(
 			"Got wrong table string.  Expected %s, got %s",

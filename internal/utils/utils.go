@@ -77,14 +77,13 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 }
 
 // IsSliceSubSlice verifies every element within sliceOne is contained within sliceTwo.  Ordering does not matter.
-// IsSliceSubslice will return an error if it could not inspect the elements of either slice
-func IsSliceSubSlice[C comparable](sliceOne []C, sliceTwo []C) (bool, error) {
+func IsSliceSubSlice[C comparable](sliceOne []C, sliceTwo []C) bool {
 	for _, oneElt := range sliceOne {
 		if !slices.Contains[[]C, C](sliceTwo, oneElt) {
-			return false, nil
+			return false
 		}
 	}
-	return true, nil
+	return true
 }
 
 // TemplateToCommand takes a *template.Template and a struct, cmdArgs, and executes the template with those args.
