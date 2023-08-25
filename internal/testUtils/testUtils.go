@@ -15,25 +15,14 @@ func SlicesHaveSameElements[C comparable](a, b []C) bool {
 		return false
 	}
 
-	// Count the number of times an element shows up in slice a
 	aCounter := make(map[C]int)
-
 	for _, aElt := range a {
-		if val, ok := aCounter[aElt]; !ok {
-			aCounter[aElt] = 1
-		} else {
-			aCounter[aElt] = val + 1
-		}
+		aCounter[aElt]++
 	}
 
-	// Check the counter
 	bCounter := make(map[C]int)
 	for _, bElt := range b {
-		if val, ok := bCounter[bElt]; !ok {
-			bCounter[bElt] = 1
-		} else {
-			bCounter[bElt] = val + 1
-		}
+		bCounter[bElt]++
 	}
 
 	return reflect.DeepEqual(aCounter, bCounter)
