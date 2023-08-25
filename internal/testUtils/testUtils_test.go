@@ -227,7 +227,7 @@ func BenchmarkSlicesHaveSameElementsOrderedString(b *testing.B) {
 	slice1 := []string{"foo", "bar", "baz"}
 	slice2 := []string{"baz", "foo", "bar"}
 
-	// Run the slice tester on strings 100 times
+	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
 		SlicesHaveSameElementsOrdered[string](slice1, slice2)
 	}
@@ -237,7 +237,7 @@ func BenchmarkSlicesHaveSameElementsString(b *testing.B) {
 	slice1 := []string{"foo", "bar", "baz"}
 	slice2 := []string{"baz", "foo", "bar"}
 
-	// Run the slice tester on strings 100 times
+	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
 		SlicesHaveSameElements(slice1, slice2)
 	}
@@ -246,7 +246,7 @@ func BenchmarkSlicesHaveSameElementsOrderedInt(b *testing.B) {
 	slice1 := []int{1, 2, 3}
 	slice2 := []int{2, 1, 3}
 
-	// Run the slice tester on strings 100 times
+	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
 		SlicesHaveSameElementsOrdered[int](slice1, slice2)
 	}
@@ -256,8 +256,31 @@ func BenchmarkSlicesHaveSameElementsInt(b *testing.B) {
 	slice1 := []int{1, 2, 3}
 	slice2 := []int{2, 1, 3}
 
-	// Run the slice tester on strings 100 times
+	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
 		SlicesHaveSameElements(slice1, slice2)
+	}
+}
+
+// Interestingly, the Ordered version is SLOWER when we set up tests that should return false immediately.  Maybe because of the overhead
+// of the extra type checks for the Ordered version
+
+func BenchmarkSlicesHaveSameElementsIntFail(b *testing.B) {
+	slice1 := []int{1, 2, 3, 3}
+	slice2 := []int{2, 1, 3}
+
+	// Run the slice tester on strings
+	for n := 0; n < b.N; n++ {
+		SlicesHaveSameElements(slice1, slice2)
+	}
+}
+
+func BenchmarkSlicesHaveSameElementsOrderedIntFail(b *testing.B) {
+	slice1 := []int{1, 2, 3, 3}
+	slice2 := []int{2, 1, 3}
+
+	// Run the slice tester on strings
+	for n := 0; n < b.N; n++ {
+		SlicesHaveSameElementsOrdered(slice1, slice2)
 	}
 }
