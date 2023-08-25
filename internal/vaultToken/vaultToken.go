@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"slices"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -48,34 +49,29 @@ func (i *InvalidVaultTokenError) Error() string {
 // The first element of the returned slice is the standard location for most grid tools, and the second is the standard for
 // HTCondor
 func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
-	vaultTokenLocations := make([]string, 0, 2)
 	funcLogger := log.WithField("service", serviceName)
 
 	defaultLocation, err := getDefaultVaultTokenLocation()
 	if err != nil {
 		funcLogger.Error("Could not get default vault location")
-		return vaultTokenLocations, err
+		return nil, err
 	}
 	condorLocation, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
 		funcLogger.Error("Could not get condor vault location")
-		return vaultTokenLocations, err
+		return nil, err
 	}
 
-	vaultTokenLocationsMap := map[string]struct{}{defaultLocation: {}, condorLocation: {}}
-	nonExistentLocations := make([]string, 0, len(vaultTokenLocationsMap))
+	vaultTokenLocations := []string{defaultLocation, condorLocation}
 
-	// Check each location to make sure the file actually exists.  If not, remove from map
-	for location := range vaultTokenLocationsMap {
+	for idx, location := range vaultTokenLocations {
 		if _, err := os.Stat(location); errors.Is(err, os.ErrNotExist) {
-			nonExistentLocations = append(nonExistentLocations, location)
+			if len(vaultTokenLocations) > 1 {
+				vaultTokenLocations = slices.Delete(vaultTokenLocations, idx, idx+1)
+			} else {
+				vaultTokenLocations = []string{}
+			}
 		}
-	}
-	for _, location := range nonExistentLocations {
-		delete(vaultTokenLocationsMap, location)
-	}
-	for location := range vaultTokenLocationsMap {
-		vaultTokenLocations = append(vaultTokenLocations, location)
 	}
 
 	return vaultTokenLocations, nil

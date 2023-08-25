@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"slices"
 	"testing"
 )
 
@@ -237,4 +238,66 @@ func TestGetDefaultVaultTokenLocation(t *testing.T) {
 		t.Errorf("Got wrong result for condor vault token location.  Expected %s, got %s", expectedResult, result)
 	}
 
+}
+
+func TestGetAllVaultTokenLocations(t *testing.T) {
+	serviceName := "mytestservice"
+	user, _ := user.Current()
+
+	goodDefaultFile := func() string { return createFileIfNotExist(fmt.Sprintf("/tmp/vt_u%s", user.Uid)) }
+	goodCondorFile := func() string { return createFileIfNotExist(fmt.Sprintf("/tmp/vt_u%s-%s", user.Uid, serviceName)) }
+	badFile := func() string { return "thispathdoesnotexist" }
+
+	type testCase struct {
+		description    string
+		fileCreators   []func() string
+		expectedResult []string
+	}
+
+	testCases := []testCase{
+		{
+			"Can find both locations",
+			[]func() string{goodDefaultFile, goodCondorFile},
+			[]string{goodDefaultFile(), goodCondorFile()},
+		},
+		{
+			"Can find default file, not condor",
+			[]func() string{goodDefaultFile, badFile},
+			[]string{goodDefaultFile()},
+		},
+		{
+			"Can find condor file, not default",
+			[]func() string{badFile, goodCondorFile},
+			[]string{goodCondorFile()},
+		},
+		{
+			"Can't find either file",
+			[]func() string{badFile, badFile},
+			[]string{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				for _, f := range test.fileCreators {
+					defaultFile := f()
+					defer os.Remove(defaultFile)
+				}
+				result, _ := GetAllVaultTokenLocations(serviceName)
+				if !slices.Equal(result, test.expectedResult) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}
+
+func createFileIfNotExist(path string) string {
+	_, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		os.Create(path)
+	}
+	return path
 }
