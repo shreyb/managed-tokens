@@ -4,7 +4,6 @@ package testUtils
 
 import (
 	"cmp"
-	"reflect"
 	"slices"
 )
 
@@ -20,12 +19,20 @@ func SlicesHaveSameElements[C comparable](a, b []C) bool {
 		aCounter[aElt]++
 	}
 
-	bCounter := make(map[C]int)
+	// Iterate through b, and every time we find a key, decrement aCounter.
 	for _, bElt := range b {
-		bCounter[bElt]++
+		if _, found := aCounter[bElt]; !found {
+			// Value in b wasn't found as key in aCounter - fail
+			return false
+		} else {
+			aCounter[bElt]--
+		}
+		if aCounter[bElt] == 0 {
+			delete(aCounter, bElt)
+		}
 	}
 
-	return reflect.DeepEqual(aCounter, bCounter)
+	return len(aCounter) == 0
 }
 
 // SlicesHaveSameElements compares two slices of comparable and cmp.Ordered type to make
