@@ -60,7 +60,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- p
 			}(success)
 
-			// Prepare my slice of PingNoders
+			// Prepare slice of PingNoders
 			nodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for _, node := range sc.Nodes {
 				nodes = append(nodes, ping.NewNode(node))
