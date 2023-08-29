@@ -54,6 +54,7 @@ jobs:
         chmod +x $RUNNER_TEMP/kinit;
         chmod +x $RUNNER_TEMP/klist;
         chmod +x $RUNNER_TEMP/cd;
+        ls -l $RUNNER_TEMP;
 
     - name: Extend PATH
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
