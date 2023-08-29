@@ -66,4 +66,4 @@ jobs:
       run: cat `which condor_config_val`
 
     - name: Test
-      run: go test -v ./... -skip ^(TestGetVaultServer.Nothing_set*|TestGetSecCredentialGettokenOptsFromCondor)$
+      run: go test -v ./... -skip "^(TestGetVaultServer.Nothing_set*|TestGetSecCredentialGettokenOptsFromCondor)$"
