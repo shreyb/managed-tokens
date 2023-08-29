@@ -23,7 +23,8 @@ const (
 	schemaVersion              = 1
 )
 
-// ManagedTokensDatabase is a database in which FERRY username to uid mappings are stored
+// ManagedTokensDatabase is a database in which FERRY username to uid mappings are stored.  It is the main type that external packages
+// will use to interact with the database.
 type ManagedTokensDatabase struct {
 	filename string
 	db       *sql.DB
@@ -34,41 +35,64 @@ type ManagedTokensDatabase struct {
 // OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
 // exists at the filename provided, it will open that database as long as the ApplicationId matches
 func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
-	m := ManagedTokensDatabase{filename: filename}
 	funcLog := log.WithField("dbLocation", filename)
+
+	m := ManagedTokensDatabase{filename: filename}
 	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
-		err = m.initialize()
-		if err != nil {
-			msg := "Could not initialize database"
-			funcLog.Error(msg)
-			if err := os.Remove(filename); errors.Is(err, os.ErrNotExist) {
-				funcLog.Error("Could not remove corrupt database file.  Please do so manually")
-				return &ManagedTokensDatabase{}, err
-			}
+		if err = m.create(); err != nil {
 			return nil, err
 		}
 		funcLog.Debug("Created new ManagedTokensDatabase")
 	} else {
-		m.db, err = sql.Open("sqlite3", filename)
-		if err != nil {
-			msg := "Could not open the managed tokens database file"
-			funcLog.Errorf("%s: %s", msg, err)
-			return nil, &databaseOpenError{filename, err}
+		if err = m.open(); err != nil {
+			return nil, err
 		}
 		funcLog.Debug("ManagedTokensDatabase file already exists.  Will try to use it")
 	}
-	// Enforce foreign key constraints
-	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
-		funcLog.Error(err)
+
+	if err := m.addForeignKeyConstraintsToDB(); err != nil {
 		return nil, err
 	}
+
 	if err := m.check(); err != nil {
-		msg := "ManagedTokensDatabase failed check"
-		funcLog.Error(msg)
+		funcLog.Error("ManagedTokensDatabase failed check")
 		return nil, err
 	}
+
 	funcLog.Debug("ManagedTokensDatabase connection ready")
 	return &m, nil
+}
+
+func (m *ManagedTokensDatabase) create() error {
+	funcLog := log.WithField("dbLocation", m.filename)
+	if err := m.initialize(); err != nil {
+		funcLog.Error("Could not initialize database")
+		if err2 := os.Remove(m.filename); errors.Is(err2, os.ErrNotExist) {
+			funcLog.Error("Could not remove corrupt database file.  Please do so manually")
+			return err2
+		}
+		return err
+	}
+	return nil
+}
+
+func (m *ManagedTokensDatabase) open() error {
+	var err error
+	m.db, err = sql.Open("sqlite3", m.filename)
+	if err != nil {
+		msg := "Could not open the managed tokens database file"
+		log.WithField("dbLocation", m.filename).Errorf("%s: %s", msg, err)
+		return &databaseOpenError{m.filename, err}
+	}
+	return nil
+}
+
+func (m *ManagedTokensDatabase) addForeignKeyConstraintsToDB() error {
+	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+		log.WithField("dbLocation", m.filename).Error(err)
+		return err
+	}
+	return nil
 }
 
 // Close closes the FERRYUIDDatabase
@@ -78,19 +102,14 @@ func (m *ManagedTokensDatabase) Close() error {
 
 // check makes sure that an object claiming to be a ManagedTokensDatabase actually is, by checking the ApplicationID
 func (m *ManagedTokensDatabase) check() error {
-	var dbApplicationId int
 	funcLog := log.WithField("dbLocation", m.filename)
-	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
-		msg := "Could not get application_id from ManagedTokensDatabase"
-		funcLog.Error(msg)
-		return &databaseCheckError{msg, err}
+
+	err := m.checkApplicationId()
+	if err != nil {
+		funcLog.Error("ApplicationId check failed")
+		return err
 	}
-	// Make sure our application IDs match
-	if dbApplicationId != ApplicationId {
-		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
-		funcLog.Errorf(errMsg)
-		return &databaseCheckError{errMsg, nil}
-	}
+
 	// Migrate to the right userVersion of the database
 	var userVersion int
 	if err := m.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
@@ -108,7 +127,27 @@ func (m *ManagedTokensDatabase) check() error {
 	return nil
 }
 
-// getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.
+func (m *ManagedTokensDatabase) checkApplicationId() error {
+	var dbApplicationId int
+	funcLog := log.WithField("dbLocation", m.filename)
+	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
+		msg := "Could not get application_id from ManagedTokensDatabase"
+		funcLog.Error(msg)
+		return &databaseCheckError{msg, err}
+	}
+	// Make sure our application IDs match
+	if dbApplicationId != ApplicationId {
+		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
+		funcLog.Errorf(errMsg)
+		return &databaseCheckError{errMsg, nil}
+	}
+	return nil
+}
+
+// Main funcs to use internally for interacting with the database
+
+// getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.  This is the main func to run
+// from this library for retrieving data from the database
 func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string, args ...any) ([][]any, error) {
 	data := make([][]any, 0)
 
@@ -120,6 +159,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
+	// Query the DB
 	rows, err := db.QueryContext(dbContext, getStatementString, args...)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
@@ -131,18 +171,16 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	}
 	defer rows.Close()
 
+	// Get column names so we can get the length of each row
 	cols, err := rows.Columns()
 	if err != nil {
 		log.Error("Error getting columns from query results")
 		return data, err
 	}
 
+	// Scan our rows and add them to data
 	for rows.Next() {
-		resultRow := make([]any, len(cols))
-		resultRowPtrs := make([]any, len(cols))
-		for idx := range resultRow {
-			resultRowPtrs[idx] = &resultRow[idx]
-		}
+		resultRow, resultRowPtrs := prepareDataAndPointerSliceForDBRows(len(cols))
 		err := rows.Scan(resultRowPtrs...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
@@ -152,6 +190,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 			log.Errorf("Error retrieving results of SELECT query: %s", err)
 			return data, err
 		}
+
 		data = append(data, resultRow)
 		log.Debugf("Got row values from database: %s", resultRow...)
 	}
@@ -163,26 +202,35 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	return data, nil
 }
 
-// insertValues is a bridge interface that contains a values() method.  This values method should
-// return a []any, where each element is any(value).  For each element, the type of value should
-// match the intended database column type.  For example, to use this interface to insert to columns
-// of type (string, int), we would do something like the following:
-//
-//	type myType struct {
-//			stringField string
-//			intField    int
-//	}
-//
-// func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
-//
-// And then pass in a []*myType as the insertData parameter in insertTransactionRunner
-type insertValues interface {
-	values() []any
+// getNamedDimensionStringValues queries a table as given in the sqlGetStatement provided that each row returned by the query
+// in sqlGetStatement is a single string (one column of string type). An example of a valid query for sqlGetStatement would be
+// "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table".  This is the main func to use to get
+// dimension-like data in this library
+func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatement string) ([]string, error) {
+	data, err := getValuesTransactionRunner(ctx, db, sqlGetStatement)
+	if err != nil {
+		log.Error("Could not get values from database")
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		log.Debug("No values in database")
+		return nil, nil
+	}
+
+	unpackedData, err := unpackNamedDimensionData(data)
+	if err != nil {
+		log.Error("Error unpacking named dimension data")
+		return nil, err
+	}
+
+	return unpackedData, nil
 }
 
-// insertTransactionRunner inserts data into a database.  Besides the context to be used and the databse
+// insertTransactionRunner inserts data into a database.  Besides the context to be used and the database
 // itself, it also takes an insertStatementString string that contains the SQL query to be prepared and
-// filled in with the values given by each element of insertData.
+// filled in with the values given by each element of insertData.  This is the main func to use in this library to insert
+// values into the database
 func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
@@ -213,16 +261,16 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	}
 	defer insertStatement.Close()
 
-	// Run the passed-in insertFunc on insertData
+	// Run the passed-in insert statement on insertData
 	for _, datum := range insertData {
-		datumValues := datum.values()
+		datumValues := datum.insertValues()
 		_, err := insertStatement.ExecContext(dbContext, datumValues...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
 				log.Error("Context timeout")
 				return dbContext.Err()
 			}
-			log.Errorf("Could not insert FERRY data into database: %s", err)
+			log.Errorf("Could not insert data into database: %s", err)
 			return err
 		}
 	}
@@ -240,6 +288,123 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	log.Debug("Inserted data into database")
 	return nil
 }
+
+// Helper interfaces
+
+// insertValues is a bridge interface that contains a values() method.  This values method should
+// return a []any, where each element is any(value).  For each element, the type of value should
+// match the intended database column type.  For example, to use this interface to insert to columns
+// of type (string, int), we would do something like the following:
+//
+//	type myType struct {
+//		stringField string
+//		intField    int
+//	}
+//
+//	func (m *myType) values() []any { return []any{any(m.stringField), any(m.intField)} }
+//
+// And then pass in a []*myType as the insertData parameter in insertTransactionRunner
+type insertValues interface {
+	insertValues() []any
+}
+
+// dataRowUnpacker is an interface to wrap types that support unpacking slices of data.
+// Generally, the unpackDataRow method for each implementing type should return an instance of dataRowUnpacker whose underlying type is the pointer to
+// the implementing type, and for which the underlying value is populated from the slice of data.  For example, if we have a type myType that
+// implements dataRowUnpacker, it should be structured as follows:
+//
+//	type myType struct{ // fields }
+//	func (*m myType) unpackDataRow(data []any) (dataRowUnpacker, error) {
+//	  var m2 myType
+//	  m2 = doSomethingWithData()
+//	  return dataRowUnpacker(&m2)
+//	}
+type dataRowUnpacker interface {
+	unpackDataRow([]any) (dataRowUnpacker, error)
+}
+
+// Helper funcs
+
+// prepareDataAndPointerSliceForDBRows gives us a slice of pointers that point back to the row values themselves
+func prepareDataAndPointerSliceForDBRows(length int) ([]any, []any) {
+	resultRow := make([]any, length)
+	resultRowPtrs := make([]any, length)
+	for idx := range resultRow {
+		resultRowPtrs[idx] = &resultRow[idx]
+	}
+	return resultRow, resultRowPtrs
+}
+
+// unpackNamedDimensionData takes a slice of data, and makes sure it's legitimate dimension data, meaning after type checks, it should
+// be [][]string, where len([]string) is 1.  It then extracts the single element in each []string, combines them,
+// and returns those values as a []string
+func unpackNamedDimensionData(data [][]any) ([]string, error) {
+	dataConverted := make([]string, 0, len(data))
+	for _, resultRow := range data {
+		if len(resultRow) != 1 {
+			msg := "dimension name data has wrong structure"
+			log.Errorf("%s: %v", msg, resultRow)
+			return nil, errDatabaseDataWrongStructure
+		}
+		if val, ok := resultRow[0].(string); !ok {
+			msg := "dimension name query result has wrong type.  Expected string"
+			log.Errorf("%s: got %T", msg, val)
+			return nil, errDatabaseDataWrongType
+		} else {
+			log.Debugf("Got dimension row: %s", val)
+			dataConverted = append(dataConverted, val)
+		}
+	}
+	return dataConverted, nil
+}
+
+// unpackData takes row data and applies the unpackDataRow method of the type T to return a slice of type T
+func unpackData[T dataRowUnpacker](data [][]any) ([]T, error) {
+	unpackedData := make([]T, 0, len(data))
+	for _, row := range data {
+		var datum T
+		unpackedDatum, err := datum.unpackDataRow(row)
+		if err != nil {
+			log.Error("Error unpacking data")
+			return nil, err
+		}
+		datumVal, ok := unpackedDatum.(T)
+		if !ok {
+			msg := "unpackDataRow returned wrong type"
+			log.Error(msg)
+			return nil, errors.New(msg)
+		}
+		unpackedData = append(unpackedData, datumVal)
+	}
+	return unpackedData, nil
+}
+
+// convertStringSliceToInsertValuesSlice takes a string slice and converts it to a slice of types
+func convertStringSliceToInsertValuesSlice(converter func(string) insertValues, stringSlice []string) []insertValues {
+	sl := make([]insertValues, 0, len(stringSlice))
+	for _, elt := range stringSlice {
+		valToAdd := converter(elt)
+		sl = append(sl, valToAdd)
+	}
+	return sl
+}
+
+// newInsertValuesFromUnderlyingString takes a string and wraps it in the insertValues interface.  The underlying type of the return
+// value is given with the type parameters, for example:
+//
+//	myVal := newInsertValuesFromUnderlyingString[*myType, myType]("mystring")
+//
+// The underlying type myType in the above example must have underlying type string and its pointer must implement insertValues.
+func newInsertValuesFromUnderlyingString[T1 interface {
+	*T2
+	insertValues
+}, T2 ~string](s string) insertValues {
+	underlyingTypeValue := T2(s)
+	pointerToTypeValue := T1(&underlyingTypeValue)
+	return insertValues(pointerToTypeValue)
+}
+
+// Errors
 
 // databaseCheckError is returned when the database fails the verification check
 type databaseCheckError struct {

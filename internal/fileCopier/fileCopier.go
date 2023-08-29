@@ -26,9 +26,12 @@ type FileCopier interface {
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
 func NewSSHFileCopier(source, account, node, destination, fileCopierOptions, sshOptions string, env environment.CommandEnvironment) FileCopier {
+	// Default ssh options
+	sshOpts := "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
 	if sshOptions == "" {
 		sshOptions = sshOpts
 	}
+
 	return &rsyncSetup{
 		source:             source,
 		account:            account,
@@ -44,13 +47,6 @@ func NewSSHFileCopier(source, account, node, destination, fileCopierOptions, ssh
 func CopyToDestination(ctx context.Context, f FileCopier) error {
 	return f.copyToDestination(ctx)
 }
-
-var rsyncTemplate = template.Must(template.New("rsync").Parse(rsyncArgs))
-
-const (
-	rsyncArgs = "-e \"{{.SSHExe}} {{.SSHOpts}}\" {{.RsyncOpts}} {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
-	sshOpts   = "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
-)
 
 // Type rsyncSetup contains the information needed copy a file to a specified destination via rsync
 type rsyncSetup struct {
@@ -91,6 +87,13 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 		"rsyncOptions": rsyncOptions,
 	})
 
+	rsyncArgs := "-e \"{{.SSHExe}} {{.SSHOpts}}\" {{.RsyncOpts}} {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
+	rsyncTemplate, err := template.New("rsync").Parse(rsyncArgs)
+	if err != nil {
+		funcLogger.Error("could not parse rsync template")
+		return err
+	}
+
 	cArgs := struct{ SSHExe, SSHOpts, RsyncOpts, SourcePath, Account, Node, DestPath string }{
 		SSHExe:     fileCopierExecutables["ssh"],
 		SSHOpts:    sshOptions,
@@ -102,15 +105,16 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	}
 
 	args, err := utils.TemplateToCommand(rsyncTemplate, cArgs)
-	var t1 *utils.TemplateExecuteError
-	if errors.As(err, &t1) {
-		retErr := fmt.Errorf("could not execute rsync template: %w", err)
-		funcLogger.Error(retErr.Error())
-		return retErr
-	}
-	var t2 *utils.TemplateArgsError
-	if errors.As(err, &t2) {
-		retErr := fmt.Errorf("could not get rsync command arguments from template: %w", err)
+	if err != nil {
+		var t1 *utils.TemplateExecuteError
+		var t2 *utils.TemplateArgsError
+		var retErr error
+		if errors.As(err, &t1) {
+			retErr = fmt.Errorf("could not execute rsync template: %w", err)
+		}
+		if errors.As(err, &t2) {
+			retErr = fmt.Errorf("could not get rsync command arguments from template: %w", err)
+		}
 		funcLogger.Error(retErr.Error())
 		return retErr
 	}

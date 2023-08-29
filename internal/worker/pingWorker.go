@@ -60,7 +60,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				chans.GetSuccessChan() <- p
 			}(success)
 
-			// Prepare my slice of PingNoders
+			// Prepare slice of PingNoders
 			nodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for _, node := range sc.Nodes {
 				nodes = append(nodes, ping.NewNode(node))
@@ -68,7 +68,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 			pingContext, pingCancel := context.WithTimeout(ctx, pingTimeout)
 			defer pingCancel()
-			pingStatus := ping.PingAllNodes(pingContext, nodes...)
+			pingStatus := pingAllNodes(pingContext, nodes...)
 
 			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
@@ -104,4 +104,31 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}
 		}(sc)
 	}
+}
+
+// pingAllNodes will launch goroutines, which each ping a ping.PingNoder from the nodes variadic.  It returns a channel,
+// on which it reports the ping.pingNodeStatuses signifying success or error
+func pingAllNodes(ctx context.Context, nodes ...ping.PingNoder) <-chan ping.PingNodeStatus {
+	// Buffered Channel to report on
+	c := make(chan ping.PingNodeStatus, len(nodes))
+	var wg sync.WaitGroup
+	wg.Add(len(nodes))
+	for _, n := range nodes {
+		go func(n ping.PingNoder) {
+			defer wg.Done()
+			p := ping.PingNodeStatus{
+				PingNoder: n,
+				Err:       n.PingNode(ctx),
+			}
+			c <- p
+		}(n)
+	}
+
+	// Wait for all goroutines to finish, then close channel so that the caller knows all objects have been sent
+	go func() {
+		defer close(c)
+		wg.Wait()
+	}()
+
+	return c
 }

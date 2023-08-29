@@ -276,6 +276,11 @@ func run(ctx context.Context) error {
 		funcLogger.Error("Cannot have a blank userPrincipal.  Exiting")
 		os.Exit(1)
 	}
+	vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
+	if err != nil {
+		funcLogger.Error("Cannot proceed without vault server.  Exiting now")
+		os.Exit(1)
+	}
 	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 	schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 	keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
@@ -288,6 +293,7 @@ func run(ctx context.Context) error {
 		),
 		worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
 		worker.SetSchedds(schedds),
+		worker.SetVaultServer(vaultServer),
 		worker.SetUserPrincipal(userPrincipal),
 		worker.SetKeytabPath(keytabPath),
 	)

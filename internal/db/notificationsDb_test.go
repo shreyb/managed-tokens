@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"path"
+	"slices"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -57,7 +58,7 @@ func TestGetAllServices(t *testing.T) {
 				if err != nil {
 					t.Errorf("Failure to obtain services for test %s: %s", test.description, err)
 				}
-				if !testUtils.SlicesHaveSameElements(services, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrdered[string](services, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, services)
 				}
 			},
@@ -108,7 +109,7 @@ func TestGetAllNodes(t *testing.T) {
 				if err != nil {
 					t.Errorf("Failure to obtain nodes for test %s: %s", test.description, err)
 				}
-				if !testUtils.SlicesHaveSameElements(nodes, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrdered[string](nodes, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, nodes)
 				}
 			},
@@ -174,11 +175,11 @@ func TestGetNamedDimensionStringValues(t *testing.T) {
 
 				// The test
 				ctx := context.Background()
-				data, err := m.getNamedDimensionStringValues(ctx, test.sqlGetStatement)
+				data, err := getNamedDimensionStringValues(ctx, m.db, test.sqlGetStatement)
 				if !errors.Is(err, test.expectedErr) {
 					t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
 				}
-				if err == nil && !testUtils.SlicesHaveSameElements(data, test.expectedData) {
+				if err == nil && !testUtils.SlicesHaveSameElementsOrdered[string](data, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
 				}
 			},
@@ -644,7 +645,7 @@ func TestUpdateServices(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, datum)
 				}
-				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrdered[string](retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -728,7 +729,7 @@ func TestUpdateNodes(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, datum)
 				}
-				if !testUtils.SlicesHaveSameElements(retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrdered[string](retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -1025,4 +1026,301 @@ func TestUpdatePushErrorsTable(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestUnpackSetupErrorDataRow(t *testing.T) {
+	type testCase struct {
+		description    string
+		resultRow      []any
+		expectedResult *setupErrorCount
+		expectedErr    error
+	}
+
+	testCases := []testCase{
+		{
+			"Valid data",
+			[]any{
+				"string",
+				int64(42),
+			},
+			&setupErrorCount{
+				"string",
+				42,
+			},
+			nil,
+		},
+		{
+			"Invalid data - wrong structure",
+			[]any{
+				"string",
+				int64(42),
+				int64(43),
+			},
+			nil,
+			errDatabaseDataWrongStructure,
+		},
+		{
+			"Invalid data - wrong types",
+			[]any{
+				"string",
+				"string2",
+			},
+			nil,
+			errDatabaseDataWrongType,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				var s *setupErrorCount
+				datum, err := s.unpackDataRow(test.resultRow)
+				if test.expectedErr == nil && err != nil {
+					t.Errorf("Expected nil error.  Got %s instead", err)
+					return
+				}
+				testErrors := []error{errDatabaseDataWrongStructure, errDatabaseDataWrongType}
+				for _, testError := range testErrors {
+					if errors.Is(test.expectedErr, testError) {
+						if !errors.Is(err, testError) {
+							t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+							return
+						}
+						break
+					}
+				}
+
+				if (test.expectedResult == nil && datum != nil) ||
+					(test.expectedResult != nil && datum == nil) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datum)
+				}
+
+				if test.expectedResult != nil && datum != nil {
+					datumValue, ok := datum.(*setupErrorCount)
+					if !ok {
+						t.Errorf("Got wrong type in result.  Expected %T, got %T", *test.expectedResult, datum)
+					}
+					if *datumValue != *test.expectedResult {
+						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datumValue)
+					}
+				}
+			},
+		)
+	}
+}
+
+func TestUnpackPushErrorDataRow(t *testing.T) {
+	type testCase struct {
+		description    string
+		resultRow      []any
+		expectedResult *pushErrorCount
+		expectedErr    error
+	}
+
+	testCases := []testCase{
+		{
+			"Valid data",
+			[]any{
+				"string",
+				"string2",
+				int64(42),
+			},
+			&pushErrorCount{
+				"string",
+				"string2",
+				42,
+			},
+			nil,
+		},
+		{
+			"Invalid data - wrong structure",
+			[]any{
+				"string",
+				int64(43),
+			},
+			nil,
+			errDatabaseDataWrongStructure,
+		},
+		{
+			"Invalid data - wrong types",
+			[]any{
+				"string",
+				"string2",
+				"string3",
+			},
+			nil,
+			errDatabaseDataWrongType,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				var s *pushErrorCount
+				datum, err := s.unpackDataRow(test.resultRow)
+				if test.expectedErr == nil && err != nil {
+					t.Errorf("Expected nil error.  Got %s instead", err)
+					return
+				}
+				testErrors := []error{errDatabaseDataWrongStructure, errDatabaseDataWrongType}
+				for _, testError := range testErrors {
+					if errors.Is(test.expectedErr, testError) {
+						if !errors.Is(err, testError) {
+							t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+							return
+						}
+						break
+					}
+				}
+
+				if (test.expectedResult == nil && datum != nil) ||
+					(test.expectedResult != nil && datum == nil) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datum)
+				}
+
+				if test.expectedResult != nil && datum != nil {
+					datumValue, ok := datum.(*pushErrorCount)
+					if !ok {
+						t.Errorf("Got wrong type in result.  Expected %T, got %T", *test.expectedResult, datum)
+					}
+					if *datumValue != *test.expectedResult {
+						t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, datumValue)
+					}
+				}
+			},
+		)
+	}
+}
+
+func TestSetupErrorCountInterfaceSliceToInsertValuesSlice(t *testing.T) {
+	type testCase struct {
+		description  string
+		inputData    []SetupErrorCount
+		expectedData []insertValues
+	}
+
+	testCases := []testCase{
+		{
+			"non-zero length slice",
+			[]SetupErrorCount{
+				&setupErrorCount{"foo", 1},
+				&setupErrorCount{"bar", 2},
+			},
+			[]insertValues{
+				&setupErrorCount{"foo", 1},
+				&setupErrorCount{"bar", 2},
+			},
+		},
+		{
+			"zero length slice",
+			[]SetupErrorCount{},
+			[]insertValues{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				result := setupErrorCountInterfaceSliceToInsertValuesSlice(test.inputData)
+				if !slices.EqualFunc[[]insertValues, []insertValues, insertValues, insertValues](
+					result,
+					test.expectedData,
+					func(resultElt insertValues, expectedElt insertValues) bool {
+						if resultElt == nil && expectedElt == nil {
+							return true
+						}
+						if expectedElt != nil {
+							if resultElt == nil {
+								t.Errorf("Got nil for result, but expected %v", expectedElt)
+								return false
+							}
+
+							expectedEltVal, _ := expectedElt.(*setupErrorCount)
+							resultEltVal, ok := resultElt.(*setupErrorCount)
+							if !ok {
+								t.Errorf("Got wrong type in result.  Expected *setupErrorCount, got %T", resultElt)
+							}
+
+							if *expectedEltVal != *resultEltVal {
+								t.Errorf("Got wrong result.  Expected %v, got %v", *expectedEltVal, *resultEltVal)
+								return false
+							}
+						}
+						return true
+					},
+				) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedData, result)
+				}
+			},
+		)
+	}
+}
+
+func TestPushErrorCountInterfaceSliceToInsertValuesSlice(t *testing.T) {
+	type testCase struct {
+		description  string
+		inputData    []PushErrorCount
+		expectedData []insertValues
+	}
+
+	testCases := []testCase{
+		{
+			"non-zero length slice",
+			[]PushErrorCount{
+				&pushErrorCount{"foo", "foz", 1},
+				&pushErrorCount{"bar", "baz", 2},
+			},
+			[]insertValues{
+				&pushErrorCount{"foo", "foz", 1},
+				&pushErrorCount{"bar", "baz", 2},
+			},
+		},
+		{
+			"zero length slice",
+			[]PushErrorCount{},
+			[]insertValues{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				result := pushErrorCountInterfaceSliceToInsertValuesSlice(test.inputData)
+				if !slices.EqualFunc[[]insertValues, []insertValues, insertValues, insertValues](
+					result,
+					test.expectedData,
+					func(resultElt insertValues, expectedElt insertValues) bool {
+						if resultElt == nil && expectedElt == nil {
+							return true
+						}
+						if expectedElt != nil {
+							if resultElt == nil {
+								t.Errorf("Got nil for result, but expected %v", expectedElt)
+								return false
+							}
+
+							expectedEltVal, _ := expectedElt.(*pushErrorCount)
+							resultEltVal, ok := resultElt.(*pushErrorCount)
+							if !ok {
+								t.Errorf("Got wrong type in result.  Expected *pushErrorCount, got %T", resultElt)
+							}
+
+							if *expectedEltVal != *resultEltVal {
+								t.Errorf("Got wrong result.  Expected %v, got %v", *expectedEltVal, *resultEltVal)
+								return false
+							}
+						}
+						return true
+					},
+				) {
+					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedData, result)
+				}
+			},
+		)
+	}
+
 }

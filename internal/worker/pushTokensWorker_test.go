@@ -2,6 +2,7 @@ package worker
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/service"
@@ -116,5 +117,19 @@ func TestParseDefaultRoleFileTemplateFromConfig(t *testing.T) {
 				}
 			},
 		)
+	}
+}
+
+func TestPrepareDefaultRoleFile(t *testing.T) {
+	config := Config{
+		Service: service.NewService("myexpt_myrole"),
+	}
+
+	testFile, _ := prepareDefaultRoleFile(&config)
+	defer os.Remove(testFile)
+
+	data, _ := os.ReadFile(testFile)
+	if string(data) != "myrole\n" {
+		t.Errorf("Got wrong data in role file.  Expected \"myrole\n\", got \"%s\"", string(data))
 	}
 }

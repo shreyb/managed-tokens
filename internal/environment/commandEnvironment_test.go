@@ -5,10 +5,11 @@ import (
 )
 
 const (
-	krb5ccnameTestValue          string = "krb5ccname_test"
-	condorCreddHostTestValue     string = "condor_credd_host_setting"
-	condorCollectorHostTestValue string = "condor_credd_host_setting"
-	htgettokenoptsTestValue      string = "htgettokenopts_setting"
+	krb5ccnameTestValue                      string = "krb5ccname_test"
+	condorCreddHostTestValue                 string = "condor_credd_host_setting"
+	condorCollectorHostTestValue             string = "condor_credd_host_setting"
+	htgettokenoptsTestValue                  string = "htgettokenopts_setting"
+	condorSecCredentialGettokenOptsTestValue string = "condor_seccredentialgettokenopts_setting"
 )
 
 var cmdEnvFull CommandEnvironment = CommandEnvironment{
@@ -103,6 +104,17 @@ func TestSetHtgettokenopts(t *testing.T) {
 	result := string(c.HtgettokenOpts)
 	if expected != result {
 		t.Errorf("Set wrong value for HTGETTOKENOPTS env.  Expected %s, got %s", expected, result)
+	}
+}
+
+// TestSetCondorSecCredentialGettokenOpts checks that SetCondorSecCredentialGettokenOpts properly sets the CondorSecCredentialGettokenOpts field in the CommandEnvironment
+func TestSetCondorSecCredentialGettokenOpts(t *testing.T) {
+	c := &CommandEnvironment{}
+	c.SetCondorSecCredentialGettokenOpts(condorSecCredentialGettokenOptsTestValue)
+	expected := "_condor_SEC_CREDENTIAL_GETTOKEN_OPTS=" + condorSecCredentialGettokenOptsTestValue
+	result := string(c.CondorSecCredentialGettokenOpts)
+	if expected != result {
+		t.Errorf("Set wrong value for _condor_SEC_CREDENTIAL_GETTOKEN_OPTS env.  Expected %s, got %s", expected, result)
 	}
 }
 

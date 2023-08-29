@@ -102,3 +102,141 @@ func TestTemplateToCommand(t *testing.T) {
 		)
 	}
 }
+
+func TestIsSliceSubslice(t *testing.T) {
+	type testCase struct {
+		description    string
+		sliceOne       []any
+		sliceTwo       []any
+		expectedResult bool
+	}
+
+	testCases := []testCase{
+		{
+			"Slice one is subslice of slice two",
+			[]any{1, 2, 3, 4, 5},
+			[]any{1, 2, 3, 4, 5, 6, 7, 8},
+			true,
+		},
+		{
+			"Slice one is the same as slice two",
+			[]any{1, 2, 3, 4, 5, 6, 7, 8},
+			[]any{1, 2, 3, 4, 5, 6, 7, 8},
+			true,
+		},
+		{
+			"Slice one is not subslice of slice two",
+			[]any{1, 2, 3},
+			[]any{4, 5, 6},
+			false,
+		},
+		{
+			"Slice one is subslice of slice two, but different order",
+			[]any{1, 2, 3},
+			[]any{4, 5, 6, 2, 3, 1},
+			true,
+		},
+		{
+			"Slice one is subslice of slice two, string",
+			[]any{"foo", "bar"},
+			[]any{"foo", "bar", "baz"},
+			true,
+		},
+		{
+			"Slice one is not subslice of slice two, string",
+			[]any{"foo", "bar"},
+			[]any{"baz"},
+			false,
+		},
+		{
+			"Slice one is subslice of slice two, custom type",
+			[]any{
+				struct {
+					a string
+					b string
+				}{
+					"foo",
+					"bar",
+				},
+				struct {
+					a string
+					b string
+				}{
+					"baz",
+					"bar",
+				},
+			},
+			[]any{
+				struct {
+					a string
+					b string
+				}{
+					"foo",
+					"bar",
+				},
+				struct {
+					a string
+					b string
+				}{
+					"baz",
+					"bar",
+				},
+				struct {
+					a string
+					b string
+				}{
+					"foo",
+					"baz",
+				},
+			},
+			true,
+		},
+		{
+			"Slice one is not subslice of slice two, custom type",
+			[]any{
+				struct {
+					a string
+					b string
+				}{
+					"foo",
+					"bar",
+				},
+				struct {
+					a string
+					b string
+				}{
+					"baz",
+					"bar",
+				},
+			},
+			[]any{
+				struct {
+					a string
+					b string
+				}{
+					"foo",
+					"baz",
+				},
+			},
+			false,
+		},
+		{
+			"Mixed types",
+			[]any{1, 2, "foo"},
+			[]any{1, 2, "foo", "bar"},
+			true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				if result := IsSliceSubSlice(test.sliceOne, test.sliceTwo); result != test.expectedResult {
+					t.Errorf("Got wrong result.  Expected %t, got %t", test.expectedResult, result)
+				}
+			},
+		)
+	}
+
+}

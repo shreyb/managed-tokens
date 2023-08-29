@@ -14,19 +14,24 @@ const (
 	CondorCreddHost
 	CondorCollectorHost
 	HtgettokenOpts
+	CondorSecCredentialGettokenOpts
 )
 
 // getAllSupportedCommandEnvironmentFields returns an array of the possible valid supportedCommandEnvironmentField values
-func getAllSupportedCommandEnvironmentFields() [4]supportedCommandEnvironmentField {
-	return [4]supportedCommandEnvironmentField{
+func getAllSupportedCommandEnvironmentFields() [5]supportedCommandEnvironmentField {
+	return [5]supportedCommandEnvironmentField{
 		Krb5ccname,
 		CondorCreddHost,
 		CondorCollectorHost,
 		HtgettokenOpts,
+		CondorSecCredentialGettokenOpts,
 	}
 }
 
-func (s supportedCommandEnvironmentField) envVarKey() string {
+// EnvVarKey returns the environment variable name corresponding to a supportedCommandEnvironmentField.  For example,
+//
+//	Krb5ccname.EnvVarKey() = "KRB5CCNAME"
+func (s supportedCommandEnvironmentField) EnvVarKey() string {
 	switch s {
 	case Krb5ccname:
 		return "KRB5CCNAME"
@@ -36,6 +41,8 @@ func (s supportedCommandEnvironmentField) envVarKey() string {
 		return "_condor_COLLECTOR_HOST"
 	case HtgettokenOpts:
 		return "HTGETTOKENOPTS"
+	case CondorSecCredentialGettokenOpts:
+		return "_condor_SEC_CREDENTIAL_GETTOKEN_OPTS"
 	default:
 		return "unsupported environment prefix"
 	}
@@ -68,10 +75,15 @@ type environmentVariableSetting string
 // The values of the fields are meant to be the full environment variable assignment statement, e.g.
 //
 //	c := CommandEnvironment{
-//	Krb5ccname: "KRB5CCNAME=/tmp/mykrb5ccdir",
+//	CondorCreddHost: "my.credd.host",
 //	}
 //
-// It is recommended to set the fields of the CommandEnvironment using the exported methods SetKrb5ccname, SetCondorCreddHost, etc.
+// To set the fields of the CommandEnvironment, use the exported methods SetKrb5ccname, SetCondorCreddHost, etc.
+// These methods will prepend the correct environment variable name.  For example, to get the above CommandEnvironment,
+// use
+//
+// c := new(CommandEnvironment)
+// c.SetCondorCreddHost = "my.credd.host"
 type CommandEnvironment struct {
 	// Krb5ccname is the environment variable assignment for the cache directory for kerberos credentials
 	// Values should be of the form "KRB5CCNAME=DIR:/my/kerberos/cache/dir"
@@ -85,26 +97,35 @@ type CommandEnvironment struct {
 	// HtgettokenOpts is the set of options that need to be passed to condor_vault_storer, and underneath it,
 	// htgettoken.  Values should be of the form "HTGETTOKENOPTS=\"--opt1=val1 --opt2\" (note the escaped quotes)"
 	HtgettokenOpts environmentVariableSetting
+	// CondorSecCredentialGettokenOpts is the set of options that can be passed to override
+	// Htgettokenopts in a condor_vault_storer command.
+	CondorSecCredentialGettokenOpts environmentVariableSetting
 }
 
-// SetKrb5CCName sets Krb5ccname field in the CommandEnvironment
+// SetKrb5CCName sets Krb5ccname field in the CommandEnvironment.  The kerberosCCache type corresponds to one of the
+// following Supported Credential Cache Types:  "DIR:", "FILE:"
 func (c *CommandEnvironment) SetKrb5ccname(value string, t kerberosCCacheType) {
-	c.Krb5ccname = environmentVariableSetting(Krb5ccname.envVarKey() + "=" + t.String() + value)
+	c.Krb5ccname = environmentVariableSetting(Krb5ccname.EnvVarKey() + "=" + t.String() + value)
 }
 
 // SetCondorCreddHost sets CondorCreddHost field in the CommandEnvironment
 func (c *CommandEnvironment) SetCondorCreddHost(value string) {
-	c.CondorCreddHost = environmentVariableSetting(CondorCreddHost.envVarKey() + "=" + value)
+	c.CondorCreddHost = environmentVariableSetting(CondorCreddHost.EnvVarKey() + "=" + value)
 }
 
 // SetCondorCollectorHost sets CondorCollectorHost field in the CommandEnvironment
 func (c *CommandEnvironment) SetCondorCollectorHost(value string) {
-	c.CondorCollectorHost = environmentVariableSetting(CondorCollectorHost.envVarKey() + "=" + value)
+	c.CondorCollectorHost = environmentVariableSetting(CondorCollectorHost.EnvVarKey() + "=" + value)
 }
 
-// SetHtgettokenOpts sets the HtgettokenOpts field in the Command Environment
+// SetHtgettokenOpts sets the HtgettokenOpts field in the CommandEnvironment
 func (c *CommandEnvironment) SetHtgettokenOpts(value string) {
-	c.HtgettokenOpts = environmentVariableSetting(HtgettokenOpts.envVarKey() + "=" + value)
+	c.HtgettokenOpts = environmentVariableSetting(HtgettokenOpts.EnvVarKey() + "=" + value)
+}
+
+// SetCondorSecCredentialGettokenOpts sets the CondorSecCredentialGettokenOpts field in the CommandEnvironment
+func (c *CommandEnvironment) SetCondorSecCredentialGettokenOpts(value string) {
+	c.CondorSecCredentialGettokenOpts = environmentVariableSetting(CondorSecCredentialGettokenOpts.EnvVarKey() + "=" + value)
 }
 
 // GetSetting retrieves the full key=value setting from a supportedCommandEnvironmentField in the CommandEnvironment.
@@ -114,6 +135,8 @@ func (c *CommandEnvironment) SetHtgettokenOpts(value string) {
 //	setting := c.GetSetting(Krb5ccname)
 //
 // setting will be "KRB5CCNAME=DIR:krb5ccname_setting"
+// To get the value in the CommandEnvironment corresponding to the
+// supportedCommandEnvironmentField key, use *commandEnvironment.GetValue().
 func (c *CommandEnvironment) GetSetting(s supportedCommandEnvironmentField) string {
 	return string(c.mapSupportedFieldToStructField(s))
 }
@@ -128,17 +151,18 @@ func (c *CommandEnvironment) GetSetting(s supportedCommandEnvironmentField) stri
 // value will be "DIR:krb5ccname_setting"
 func (c *CommandEnvironment) GetValue(s supportedCommandEnvironmentField) string {
 	fullString := c.GetSetting(s)
-	prefix := s.envVarKey() + "="
+	prefix := s.EnvVarKey() + "="
 	return strings.TrimPrefix(fullString, prefix)
 }
 
 // Copy returns a new *CommandEnvironment with the fields set to the same values as the original
 func (c *CommandEnvironment) Copy() *CommandEnvironment {
 	newEnv := CommandEnvironment{
-		Krb5ccname:          c.Krb5ccname,
-		CondorCreddHost:     c.CondorCreddHost,
-		CondorCollectorHost: c.CondorCollectorHost,
-		HtgettokenOpts:      c.HtgettokenOpts,
+		Krb5ccname:                      c.Krb5ccname,
+		CondorCreddHost:                 c.CondorCreddHost,
+		CondorCollectorHost:             c.CondorCollectorHost,
+		HtgettokenOpts:                  c.HtgettokenOpts,
+		CondorSecCredentialGettokenOpts: c.CondorSecCredentialGettokenOpts,
 	}
 	return &newEnv
 }
@@ -161,6 +185,8 @@ func (c *CommandEnvironment) mapSupportedFieldToStructField(s supportedCommandEn
 		return c.CondorCollectorHost
 	case HtgettokenOpts:
 		return c.HtgettokenOpts
+	case CondorSecCredentialGettokenOpts:
+		return c.CondorSecCredentialGettokenOpts
 	default:
 		return "unsupported CommandEnvironment field"
 	}

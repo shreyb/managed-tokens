@@ -3,33 +3,28 @@
 package cmdUtils
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
+	"os"
+	"os/exec"
 	"path"
 	"strings"
 	"sync"
 
+	"github.com/google/shlex"
 	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
-// Various sync.Onces to coordinate synchronization
 var (
-	logHtGettokenOptsOnce      sync.Once
-	scheddStoreOnceByCollector map[string]*sync.Once
-	// FUTURE TODO:  We might have to make this map store schedds by collector and VO
+	logHtGettokenOptsOnce sync.Once   // Only log our environment's HTGETTOKENOPTS once
+	globalScheddCache     scheddCache // Global cache for the schedds, sorted by collector host
 )
-
-// globalSchedds stores the schedds for use by various goroutines.  The key of the map here is the collector
-var globalSchedds map[string]*scheddCollection
-
-func init() {
-	globalSchedds = make(map[string]*scheddCollection)
-	scheddStoreOnceByCollector = make(map[string]*sync.Once)
-}
 
 // Functional options for initialization of service Config
 
@@ -44,7 +39,6 @@ func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
 	if userPrincipalOverrideConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "userPrincipal"); ok {
 		return viper.GetString(userPrincipalOverrideConfigPath)
 	} else {
-		var b strings.Builder
 		kerberosPrincipalPattern, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "kerberosPrincipalPattern")
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString(kerberosPrincipalPattern))
 		if err != nil {
@@ -53,6 +47,8 @@ func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
 		}
 		account := viper.GetString(checkServiceConfigPath + ".account")
 		templateArgs := struct{ Account string }{Account: account}
+
+		var b strings.Builder
 		if err := userPrincipalTemplate.Execute(&b, templateArgs); err != nil {
 			log.WithField("account", account).Error("Could not execute kerberos prinicpal template")
 			return ""
@@ -80,32 +76,51 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath s
 
 	// Look for HTGETTOKKENOPTS in environment.  If it's given here, take as is, but add credkey if it's absent
 	if viper.IsSet("ORIG_HTGETTOKENOPTS") {
-		log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", viper.GetString("ORIG_HTGETTOKENOPTS"))
-		// If we have the right credkey in the HTGETTOKENOPTS, leave it be
-		if strings.Contains(viper.GetString("ORIG_HTGETTOKENOPTS"), credKey) {
-			htgettokenOpts = viper.GetString("ORIG_HTGETTOKENOPTS")
-			return
-		} else {
-			logHtGettokenOptsOnce.Do(
-				func() {
-					log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
-				},
-			)
-			htgettokenOpts = viper.GetString("ORIG_HTGETTOKENOPTS") + " --credkey=" + credKey
-			return
-		}
-	}
-	// Calculate minimum vault token lifetime from config
-	var lifetimeString string
-	defaultLifetimeString := "10s"
-	if viper.IsSet("minTokenLifetime") {
-		lifetimeString = viper.GetString("minTokenLifetime")
-	} else {
-		lifetimeString = defaultLifetimeString
+		htgettokenOpts = resolveHtgettokenOptsFromConfig(credKey)
+		return
 	}
 
+	// HTGETTOKENOPTS was not in the environment.  Use our defaults.
+	// Calculate minimum vault token lifetime from config
+	lifetimeString := getTokenLifetimeStringFromConfiguration()
 	htgettokenOpts = "--vaulttokenminttl=" + lifetimeString + " --credkey=" + credKey
+
 	return
+}
+
+// resolveHtgettokenOptsFromConfig checks the config for the "ORIG_HTGETTOKENOPTS" key.  If that is set, check the ORIG_HTGETTOKENOPTS value for the
+// given credKey.  If the credKey is present, return the ORIG_HTGETTOKENOPTS value.  Otherwise, return the ORIG_HTGETTOKENOPTS value with the credKey
+// appended
+func resolveHtgettokenOptsFromConfig(credKey string) string {
+	origHtgettokenOpts := viper.GetString("ORIG_HTGETTOKENOPTS")
+
+	// ORIG_HTGETTOKENOPTS not set in config
+	if origHtgettokenOpts == "" {
+		return "--credkey=" + credKey
+	}
+
+	log.Debugf("Prior to running, HTGETTOKENOPTS was set to %s", origHtgettokenOpts)
+	// If we have the right credkey in the HTGETTOKENOPTS, leave it be
+	if strings.Contains(origHtgettokenOpts, credKey) {
+		return origHtgettokenOpts
+	}
+	logHtGettokenOptsOnce.Do(
+		func() {
+			log.Warn("HTGETTOKENOPTS was provided in the environment and does not have the proper --credkey specified.  Will add it to the existing HTGETTOKENOPTS")
+		},
+	)
+	htgettokenOpts := origHtgettokenOpts + " --credkey=" + credKey
+	return htgettokenOpts
+}
+
+// getTokenLifetimeStringFromConfiguration checks the configuration for the "minTokenLifetime" key.  If it is set, the value is returned.  Otherwise,
+// a default is returned.
+func getTokenLifetimeStringFromConfiguration() string {
+	defaultLifetimeString := "10s"
+	if viper.IsSet("minTokenLifetime") {
+		return viper.GetString("minTokenLifetime")
+	}
+	return defaultLifetimeString
 }
 
 // GetKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the kerberos keytab.
@@ -128,58 +143,138 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
+	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
+	var scheddSourceForLog string
 	schedds := make([]string, 0)
 
+	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
-	if creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost"); viper.IsSet(creddOverrideVar) {
+	creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
+	if viper.IsSet(creddOverrideVar) {
+		scheddSourceForLog = "override"
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
-		log.WithField("schedds", schedds).Debug("Set schedds successfully from override")
+		funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddSourceForLog)
 		return schedds
 	}
 
-	// Otherwise, if we haven't run condor_status to get schedds, do that
+	// 2.  Try globalScheddCache
+	// See if we already have the schedds in the globalScheddCache for the collectorHost
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	funcLogger := log.WithField("collector", collectorHost)
-	var once *sync.Once
-	once, ok := scheddStoreOnceByCollector[collectorHost]
-	if !ok {
-		once = &sync.Once{}
-		scheddStoreOnceByCollector[collectorHost] = once
+	cacheEntry, loaded := globalScheddCache.cache.Load(collectorHost)
+	if !loaded {
+		// Create a new *scheddCacheEntry, which we'll populate later, and store it into the globalScheddCache
+		cacheEntry = &scheddCacheEntry{
+			newScheddCollection(),
+			&sync.Once{},
+		}
+		globalScheddCache.cache.Store(collectorHost, cacheEntry)
+	} else {
+		scheddSourceForLog = "cache"
 	}
-	var scheddLogSourceMsg string
-	once.Do(func() {
-		funcLogger.Debug("Querying collector for schedds")
-		statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
 
-		if constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint"); viper.IsSet(constraintKey) {
-			constraint := viper.GetString(constraintKey)
-			funcLogger.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
-			statusCmd = statusCmd.WithConstraint(constraint)
-		}
-
-		funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
-		classads, err := statusCmd.Run()
-		if err != nil {
-			funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
-		}
-
-		for _, classad := range classads {
-			name := classad["Name"].String()
-			schedds = append(schedds, name)
-		}
-		globalSchedds[collectorHost] = newScheddCollection()
-		globalSchedds[collectorHost].storeSchedds(schedds) // Store the schedds into the global store
-		scheddLogSourceMsg = "collector"
-	})
-
-	// Return the globally-stored schedds from cache
-	if len(schedds) == 0 {
-		schedds = globalSchedds[collectorHost].getSchedds()
-		scheddLogSourceMsg = "cache"
+	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
+	// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
+	// This way we are guaranteed that the cache will always be populated.
+	cacheEntryVal, ok := cacheEntry.(*scheddCacheEntry)
+	if ok {
+		cacheEntryVal.once.Do(
+			func() {
+				// 3.  Query collector
+				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
+				scheddSourceForLog = "collector"
+				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
+				cacheEntryVal.populateFromCollector(collectorHost, constraint)
+			},
+		)
 	}
-	funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddLogSourceMsg)
+
+	// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
+	schedds = cacheEntryVal.scheddCollection.getSchedds()
+	funcLogger.WithFields(log.Fields{
+		"schedds":       schedds,
+		"collectorHost": collectorHost,
+	}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
 	return schedds
+}
+
+// getConstraintFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to a condor constraint
+// If the override does not exist, it returns the globally-configured condor constraint.
+func getConstraintFromConfiguration(checkServiceConfigPath string) string {
+	var constraint string
+	constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
+	if viper.IsSet(constraintKey) {
+		constraint = viper.GetString(constraintKey)
+		log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
+	}
+	return constraint
+}
+
+// GetVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
+// needs to store the refresh token in a vault server.  The order of precedence is:
+//
+// 1. Environment variable _condor_SEC_CREDENTIAL_GETTOKEN_OPTS
+// 2. Configuration file for managed tokens
+// 3. Condor configuration file SEC_CREDENTIAL_GETTOKEN_OPTS value
+func GetVaultServer(checkServiceConfigPath string) (string, error) {
+	// Check environment
+	if val := os.Getenv(environment.CondorSecCredentialGettokenOpts.EnvVarKey()); val != "" {
+		return parseVaultServerFromEnvSetting(val)
+	}
+
+	// Check config
+	if vaultServerConfigKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "vaultServer"); viper.IsSet(vaultServerConfigKey) {
+		return viper.GetString(vaultServerConfigKey), nil
+	}
+
+	// Then check condor
+	if val, err := getSecCredentialGettokenOptsFromCondor(); err != nil {
+		log.Error("Could not get SEC_CREDENTIAL_GETTOKEN_OPTS from HTCondor")
+	} else {
+		return parseVaultServerFromEnvSetting(val)
+	}
+
+	return "", errors.New("could not find setting for SEC_CREDENTIAL_GETTOKEN_OPTS in environment, configuration, or HTCondor")
+}
+
+// getSecCredentialGettokenOptsFromCondor checks the condor configuration for the SEC_CREDENTIAL_GETTOKEN_OPTS setting
+// and if available, returns it
+func getSecCredentialGettokenOptsFromCondor() (string, error) {
+	condorVarName := environment.CondorSecCredentialGettokenOpts.EnvVarKey()
+	varName := strings.TrimPrefix(condorVarName, "_condor_")
+
+	cmd := exec.Command("condor_config_val", varName)
+	out, err := cmd.Output()
+	if err != nil {
+		log.Errorf("Could not run condor_config_val to get SEC_CREDENTIAL_GETTOKEN_OPTS: %s", err)
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// parseVaultServerFromEnvSetting takes an environment setting meant for htgettoken to parse (for example "-a vaultserver.domain"),
+// and returns the vaultServer from that setting (in the above example, "vaultserver.domain", nil would be returned)
+func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
+	envSettingArgs, err := shlex.Split(envSetting)
+	if err != nil {
+		log.Errorf("Could not split environment setting according to shlex rules, %s", err)
+		return "", err
+	}
+
+	envSettingFlagSet := pflag.NewFlagSet("envSetting", pflag.ContinueOnError)
+	envSettingFlagSet.ParseErrorsWhitelist.UnknownFlags = true // We're ok with unknown flags - just skip them
+	var vaultServerPtr *string = envSettingFlagSet.StringP("vaultserver", "a", "", "")
+	envSettingFlagSet.Parse(envSettingArgs)
+
+	noVaultServerErr := errors.New("no vault server was stored in the environment")
+
+	if vaultServerPtr == nil {
+		return "", noVaultServerErr
+	}
+	if *vaultServerPtr == "" {
+		return "", noVaultServerErr
+	}
+
+	return *vaultServerPtr, nil
 }
 
 // Functions to set environment.CommandEnvironment inside worker.Config
@@ -210,4 +305,47 @@ func GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) 
 		return overrideConfigPath, true
 	}
 	return
+}
+
+// scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a sync.Map,
+// which contains a map[string]*scheddCacheEntry, where the key is the collector host
+type scheddCache struct {
+	cache sync.Map
+}
+
+// scheddCacheEntry is an entry that contains a *scheddCollection and a *sync.Once to ensure that it is populated exactly once
+type scheddCacheEntry struct {
+	*scheddCollection
+	once *sync.Once
+}
+
+// populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
+func (s *scheddCacheEntry) populateFromCollector(collectorHost, constraint string) {
+	schedds := getScheddsFromCondor(collectorHost, constraint)
+	s.scheddCollection.storeSchedds(schedds)
+}
+
+// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
+func getScheddsFromCondor(collectorHost, constraint string) []string {
+	funcLogger := log.WithField("collector", collectorHost)
+
+	funcLogger.Debug("Querying collector for schedds")
+	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
+	if constraint != "" {
+		statusCmd = statusCmd.WithConstraint(constraint)
+	}
+
+	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+	classads, err := statusCmd.Run()
+	if err != nil {
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+
+	}
+
+	schedds := make([]string, 0)
+	for _, classad := range classads {
+		name := classad["Name"].String()
+		schedds = append(schedds, name)
+	}
+	return schedds
 }

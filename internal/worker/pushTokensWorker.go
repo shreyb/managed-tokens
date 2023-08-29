@@ -106,29 +106,27 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 				// Prepare default role file for the service
 				// Make sure we can get the destination filename
+				// Write the default role file to send
+
+				var dontSendDefaultRoleFile bool
 				defaultRoleFileDestinationFilename, err := parseDefaultRoleFileDestinationTemplateFromConfig(sc)
 				if err != nil {
 					serviceLogger.Error("Could not obtain default role file destination.  Will not push the default role file")
-					return
+					dontSendDefaultRoleFile = true
 				}
-
-				// Write the default role file to send
-				defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
+				defaultRoleFileName, err := prepareDefaultRoleFile(sc)
 				if err != nil {
-					serviceLogger.Error("Error creating temporary file for default role string.  Will not push the default role file")
-					return
+					serviceLogger.Error("Could not prepare default role.  Will not push the default role file")
+					dontSendDefaultRoleFile = true
 				}
+				sendDefaultRoleFile := !dontSendDefaultRoleFile
+
 				// Remove the tempfile when we're done
 				defer func() {
-					if err := os.Remove(defaultRoleFile.Name()); err != nil {
-						serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error deleting temporary file for default role string. Please clean up manually")
+					if err := os.Remove(defaultRoleFileName); err != nil {
+						serviceLogger.WithField("filename", defaultRoleFileName).Error("Error deleting temporary file for default role string. Please clean up manually")
 					}
 				}()
-				if _, err := defaultRoleFile.WriteString(sc.Role() + "\n"); err != nil {
-					serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
-					return
-				}
-				serviceLogger.WithField("filename", defaultRoleFile.Name()).Debug("Wrote default role file to transfer to nodes")
 
 				sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
 				destinationFilenames := []string{
@@ -201,17 +199,19 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 							tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 							successNodes.LoadOrStore(destinationNode, struct{}{})
 						}
+
+						// Send the default role file to the destination node.  If we fail here, don't count this as an error
+						if sendDefaultRoleFile {
+							pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+							defer pushCancel()
+							if err := pushToNode(pushContext, sc, defaultRoleFileName, destinationNode, defaultRoleFileDestinationFilename); err != nil {
+								serviceLogger.WithField("node", destinationNode).Error("Error pushing default role file to destination node")
+							} else {
+								serviceLogger.WithField("node", destinationNode).Debug("Success pushing default role file to destination node")
+							}
+						}
 					}(destinationNode)
 					nodeWg.Wait()
-
-					// Send the default role file to the destination node.  If we fail here, don't count this as an error
-					pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
-					defer pushCancel()
-					if err := pushToNode(pushContext, sc, defaultRoleFile.Name(), destinationNode, defaultRoleFileDestinationFilename); err != nil {
-						serviceLogger.WithField("node", destinationNode).Error("Error pushing default role file to destination node")
-					} else {
-						serviceLogger.WithField("node", destinationNode).Debug("Success pushing default role file to destination node")
-					}
 				}
 			}()
 
@@ -317,4 +317,23 @@ func parseDefaultRoleFileDestinationTemplateFromConfig(c *Config) (string, error
 func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
 	fileCopierOptions, ok := c.Extras[FileCopierOptions].(string)
 	return fileCopierOptions, ok
+}
+
+// prepareDefaultRoleFile prepares the role file for the given service config
+func prepareDefaultRoleFile(sc *Config) (string, error) {
+	serviceLogger := log.WithFields(log.Fields{
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
+	})
+	defaultRoleFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_default_role_file_")
+	if err != nil {
+		serviceLogger.Error("Error creating temporary file for default role string.  Will not push the default role file")
+		return "", err
+	}
+	if _, err := defaultRoleFile.WriteString(sc.Role() + "\n"); err != nil {
+		serviceLogger.WithField("filename", defaultRoleFile.Name()).Error("Error writing default role string to temporary file.  Please clean up manually.  Will not push the default role file")
+		return "", err
+	}
+	serviceLogger.WithField("filename", defaultRoleFile.Name()).Debug("Wrote default role file to transfer to nodes")
+	return defaultRoleFile.Name(), nil
 }

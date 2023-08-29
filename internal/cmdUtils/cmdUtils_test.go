@@ -1,13 +1,13 @@
-package cmdUtils_test
+package cmdUtils
 
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"testing"
 
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/testUtils"
 )
 
@@ -75,7 +75,7 @@ func TestGetServiceConfigOverrideKeyOrGlobalKey(t *testing.T) {
 				testKey := test.setupTestFunc()
 				expectedConfigPath := test.expectedConfigPathFunc(test.expectedOverridden, testKey)
 
-				configPath, overridden := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, testKey)
+				configPath, overridden := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, testKey)
 				viper.Reset()
 				if overridden != test.expectedOverridden {
 					t.Errorf("Got unexpected overridden bool.  Expected %t, got %t", test.expectedOverridden, overridden)
@@ -122,7 +122,7 @@ func TestGetCondorCollectorHostFromConfiguration(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				test.setupTestFunc()
-				value := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
+				value := GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 				viper.Reset()
 				if value != test.expectedValue {
 					t.Errorf("Got wrong value for condorCollectorHost.  Expected %s, got %s", test.expectedValue, value)
@@ -172,7 +172,7 @@ func TestGetUserPrincipalFromConfiguration(t *testing.T) {
 			func(t *testing.T) {
 				test.setupTestFunc()
 
-				value := cmdUtils.GetUserPrincipalFromConfiguration(serviceConfigPath)
+				value := GetUserPrincipalFromConfiguration(serviceConfigPath)
 				viper.Reset()
 				if value != test.expectedValue {
 					t.Errorf("Got wrong user principal.  Expected %s, got %s", test.expectedValue, value)
@@ -256,7 +256,7 @@ func TestGetUserPrincipalAndHtgettokenoptsFromConfiguration(t *testing.T) {
 				setFunc("ORIG_HTGETTOKENOPTS", test.htgettokenOptsInEnv)
 				setFunc("minTokenLifetime", test.minTokenLifetimeSetting)
 
-				userPrincipal, htgettokenOpts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
+				userPrincipal, htgettokenOpts := GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 				viper.Reset()
 				if userPrincipal != test.expectedUserPrincipal {
 					t.Errorf("Got wrong user principal.  Expected %s, got %s", test.expectedUserPrincipal, userPrincipal)
@@ -296,7 +296,7 @@ func TestGetKeytabOverrideFromConfiguration(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				test.setupTestFunc()
-				keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
+				keytabPath := GetKeytabFromConfiguration(serviceConfigPath)
 				viper.Reset()
 
 				if keytabPath != test.expectedKeytabPath {
@@ -339,12 +339,311 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				test.setupTestFunc()
-				schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+				schedds := GetScheddsFromConfiguration(serviceConfigPath)
 				viper.Reset()
 
-				if !testUtils.SlicesHaveSameElements(test.expectedSchedds, schedds) {
+				if !testUtils.SlicesHaveSameElementsOrdered[string](test.expectedSchedds, schedds) {
 					t.Errorf("Returned schedd slices are not the same.  Expected %v, got %v", test.expectedSchedds, schedds)
 
+				}
+			},
+		)
+	}
+}
+
+func TestGetVaultServer(t *testing.T) {
+	type testCase struct {
+		description         string
+		CISkipFunc          func(*testing.T) // We want to skip certain tests if it's in the CI env
+		envSettingFunc      func()
+		configSettingFunc   func()
+		expectedVaultServer func() string
+		expectedErrNil      bool
+		cleanupFunc         func()
+	}
+	vaultServerEnv := "blahblahEnv"
+	vaultServerConfig := "blahblahConfig"
+
+	testCases := []testCase{
+		{
+			"Everything set - should give us env var",
+			func(t *testing.T) {},
+			func() { os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", fmt.Sprintf("-a %s", vaultServerEnv)) },
+			func() { viper.Set("vaultServer", vaultServerConfig) },
+			func() string { return vaultServerEnv },
+			true,
+			func() {
+				os.Unsetenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS")
+				viper.Reset()
+			},
+		},
+		{
+			"Env set, config not - should give us env var",
+			func(t *testing.T) {},
+			func() { os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", fmt.Sprintf("-a %s", vaultServerEnv)) },
+			func() {},
+			func() string { return vaultServerEnv },
+			true,
+			func() { os.Unsetenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS") },
+		},
+		{
+			"Config set, env not - should give us config setting",
+			func(t *testing.T) {},
+			func() {},
+			func() { viper.Set("vaultServer", vaultServerConfig) },
+			func() string { return vaultServerConfig },
+			true,
+			func() { viper.Reset() },
+		},
+		{
+			"Nothing set - should just read condor_config_val",
+			func(t *testing.T) {
+				if os.Getenv("CI") != "" {
+					t.Skipf("Skipping test in CI environment.  CI=%s", os.Getenv("CI"))
+				}
+			},
+			func() {},
+			func() {},
+			func() string {
+				rawVal, _ := getSecCredentialGettokenOptsFromCondor()
+				val, _ := parseVaultServerFromEnvSetting(rawVal)
+				return val
+			},
+			true,
+			func() {},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description,
+			func(t *testing.T) {
+				testCase.CISkipFunc(t)
+				testCase.envSettingFunc()
+				testCase.configSettingFunc()
+				result, err := GetVaultServer("")
+				if err != nil && testCase.expectedErrNil {
+					t.Errorf("Expected nil error, got %s", err)
+				}
+				if err == nil && !testCase.expectedErrNil {
+					t.Error("Expected non-nil error, got nil")
+				}
+				if result != testCase.expectedVaultServer() {
+					t.Errorf("Expected vault server %s, got %s", testCase.expectedVaultServer(), result)
+				}
+				testCase.cleanupFunc()
+			},
+		)
+	}
+
+}
+
+func TestGetSecCredentialGettokenOptsFromCondor(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skipf("Skipping test in CI environment.  CI=%s", os.Getenv("CI"))
+	}
+
+	// Override condor config file to test
+	answer := "blahblahblah"
+	os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", answer)
+	testResult, _ := getSecCredentialGettokenOptsFromCondor()
+	if testResult != answer {
+		t.Errorf("Expected %s, got %s", answer, testResult)
+	}
+}
+
+func TestParseVaultServerFromEnvSetting(t *testing.T) {
+	type testCase struct {
+		description         string
+		envSetting          string
+		expectedVaultServer string
+		expectedErrNil      bool
+	}
+
+	testCases := []testCase{
+		{
+			"Normal case with -a - expected no error and proper parsing",
+			"-a vaultserver.domain",
+			"vaultserver.domain",
+			true,
+		},
+		{
+			"Normal case with --vaultserver - expected no error and proper parsing",
+			"--vaultserver vaultserver.domain",
+			"vaultserver.domain",
+			true,
+		},
+		{
+			"Duplicated -a - expected no error and last one wins",
+			"-a vaultserver1.domain -a vaultserver.domain",
+			"vaultserver.domain",
+			true,
+		},
+		{
+			"Mixed options with valid -a setting - expected no error",
+			"-foo blah --bar blah -a vaultserver.domain --another-flag baz",
+			"vaultserver.domain",
+			true,
+		},
+		{
+			"No vaultServer provided via flags",
+			"-foo blah --bar blah --another-flag baz",
+			"",
+			false,
+		},
+		{
+			"No vaultServer provided via flags",
+			"-foo blah --bar blah --another-flag baz",
+			"",
+			false,
+		},
+		{
+			"bad input string",
+			"-foo 'blah --bar blah --another-flag baz",
+			"",
+			false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.description,
+			func(t *testing.T) {
+				result, err := parseVaultServerFromEnvSetting(testCase.envSetting)
+				if err != nil && testCase.expectedErrNil {
+					t.Errorf("Expected nil error, got %s", err)
+				}
+				if err == nil && !testCase.expectedErrNil {
+					t.Error("Expected non-nil error, got nil")
+				}
+				if result != testCase.expectedVaultServer {
+					t.Errorf("Expected vault server %s, got %s", testCase.expectedVaultServer, result)
+				}
+			},
+		)
+	}
+}
+
+func TestResolveHtgettokenOptsFromConfig(t *testing.T) {
+	type testCase struct {
+		description     string
+		configSetupFunc func()
+		credKey         string
+		expectedResult  string
+	}
+
+	testCases := []testCase{
+		{
+			"ORIG_HTGETTOKENOPTS in config, has credkey and other things",
+			func() { viper.Set("ORIG_HTGETTOKENOPTS", "--flag1 arg1 --credkey mycredkey --flag2 arg2") },
+			"mycredkey",
+			"--flag1 arg1 --credkey mycredkey --flag2 arg2",
+		},
+		{
+			"ORIG_HTGETTOKENOPTS in config, does not have credkey at all",
+			func() { viper.Set("ORIG_HTGETTOKENOPTS", "--flag1 arg1 --flag2 arg2") },
+			"mycredkey",
+			"--flag1 arg1 --flag2 arg2 --credkey=mycredkey",
+		},
+		{
+			"ORIG_HTGETTOKENOPTS in config, has different credkey and other things",
+			func() { viper.Set("ORIG_HTGETTOKENOPTS", "--flag1 arg1 --credkey differentcredkey --flag2 arg2") },
+			"mycredkey",
+			"--flag1 arg1 --credkey differentcredkey --flag2 arg2 --credkey=mycredkey",
+		},
+		{
+			"ORIG_HTGETTOKENOPTS not in configuration",
+			func() {},
+			"mycredkey",
+			"--credkey=mycredkey",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				defer viper.Reset()
+				test.configSetupFunc()
+				if result := resolveHtgettokenOptsFromConfig(test.credKey); result != test.expectedResult {
+					t.Errorf("Did not get expected result.  Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+
+	}
+
+}
+
+func TestGetTokenLifetimeStringFromConfiguration(t *testing.T) {
+	type testCase struct {
+		description                     string
+		configMinTokenLifetimeSetupFunc func()
+		expectedResult                  string
+	}
+
+	testCases := []testCase{
+		{
+			"No minTokenLifetime configured",
+			func() {},
+			"10s",
+		},
+		{
+			"minTokenLifetime configured",
+			func() { viper.Set("minTokenLifetime", "30s") },
+			"30s",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				defer viper.Reset()
+				test.configMinTokenLifetimeSetupFunc()
+				if result := getTokenLifetimeStringFromConfiguration(); result != test.expectedResult {
+					t.Errorf("Did not get expected result.  Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}
+
+func TestGetConstraintFromConfiguration(t *testing.T) {
+	type testCase struct {
+		description       string
+		configSetupFunc   func()
+		serviceConfigPath string
+		expectedResult    string
+	}
+
+	testCases := []testCase{
+		{
+			"No constraint in configuration",
+			func() {},
+			"myexpt",
+			"",
+		},
+		{
+			"Constraint at global level for config",
+			func() { viper.Set("condorScheddConstraint", "foobar") },
+			"myexpt",
+			"foobar",
+		},
+		{
+			"Constraint set at override level",
+			func() { viper.Set("myexpt.condorScheddConstraintOverride", "baz") },
+			"myexpt",
+			"baz",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				defer viper.Reset()
+				test.configSetupFunc()
+				if result := getConstraintFromConfiguration(test.serviceConfigPath); result != test.expectedResult {
+					t.Errorf("Did not get expected result.  Expected %s, got %s", test.expectedResult, result)
 				}
 			},
 		)

@@ -13,6 +13,7 @@ BuildArch:      x86_64
 
 Requires:       krb5-workstation
 Requires:       condor
+Requires:       condor-credmon-vault
 Requires:       iputils
 Requires:       rsync
 Requires:       sqlite
@@ -78,6 +79,9 @@ install -d %{_sharedstatedir}/%{name} -m 0774 -o rexbatch -g fife
 }
 
 %changelog
+* Mon Aug 14 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.8
+Added condor_credmon_vault as dependency
+
 * Thu Jun 08 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.8
 Remove templates from spec file - they are now being embedded
 in the binaries

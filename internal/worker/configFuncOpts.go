@@ -70,6 +70,14 @@ func SetSchedds(value []string) func(*Config) error {
 	}
 }
 
+// SetVaultServer returns a func(*Config) with the VaultServer field set to the passed in value
+func SetVaultServer(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.VaultServer = value
+		return nil
+	}
+}
+
 // SetSupportedExtrasKeyValue returns a func(*Config) that sets the value for the given supportedExtraskey in the Extras map
 func SetSupportedExtrasKeyValue(key supportedExtrasKey, value any) func(*Config) error {
 	return func(c *Config) error {

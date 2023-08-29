@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
@@ -38,13 +39,13 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 		close(chans.GetNotificationsChan())
 		log.Debug("Closed StoreAndGetTokenWorker Notifications Chan")
 	}()
-	var interactive bool
 
 	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse vault storer timeout")
 	}
 
+	// One goroutine per service config
 	var wg sync.WaitGroup
 	for sc := range chans.GetServiceConfigChan() {
 		success := &vaultStorerSuccess{
@@ -66,7 +67,12 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 			defer vaultStorerCancel()
 
-			if err := vaultToken.StoreAndGetTokens(vaultStorerContext, sc.UserPrincipal, sc.Service.Name(), sc.Schedds, sc.CommandEnvironment, interactive); err != nil {
+			tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
+			for _, schedd := range sc.Schedds {
+				tokenStorers = append(tokenStorers, vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
+			}
+
+			if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.Service.Name(), tokenStorers...); err != nil {
 				var msg string
 				if errors.Is(err, context.DeadlineExceeded) {
 					msg = "Timeout error"
@@ -87,15 +93,61 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 // StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will
 // display all the stdout from the underlying executables to screen.
 func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
-	interactive := true
-
 	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse vault storer timeout")
 	}
 
-	vaultContext, vaultCancel := context.WithTimeout(ctx, vaultStorerTimeout)
-	defer vaultCancel()
+	vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
+	defer vaultStorerCancel()
 
-	return vaultToken.StoreAndGetTokens(vaultContext, sc.UserPrincipal, sc.Service.Name(), sc.Schedds, sc.CommandEnvironment, interactive)
+	tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
+	for _, schedd := range sc.Schedds {
+		tokenStorers = append(tokenStorers, vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
+	}
+
+	return StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.Service.Name(), tokenStorers...)
+}
+
+// StoreAndGetTokensForSchedds will store a refresh token on the condor-configured vault server, obtain vault and bearer tokens for a service
+// using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
+// If there was an error with ANY of the schedds, StoreAndGetTokensForSchedds will return an error
+func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, serviceName string, tokenStorers ...vaultToken.TokenStorer) error {
+	var wg sync.WaitGroup
+	funcLogger := log.WithField("serviceName", serviceName)
+
+	// Listener for all of the getTokensAndStoreInVault goroutines
+	var isError bool
+	errorCollectionDone := make(chan struct{}) // Channel to close when we're done determining if there was an error or not
+	errChan := make(chan error, len(tokenStorers))
+	go func() {
+		defer close(errorCollectionDone)
+		for err := range errChan {
+			if err != nil {
+				isError = true
+			}
+		}
+	}()
+
+	// One goroutine per credd
+	for _, tokenStorer := range tokenStorers {
+		wg.Add(1)
+		go func(tokenStorer vaultToken.TokenStorer) {
+			defer wg.Done()
+			if err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ); err != nil {
+				errChan <- err
+			}
+			errChan <- nil
+		}(tokenStorer)
+	}
+	wg.Wait()
+	close(errChan)
+	<-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
+
+	if isError {
+		msg := "Error obtaining and/or storing vault tokens for one or more credd"
+		funcLogger.Errorf(msg)
+		return errors.New(msg)
+	}
+	return nil
 }
