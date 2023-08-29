@@ -114,53 +114,24 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 // using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
 // If there was an error with ANY of the schedds, StoreAndGetTokensForSchedds will return an error
 func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, serviceName string, tokenStorers ...vaultToken.TokenStorer) error {
-	// var wg sync.WaitGroup
 	funcLogger := log.WithField("serviceName", serviceName)
-
-	// Listener for all of the getTokensAndStoreInVault goroutines
-	// var isError bool
-	// errorCollectionDone := make(chan struct{}) // Channel to close when we're done determining if there was an error or not
-	// errChan := make(chan error, len(tokenStorers))
-	// go func() {
-	// 	defer close(errorCollectionDone)
-	// 	for err := range errChan {
-	// 		if err != nil {
-	// 			isError = true
-	// 		}
-	// 	}
-	// }()
 
 	g := new(errgroup.Group)
 
 	// One goroutine per credd
 	for _, tokenStorer := range tokenStorers {
 		tokenStorer := tokenStorer
-		// wg.Add(1)
 		g.Go(func() error {
 			return vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
 		})
-		// go func(tokenStorer vaultToken.TokenStorer) {
-		// 	defer wg.Done()
-		// 	if err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ); err != nil {
-		// 		errChan <- err
-		// 	}
-		// 	errChan <- nil
-		// }(tokenStorer)
 	}
-	// wg.Wait()
-	// close(errChan)
-	// <-errorCollectionDone // Don't inspect isError until we've given all vault storing goroutines chance to report an error
 
 	// Wait for all StoreAndValidateToken operations to complete
 	if err := g.Wait(); err != nil {
-		msg := "Error obtaining and/or storing vault tokens for one or more credd"
+		msg := "error obtaining and/or storing vault tokens for one or more credd"
 		funcLogger.Errorf(msg)
 		return errors.New(msg)
 	}
-	// if isError {
-	// 	msg := "Error obtaining and/or storing vault tokens for one or more credd"
-	// 	funcLogger.Errorf(msg)
-	// 	return errors.New(msg)
-	// }
+
 	return nil
 }
