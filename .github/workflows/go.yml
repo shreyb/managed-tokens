@@ -38,6 +38,7 @@ jobs:
         touch $RUNNER_TEMP/condor_vault_storer
         $RUNNER_TEMP/condor_status
         $RUNNER_TEMP/condor_store_cred
+        $RUNNER_TEMP/condor_config_val
         $RUNNER_TEMP/htgettoken
         $RUNNER_TEMP/kinit
         $RUNNER_TEMP/klist
