@@ -44,6 +44,9 @@ jobs:
         $RUNNER_TEMP/klist
         $RUNNER_TEMP/cd
 
+    - name: Mock condor_config_val
+      run: echo "#!/usr/bin/bash; echo $1" > $RUNNER_TEMP/condor_config_val
+
     - name: Change perms on missing executables
       run: >
         chmod +x $RUNNER_TEMP/condor_*;
