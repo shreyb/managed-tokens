@@ -59,5 +59,8 @@ jobs:
     - name: Extend PATH
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
 
+    - name: Check path
+      run: echo $PATH; cat $GITHUB_PATH
+
     - name: Test
       run: go test -v ./...
