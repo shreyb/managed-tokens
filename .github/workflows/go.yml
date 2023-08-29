@@ -60,7 +60,10 @@ jobs:
       run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
 
     - name: Check path
-      run: echo $PATH; cat $GITHUB_PATH
+      run: cat $GITHUB_PATH
+
+    - name: Check condor_config_val
+      run: cat `which condor_config_val`
 
     - name: Test
       run: go test -v ./...
