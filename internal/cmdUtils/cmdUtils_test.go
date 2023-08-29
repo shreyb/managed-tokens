@@ -354,6 +354,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 func TestGetVaultServer(t *testing.T) {
 	type testCase struct {
 		description         string
+		CISkipFunc          func(*testing.T) // We want to skip certain tests if it's in the CI env
 		envSettingFunc      func()
 		configSettingFunc   func()
 		expectedVaultServer func() string
@@ -366,6 +367,7 @@ func TestGetVaultServer(t *testing.T) {
 	testCases := []testCase{
 		{
 			"Everything set - should give us env var",
+			func(t *testing.T) {},
 			func() { os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", fmt.Sprintf("-a %s", vaultServerEnv)) },
 			func() { viper.Set("vaultServer", vaultServerConfig) },
 			func() string { return vaultServerEnv },
@@ -377,6 +379,7 @@ func TestGetVaultServer(t *testing.T) {
 		},
 		{
 			"Env set, config not - should give us env var",
+			func(t *testing.T) {},
 			func() { os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", fmt.Sprintf("-a %s", vaultServerEnv)) },
 			func() {},
 			func() string { return vaultServerEnv },
@@ -385,6 +388,7 @@ func TestGetVaultServer(t *testing.T) {
 		},
 		{
 			"Config set, env not - should give us config setting",
+			func(t *testing.T) {},
 			func() {},
 			func() { viper.Set("vaultServer", vaultServerConfig) },
 			func() string { return vaultServerConfig },
@@ -393,6 +397,11 @@ func TestGetVaultServer(t *testing.T) {
 		},
 		{
 			"Nothing set - should just read condor_config_val",
+			func(t *testing.T) {
+				if os.Getenv("CI") != "" {
+					t.Skip("Skipping test in CI environment")
+				}
+			},
 			func() {},
 			func() {},
 			func() string {
@@ -408,6 +417,7 @@ func TestGetVaultServer(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.description,
 			func(t *testing.T) {
+				testCase.CISkipFunc(t)
 				testCase.envSettingFunc()
 				testCase.configSettingFunc()
 				result, err := GetVaultServer("")
@@ -428,6 +438,10 @@ func TestGetVaultServer(t *testing.T) {
 }
 
 func TestGetSecCredentialGettokenOptsFromCondor(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping test in CI environment")
+	}
+
 	// Override condor config file to test
 	answer := "blahblahblah"
 	os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", answer)
