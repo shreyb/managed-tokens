@@ -17,13 +17,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
 )
 
 var (
-	logHtGettokenOptsOnce sync.Once   // Only log our environment's HTGETTOKENOPTS once
-	globalScheddCache     scheddCache // Global cache for the schedds, sorted by collector host
+	logHtGettokenOptsOnce sync.Once // Only log our environment's HTGETTOKENOPTS once
+	scheddGroup           singleflight.Group
 )
 
 // Functional options for initialization of service Config
@@ -144,56 +145,50 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
-	var scheddSourceForLog string
 	schedds := make([]string, 0)
 
 	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
 	creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
 	if viper.IsSet(creddOverrideVar) {
-		scheddSourceForLog = "override"
+		// scheddSourceForLog = "override"
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
-		funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddSourceForLog)
+		funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from override")
 		return schedds
 	}
 
-	// 2.  Try globalScheddCache
-	// See if we already have the schedds in the globalScheddCache for the collectorHost
+	// 2.  Get the collector from either cache or via condor query
+	var scheddsSetFromCollector bool
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	cacheEntry, loaded := globalScheddCache.cache.Load(collectorHost)
-	if !loaded {
-		// Create a new *scheddCacheEntry, which we'll populate later, and store it into the globalScheddCache
-		cacheEntry = &scheddCacheEntry{
-			newScheddCollection(),
-			&sync.Once{},
-		}
-		globalScheddCache.cache.Store(collectorHost, cacheEntry)
-	} else {
-		scheddSourceForLog = "cache"
+	scheddColl, err, _ := scheddGroup.Do(collectorHost, func() (any, error) {
+		s := newScheddCollection()
+		constraint := getConstraintFromConfiguration(checkServiceConfigPath)
+		schedds, err := getScheddsFromCondor(collectorHost, constraint)
+		s.storeSchedds(schedds)
+		funcLogger.WithFields(log.Fields{
+			"schedds":       schedds,
+			"collectorHost": collectorHost,
+		}).Debugf("Set schedds successfully from collector")
+		scheddsSetFromCollector = true
+		return s, err
+	})
+	if err != nil {
+		funcLogger.WithField("collectorHost", collectorHost).Error("Could not retrieve schedds from either condor or cache")
+		return nil
 	}
 
-	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
-	// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
-	// This way we are guaranteed that the cache will always be populated.
-	cacheEntryVal, ok := cacheEntry.(*scheddCacheEntry)
-	if ok {
-		cacheEntryVal.once.Do(
-			func() {
-				// 3.  Query collector
-				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
-				scheddSourceForLog = "collector"
-				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
-				cacheEntryVal.populateFromCollector(collectorHost, constraint)
-			},
-		)
+	scheddCollVal, ok := scheddColl.(*scheddCollection)
+	if !ok {
+		funcLogger.Errorf("Wrong type stored in cache.  Expected *scheddCollection, got %T.", scheddColl)
 	}
+	schedds = scheddCollVal.getSchedds()
 
-	// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
-	schedds = cacheEntryVal.scheddCollection.getSchedds()
-	funcLogger.WithFields(log.Fields{
-		"schedds":       schedds,
-		"collectorHost": collectorHost,
-	}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
+	if !scheddsSetFromCollector {
+		funcLogger.WithFields(log.Fields{
+			"schedds":       schedds,
+			"collectorHost": collectorHost,
+		}).Debugf("Set schedds successfully from cache")
+	}
 	return schedds
 }
 
@@ -307,26 +302,8 @@ func GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) 
 	return
 }
 
-// scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a sync.Map,
-// which contains a map[string]*scheddCacheEntry, where the key is the collector host
-type scheddCache struct {
-	cache sync.Map
-}
-
-// scheddCacheEntry is an entry that contains a *scheddCollection and a *sync.Once to ensure that it is populated exactly once
-type scheddCacheEntry struct {
-	*scheddCollection
-	once *sync.Once
-}
-
-// populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
-func (s *scheddCacheEntry) populateFromCollector(collectorHost, constraint string) {
-	schedds := getScheddsFromCondor(collectorHost, constraint)
-	s.scheddCollection.storeSchedds(schedds)
-}
-
 // getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
-func getScheddsFromCondor(collectorHost, constraint string) []string {
+func getScheddsFromCondor(collectorHost, constraint string) ([]string, error) {
 	funcLogger := log.WithField("collector", collectorHost)
 
 	funcLogger.Debug("Querying collector for schedds")
@@ -339,7 +316,7 @@ func getScheddsFromCondor(collectorHost, constraint string) []string {
 	classads, err := statusCmd.Run()
 	if err != nil {
 		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
+		return nil, err
 	}
 
 	schedds := make([]string, 0)
@@ -347,5 +324,5 @@ func getScheddsFromCondor(collectorHost, constraint string) []string {
 		name := classad["Name"].String()
 		schedds = append(schedds, name)
 	}
-	return schedds
+	return schedds, nil
 }
