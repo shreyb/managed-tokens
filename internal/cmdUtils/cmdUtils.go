@@ -144,32 +144,21 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
-	var scheddSourceForLog string
-	schedds := make([]string, 0)
 
 	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
-	creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
-	if viper.IsSet(creddOverrideVar) {
-		scheddSourceForLog = "override"
-		schedds = append(schedds, viper.GetString(creddOverrideVar))
-		funcLogger.WithField("schedds", schedds).Debugf("Set schedds successfully from %s", scheddSourceForLog)
+	schedds, found := checkScheddsOverride(checkServiceConfigPath)
+	if found {
 		return schedds
 	}
 
 	// 2.  Try globalScheddCache
-	// See if we already have the schedds in the globalScheddCache for the collectorHost
+	// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
+	scheddSourceForLog := "cache"
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
 	cacheEntry, loaded := globalScheddCache.cache.Load(collectorHost)
 	if !loaded {
-		// Create a new *scheddCacheEntry, which we'll populate later, and store it into the globalScheddCache
-		cacheEntry = &scheddCacheEntry{
-			newScheddCollection(),
-			&sync.Once{},
-		}
-		globalScheddCache.cache.Store(collectorHost, cacheEntry)
-	} else {
-		scheddSourceForLog = "cache"
+		createNewGlobalScheddCacheEntry(collectorHost)
 	}
 
 	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
@@ -197,6 +186,29 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	return schedds
 }
 
+// checkScheddsOverride checks the global and service-level configurations for the condorCreddHost key.  If that key exists, the value
+// is returned, along with a bool indicating that the key was found in the configuration.
+func checkScheddsOverride(checkServiceConfigPath string) (schedds []string, found bool) {
+	creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
+	if viper.IsSet(creddOverrideVar) {
+		schedds = append(schedds, viper.GetString(creddOverrideVar))
+		log.WithFields(log.Fields{
+			"serviceConfigPath": checkServiceConfigPath,
+			"schedds":           schedds,
+		}).Debugf("Set schedds successfully from override")
+		return schedds, true
+	}
+	return
+}
+
+func createNewGlobalScheddCacheEntry(collectorHost string) {
+	cacheEntry := &scheddCacheEntry{
+		newScheddCollection(),
+		&sync.Once{},
+	}
+	globalScheddCache.cache.Store(collectorHost, cacheEntry)
+}
+
 // getConstraintFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to a condor constraint
 // If the override does not exist, it returns the globally-configured condor constraint.
 func getConstraintFromConfiguration(checkServiceConfigPath string) string {
@@ -207,6 +219,31 @@ func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 		log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
 	}
 	return constraint
+}
+
+// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
+func getScheddsFromCondor(collectorHost, constraint string) []string {
+	funcLogger := log.WithField("collector", collectorHost)
+
+	funcLogger.Debug("Querying collector for schedds")
+	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
+	if constraint != "" {
+		statusCmd = statusCmd.WithConstraint(constraint)
+	}
+
+	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+	classads, err := statusCmd.Run()
+	if err != nil {
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+
+	}
+
+	schedds := make([]string, 0)
+	for _, classad := range classads {
+		name := classad["Name"].String()
+		schedds = append(schedds, name)
+	}
+	return schedds
 }
 
 // GetVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
@@ -305,47 +342,4 @@ func GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) 
 		return overrideConfigPath, true
 	}
 	return
-}
-
-// scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a sync.Map,
-// which contains a map[string]*scheddCacheEntry, where the key is the collector host
-type scheddCache struct {
-	cache sync.Map
-}
-
-// scheddCacheEntry is an entry that contains a *scheddCollection and a *sync.Once to ensure that it is populated exactly once
-type scheddCacheEntry struct {
-	*scheddCollection
-	once *sync.Once
-}
-
-// populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
-func (s *scheddCacheEntry) populateFromCollector(collectorHost, constraint string) {
-	schedds := getScheddsFromCondor(collectorHost, constraint)
-	s.scheddCollection.storeSchedds(schedds)
-}
-
-// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
-func getScheddsFromCondor(collectorHost, constraint string) []string {
-	funcLogger := log.WithField("collector", collectorHost)
-
-	funcLogger.Debug("Querying collector for schedds")
-	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
-	if constraint != "" {
-		statusCmd = statusCmd.WithConstraint(constraint)
-	}
-
-	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
-	classads, err := statusCmd.Run()
-	if err != nil {
-		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
-	}
-
-	schedds := make([]string, 0)
-	for _, classad := range classads {
-		name := classad["Name"].String()
-		schedds = append(schedds, name)
-	}
-	return schedds
 }

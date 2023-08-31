@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -647,5 +648,64 @@ func TestGetConstraintFromConfiguration(t *testing.T) {
 				}
 			},
 		)
+	}
+}
+
+func TestCheckScheddsOverride(t *testing.T) {
+	configPath := "condorCreddHost"
+	var emptyStringSlice []string
+	type testCase struct {
+		description     string
+		viperSetupFunc  func()
+		expectedSchedds []string
+		expectedFound   bool
+	}
+
+	testCases := []testCase{
+		{
+			"Config key exists",
+			func() {
+				viper.Set(configPath, "thisismycondorcreddhost")
+			},
+			[]string{"thisismycondorcreddhost"},
+			true,
+		},
+		{
+			"Config key does not exist",
+			func() {
+			},
+			emptyStringSlice,
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				test.viperSetupFunc()
+				defer viper.Reset()
+				schedds, found := checkScheddsOverride(configPath)
+				if !slices.Equal(schedds, test.expectedSchedds) {
+					t.Errorf("Got wrong result for schedds.  Expected %v, got %v", test.expectedSchedds, schedds)
+				}
+				if found != test.expectedFound {
+					t.Errorf("Got wrong result for found.  Expected %t, got %t", test.expectedFound, found)
+				}
+			},
+		)
+	}
+}
+
+func TestCreateNewGlobalScheddCacheEntry(t *testing.T) {
+	collectorHost := "myCollectorHost"
+	createNewGlobalScheddCacheEntry(collectorHost)
+
+	newEntry, ok := globalScheddCache.cache.Load(collectorHost)
+	if !ok {
+		t.Errorf("Did not create a new cache entry")
+	}
+	if _, ok := newEntry.(*scheddCacheEntry); !ok {
+		t.Errorf("Newly-created cache value has wrong type.  Expected *scheddCacheEntry, got %T", newEntry)
 	}
 }
