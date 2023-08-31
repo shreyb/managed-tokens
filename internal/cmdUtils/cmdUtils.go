@@ -142,14 +142,14 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
-func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
+func GetScheddsFromConfiguration(checkServiceConfigPath string) ([]string, error) {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
 
 	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
 	schedds, found := checkScheddsOverride(checkServiceConfigPath)
 	if found {
-		return schedds
+		return schedds, nil
 	}
 
 	// 2.  Try globalScheddCache
@@ -164,6 +164,7 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
 	// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
 	// This way we are guaranteed that the cache will always be populated.
+	var err error
 	cacheEntryVal, ok := cacheEntry.(*scheddCacheEntry)
 	if ok {
 		cacheEntryVal.once.Do(
@@ -172,9 +173,12 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
 				scheddSourceForLog = "collector"
 				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
-				cacheEntryVal.populateFromCollector(collectorHost, constraint)
+				err = cacheEntryVal.populateFromCollector(collectorHost, constraint)
 			},
 		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
@@ -183,7 +187,7 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) []string {
 		"schedds":       schedds,
 		"collectorHost": collectorHost,
 	}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
-	return schedds
+	return schedds, nil
 }
 
 // checkScheddsOverride checks the global and service-level configurations for the condorCreddHost key.  If that key exists, the value
@@ -222,7 +226,7 @@ func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 }
 
 // getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
-func getScheddsFromCondor(collectorHost, constraint string) []string {
+func getScheddsFromCondor(collectorHost, constraint string) ([]string, error) {
 	funcLogger := log.WithField("collector", collectorHost)
 
 	funcLogger.Debug("Querying collector for schedds")
@@ -235,7 +239,7 @@ func getScheddsFromCondor(collectorHost, constraint string) []string {
 	classads, err := statusCmd.Run()
 	if err != nil {
 		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
-
+		return nil, err
 	}
 
 	schedds := make([]string, 0)
@@ -243,7 +247,7 @@ func getScheddsFromCondor(collectorHost, constraint string) []string {
 		name := classad["Name"].String()
 		schedds = append(schedds, name)
 	}
-	return schedds
+	return schedds, nil
 }
 
 // GetVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer

@@ -461,9 +461,13 @@ func run(ctx context.Context) error {
 				exeLogger.Error("Cannot proceed without vault server.  Exiting now")
 				os.Exit(1)
 			}
+			schedds, err := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+			if err != nil {
+				funcLogger.Error("Cannot proceed without schedds.  Exiting now")
+				os.Exit(1)
+			}
 
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
-			schedds := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)

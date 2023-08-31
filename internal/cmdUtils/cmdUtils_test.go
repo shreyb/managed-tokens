@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -340,7 +341,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				test.setupTestFunc()
-				schedds := GetScheddsFromConfiguration(serviceConfigPath)
+				schedds, _ := GetScheddsFromConfiguration(serviceConfigPath)
 				viper.Reset()
 
 				if !testUtils.SlicesHaveSameElementsOrdered[string](test.expectedSchedds, schedds) {
@@ -350,6 +351,32 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestGetScheddsFromConfigurationCached(t *testing.T) {
+	// setup
+	once := &sync.Once{}
+	once.Do(func() {})
+	collectorHost := "myCollectorHost"
+	viper.Set("condorCollectorHost", collectorHost)
+	defer viper.Reset()
+	schedds := []string{"schedd1", "schedd2"}
+	cacheEntry := &scheddCacheEntry{
+		newScheddCollection(),
+		once,
+	}
+	cacheEntry.storeSchedds(schedds)
+	globalScheddCache.cache.Store(collectorHost, cacheEntry)
+
+	// test
+	result, err := GetScheddsFromConfiguration("fakeservicepath")
+	if err != nil {
+		t.Errorf("Expected nil error. Got %v", err)
+	}
+	if !slices.Equal(result, schedds) {
+		t.Errorf("Got wrong result.  Expected %v, got %v", schedds, result)
+	}
+
 }
 
 func TestGetVaultServer(t *testing.T) {
