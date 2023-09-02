@@ -156,10 +156,13 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) ([]string, error
 	// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
 	scheddSourceForLog := "cache"
 	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	cacheEntry, loaded := globalScheddCache.cache.Load(collectorHost)
-	if !loaded {
-		createNewGlobalScheddCacheEntry(collectorHost)
-	}
+	cacheEntry, _ := globalScheddCache.cache.LoadOrStore(
+		collectorHost,
+		&scheddCacheEntry{
+			newScheddCollection(),
+			&sync.Once{},
+		},
+	)
 
 	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
 	// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
@@ -203,14 +206,6 @@ func checkScheddsOverride(checkServiceConfigPath string) (schedds []string, foun
 		return schedds, true
 	}
 	return
-}
-
-func createNewGlobalScheddCacheEntry(collectorHost string) {
-	cacheEntry := &scheddCacheEntry{
-		newScheddCollection(),
-		&sync.Once{},
-	}
-	globalScheddCache.cache.Store(collectorHost, cacheEntry)
 }
 
 // getConstraintFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to a condor constraint

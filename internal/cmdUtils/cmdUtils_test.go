@@ -723,16 +723,3 @@ func TestCheckScheddsOverride(t *testing.T) {
 		)
 	}
 }
-
-func TestCreateNewGlobalScheddCacheEntry(t *testing.T) {
-	collectorHost := "myCollectorHost"
-	createNewGlobalScheddCacheEntry(collectorHost)
-
-	newEntry, ok := globalScheddCache.cache.Load(collectorHost)
-	if !ok {
-		t.Errorf("Did not create a new cache entry")
-	}
-	if _, ok := newEntry.(*scheddCacheEntry); !ok {
-		t.Errorf("Newly-created cache value has wrong type.  Expected *scheddCacheEntry, got %T", newEntry)
-	}
-}
