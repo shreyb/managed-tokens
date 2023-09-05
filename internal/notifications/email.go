@@ -70,5 +70,4 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 		}
 		return err
 	}
-
 }
