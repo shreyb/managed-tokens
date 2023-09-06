@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"sync"
 
 	"github.com/shreyb/managed-tokens/internal/db"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // errorCount is an integer that keeps track of whether its value was changed from when it was initially loaded
@@ -34,72 +34,61 @@ type serviceErrorCounts struct {
 // setErrorCountsByService queries the db.ManagedTokensDatabase to load the prior errorCounts for a given service
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
 	funcLogger := log.WithField("service", service)
+
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
 		return nil, false
 	}
 
 	ec := &serviceErrorCounts{}
-	tChan := make(chan error, 2)
-	var tWg sync.WaitGroup
+	g := new(errgroup.Group)
 
-	// Check for setupError counts
-	tWg.Add(1)
-	go func() {
-		defer tWg.Done()
-		var err error
-		setupErrorData, err := database.GetSetupErrorsInfoByService(ctx, service)
-		defer func() {
-			tChan <- err
-		}()
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				funcLogger.Debug("No setupError information for service.  Assuming there are no prior errors")
-				err = nil
-			} else {
-				funcLogger.Error("Could not get setupError information. Please inspect database")
-			}
-			return
-		}
-		ec.setupErrors.value = setupErrorData.Count()
-	}()
-
-	// Check for pushErrorCounts
-	tWg.Add(1)
-	go func() {
-		defer tWg.Done()
-		var err error
-		ec.pushErrors = make(map[string]errorCount)
-		pushErrorData, err := database.GetPushErrorsInfoByService(ctx, service)
-		defer func() {
-			tChan <- err
-		}()
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				funcLogger.Debug("No pushError information for service.  Assuming there are no prior errors")
-				err = nil
-			} else {
-				funcLogger.Error("Could not get pushError information.  Please inspect database")
-			}
-			return
-		}
-		for _, datum := range pushErrorData {
-			errorCountVal := errorCount{value: datum.Count()}
-			ec.pushErrors[datum.Node()] = errorCountVal
-		}
-	}()
-
-	tWg.Wait() // Wait until we finish sending any errors with regard to getting error count info
-	close(tChan)
+	g.Go(func() error {
+		return populateServiceSetupErrorCountFromDatabase(ctx, service, database, ec)
+	})
+	g.Go(func() error {
+		return populateServicePushErrorCountFromDatabase(ctx, service, database, ec)
+	})
 
 	// Listen on tChan to see if we got any errors getting error counts from ManagedTokensDatabase
-	for err := range tChan {
-		if err != nil {
-			funcLogger.Error("Error getting error info from database.  Will not track errors")
-			return nil, false
-		}
+	if err := g.Wait(); err != nil {
+		funcLogger.Error("Error getting error info from database.  Will not track errors")
+		return nil, false
 	}
 	return ec, true
+}
+
+func populateServiceSetupErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
+	funcLogger := log.WithField("caller", "populateServiceSetupErrorCountFromDatabase")
+	setupErrorData, err := database.GetSetupErrorsInfoByService(ctx, service)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			funcLogger.Debug("No setupError information for service.  Assuming there are no prior errors")
+			return nil
+		}
+		funcLogger.Error("Could not get setupError information. Please inspect database")
+		return err
+	}
+	ec.setupErrors.value = setupErrorData.Count()
+	return nil
+}
+func populateServicePushErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
+	funcLogger := log.WithField("caller", "populateServicePushErrorCountFromDatabase")
+	ec.pushErrors = make(map[string]errorCount)
+	pushErrorData, err := database.GetPushErrorsInfoByService(ctx, service)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			funcLogger.Debug("No pushError information for service.  Assuming there are no prior errors")
+			return nil
+		}
+		funcLogger.Error("Could not get pushError information.  Please inspect database")
+		return err
+	}
+	for _, datum := range pushErrorData {
+		errorCountVal := errorCount{value: datum.Count()}
+		ec.pushErrors[datum.Node()] = errorCountVal
+	}
+	return nil
 }
 
 // setupErrorCount is a type that encapsulates a service and the number of setupErrors registered for that service.  It implements db.SetupErrorCount
