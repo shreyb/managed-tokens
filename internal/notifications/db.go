@@ -176,13 +176,10 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 // and the configured minimum threshhold for sending messages, will return whether or not that Notification should be flagged to be sent to the stakeholder
 func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *serviceErrorCounts, errorCountToSendMessage int) (sendNotification bool) {
 	adjustCount := func(count int) (newCount int, shouldSendNotification bool) {
-		// Increment count
 		newCount = count + 1
 		if newCount >= errorCountToSendMessage {
-			// Reset the counter to 0, allow for notification to be staged for sending
 			newCount = 0
 			shouldSendNotification = true
-			// We're under our threshhold for sending notifications, so sendNotification remains false
 		}
 		return newCount, shouldSendNotification
 	}
