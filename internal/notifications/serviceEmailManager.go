@@ -45,7 +45,12 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		}
 	}
 
-	ec, shouldTrackErrorCounts := setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
+	shouldTrackErrorCounts := true
+	ec, err := setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
+	if err != nil {
+		funcLogger.Error("Error setting error counts.  Will not track errors.")
+		shouldTrackErrorCounts = false
+	}
 
 	adminChan := make(chan Notification)
 	startAdminErrorAdder(adminChan)
@@ -56,7 +61,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
-func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan Notification, ec *serviceErrorCounts, shouldTrackErrorCounts bool) {
+func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan<- Notification, ec *serviceErrorCounts, shouldTrackErrorCounts bool) {
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.runServiceNotificationHandler",
 		"service": em.Service,

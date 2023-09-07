@@ -108,6 +108,44 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	return a
 }
 
+func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotificationManager) (bool, []string) {
+	funcLogger := log.WithField("caller", "determineIfShouldTrackErrorCounts")
+	if !a.TrackErrorCounts {
+		return false, nil
+	}
+	if a.Database == nil {
+		return false, nil
+	}
+
+	services, err := a.Database.GetAllServices(ctx)
+	if err != nil {
+		funcLogger.Error("Error getting services from database.  Assuming that we need to send all notifications")
+		return false, nil
+	}
+	if len(services) == 0 {
+		funcLogger.Debug("No services stored in database.  Not counting errors, and will send all notifications")
+		return false, nil
+	}
+	return true, services
+}
+
+// getAllErrorCountsFromDatabase gets all the current error counts in the *db.ManagedTokensDatabase for
+// every element of services.  If there is an issue doing so, this returns as its second element false, which
+// indicates to the caller not to use the returned map
+func getAllErrorCountsFromDatabase(ctx context.Context, services []string, database *db.ManagedTokensDatabase) (allServiceCounts map[string]*serviceErrorCounts, valid bool) {
+	funcLogger := log.WithField("caller", "notifications.getAllErrorCountsFromDatabase")
+	allServiceCounts = make(map[string]*serviceErrorCounts)
+	for _, service := range services {
+		ec, err := setErrorCountsByService(ctx, service, database)
+		if err != nil {
+			funcLogger.WithField("service", service).Error("Error setting error count.  Will not use error counts")
+			return nil, false
+		}
+		allServiceCounts[service] = ec
+	}
+	return allServiceCounts, true
+}
+
 // runAdminNotificationHandler handles the routing and counting of errors that result from a
 // Notification being sent on the AdminNotificationManager's ReceiveChan
 func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, adminChan chan<- Notification, allServiceCounts map[string]*serviceErrorCounts, shouldTrackErrorCounts bool) {
@@ -154,42 +192,6 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 			}
 		}
 	}()
-}
-
-// getAllErrorCountsFromDatabase gets all the current error counts in the *db.ManagedTokensDatabase for
-// every element of services.  If there is an issue doing so, this returns as its second element false, which
-// indicates to the caller not to use the returned map
-func getAllErrorCountsFromDatabase(ctx context.Context, services []string, database *db.ManagedTokensDatabase) (map[string]*serviceErrorCounts, bool) {
-	allServiceCounts := make(map[string]*serviceErrorCounts)
-	for _, service := range services {
-		ec, trackErrorCountsByService := setErrorCountsByService(ctx, service, database)
-		allServiceCounts[service] = ec
-		if !trackErrorCountsByService {
-			return nil, false
-		}
-	}
-	return allServiceCounts, true
-}
-
-func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotificationManager) (bool, []string) {
-	funcLogger := log.WithField("caller", "determineIfShouldTrackErrorCounts")
-	if !a.TrackErrorCounts {
-		return false, nil
-	}
-	if a.Database == nil {
-		return false, nil
-	}
-
-	services, err := a.Database.GetAllServices(ctx)
-	if err != nil {
-		funcLogger.Error("Error getting services from database.  Assuming that we need to send all notifications")
-		return false, nil
-	}
-	if len(services) == 0 {
-		funcLogger.Debug("No services stored in database.  Not counting errors, and will send all notifications")
-		return false, nil
-	}
-	return true, services
 }
 
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file

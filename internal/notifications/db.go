@@ -32,12 +32,12 @@ type serviceErrorCounts struct {
 }
 
 // setErrorCountsByService queries the db.ManagedTokensDatabase to load the prior errorCounts for a given service
-func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, bool) {
+func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, error) {
 	funcLogger := log.WithField("service", service)
 
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
-		return nil, false
+		return nil, errors.New("no database to query")
 	}
 
 	ec := &serviceErrorCounts{}
@@ -53,9 +53,9 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 	// Listen on tChan to see if we got any errors getting error counts from ManagedTokensDatabase
 	if err := g.Wait(); err != nil {
 		funcLogger.Error("Error getting error info from database.  Will not track errors")
-		return nil, false
+		return nil, err
 	}
-	return ec, true
+	return ec, nil
 }
 
 func populateServiceSetupErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
