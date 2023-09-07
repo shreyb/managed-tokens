@@ -144,6 +144,7 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
 						if !shouldSend {
 							funcLogger.Debug("Error count less than error limit.  Not sending notification.")
+							continue
 						}
 					}
 					if shouldSend {
