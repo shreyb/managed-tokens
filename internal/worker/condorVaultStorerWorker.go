@@ -84,7 +84,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 					if unwrappedErr != nil {
 						var authNeededErrorPtr *vaultToken.ErrAuthNeeded
 						if errors.As(unwrappedErr, &authNeededErrorPtr) {
-							msg = fmt.Sprintf("%s: %s", msg, err.Error())
+							msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
 						}
 					}
 				}
