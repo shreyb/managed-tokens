@@ -61,7 +61,11 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, da
 		em.NotificationMinimum = viper.GetInt("errorCountToSendMessage")
 		return nil
 	}
-	funcOpts = append(funcOpts, setNotificationMinimum)
+	setEmail := func(em *notifications.ServiceEmailManager) error {
+		em.Email = e
+		return nil
+	}
+	funcOpts = append(funcOpts, setNotificationMinimum, setEmail)
 
 	if database != nil {
 		setDB := func(em *notifications.ServiceEmailManager) error {

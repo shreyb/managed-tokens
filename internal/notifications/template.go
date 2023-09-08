@@ -39,7 +39,6 @@ func prepareMessageFromTemplate(templateReader io.Reader, tmplStruct any) (strin
 	}
 
 	var tmplBuilder strings.Builder
-
 	if err = messageTemplate.Execute(&tmplBuilder, tmplStruct); err != nil {
 		log.Errorf("Failed to execute message template: %s", err)
 		return "", errExecuteTemplate

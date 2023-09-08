@@ -9,6 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/shreyb/managed-tokens/internal/db"
 )
@@ -80,15 +81,13 @@ type AdminNotificationManagerOption func(*AdminNotificationManager) error
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
 // via email (or otherwise).  Functional options should be specified to set the fields (see AdminNotificationManagerOption documentation)
 func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
-	var trackErrorCounts bool = true
-	services := make([]string, 0)
-	a := &AdminNotificationManager{
-		ReceiveChan:      make(chan Notification), // Channel to send notifications to this Manager
-		TrackErrorCounts: trackErrorCounts,
-		DatabaseReadOnly: true,
-	}
 	funcLogger := log.WithField("caller", "notifications.NewAdminNotificationManager")
 
+	a := &AdminNotificationManager{
+		ReceiveChan:      make(chan Notification), // Channel to send notifications to this Manager
+		TrackErrorCounts: true,
+		DatabaseReadOnly: true,
+	}
 	for _, opt := range opts {
 		if err := opt(a); err != nil {
 			funcLogger.Errorf("Error running functional option")
@@ -96,37 +95,61 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	}
 
 	// Get our previous error information for this service
-	allServiceCounts := make(map[string]*serviceErrorCounts)
+	var allServiceCounts map[string]*serviceErrorCounts
+	shouldTrackErrorCounts, servicesToTrackErrorCounts := determineIfShouldTrackErrorCounts(ctx, a)
+	if shouldTrackErrorCounts {
+		allServiceCounts, shouldTrackErrorCounts = getAllErrorCountsFromDatabase(ctx, servicesToTrackErrorCounts, a.Database)
+	}
+
+	adminChan := make(chan Notification)                                                     // Channel to send notifications to aggregator
+	startAdminErrorAdder(adminChan)                                                          // Start admin errors aggregator concurrently
+	runAdminNotificationHandler(ctx, a, adminChan, allServiceCounts, shouldTrackErrorCounts) // Start admin notification handler concurrently
+
+	return a
+}
+
+func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotificationManager) (bool, []string) {
+	funcLogger := log.WithField("caller", "determineIfShouldTrackErrorCounts")
 	if !a.TrackErrorCounts {
-		trackErrorCounts = false
+		return false, nil
 	}
 	if a.Database == nil {
-		trackErrorCounts = false
-	} else {
-		var err error
-		services, err = a.Database.GetAllServices(ctx)
-		if err != nil {
-			funcLogger.Error("Error getting services from database.  Assuming that we need to send all notifications")
-			trackErrorCounts = false
-		}
+		return false, nil
+	}
+
+	services, err := a.Database.GetAllServices(ctx)
+	if err != nil {
+		funcLogger.Error("Error getting services from database.  Assuming that we need to send all notifications")
+		return false, nil
 	}
 	if len(services) == 0 {
 		funcLogger.Debug("No services stored in database.  Not counting errors, and will send all notifications")
-		trackErrorCounts = false
+		return false, nil
 	}
+	return true, services
+}
 
-	if trackErrorCounts {
-		for _, service := range services {
-			ec, trackErrorCountsByService := setErrorCountsByService(ctx, service, a.Database)
-			allServiceCounts[service] = ec
-			if !trackErrorCountsByService {
-				trackErrorCounts = false
-			}
+// getAllErrorCountsFromDatabase gets all the current error counts in the *db.ManagedTokensDatabase for
+// every element of services.  If there is an issue doing so, this returns as its second element false, which
+// indicates to the caller not to use the returned map
+func getAllErrorCountsFromDatabase(ctx context.Context, services []string, database *db.ManagedTokensDatabase) (allServiceCounts map[string]*serviceErrorCounts, valid bool) {
+	funcLogger := log.WithField("caller", "notifications.getAllErrorCountsFromDatabase")
+	allServiceCounts = make(map[string]*serviceErrorCounts)
+	for _, service := range services {
+		ec, err := setErrorCountsByService(ctx, service, database)
+		if err != nil {
+			funcLogger.WithField("service", service).Error("Error setting error count.  Will not use error counts")
+			return nil, false
 		}
+		allServiceCounts[service] = ec
 	}
+	return allServiceCounts, true
+}
 
-	adminChan := make(chan Notification) // Channel to send notifications to aggregator
-	startAdminErrorAdder(adminChan)      // Start admin errors aggregator
+// runAdminNotificationHandler handles the routing and counting of errors that result from a
+// Notification being sent on the AdminNotificationManager's ReceiveChan
+func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, adminChan chan<- Notification, allServiceCounts map[string]*serviceErrorCounts, shouldTrackErrorCounts bool) {
+	funcLogger := log.WithField("caller", "runAdminNotificationHandler")
 
 	go func() {
 		defer close(adminChan)
@@ -144,7 +167,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 				// Channel is closed --> send notifications
 				if !chanOpen {
 					// Only save error counts if we expect no other NotificationsManagers (like ServiceEmailManager) to write to the database
-					if trackErrorCounts && !a.DatabaseReadOnly {
+					if shouldTrackErrorCounts && !a.DatabaseReadOnly {
 						for service, ec := range allServiceCounts {
 							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
 								funcLogger.WithField("service", n.GetService()).Error("Error saving new error counts in database.  Please investigate")
@@ -155,10 +178,11 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 				} else {
 					// Send notification to admin message aggregator
 					shouldSend := true
-					if trackErrorCounts {
+					if shouldTrackErrorCounts {
 						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
 						if !shouldSend {
 							funcLogger.Debug("Error count less than error limit.  Not sending notification.")
+							continue
 						}
 					}
 					if shouldSend {
@@ -168,115 +192,131 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 			}
 		}
 	}()
-	return a
 }
 
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file
 // configured at adminTemplatePath
 func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
-	var wg sync.WaitGroup
-	var existsSendError bool
 	funcLogger := log.WithField("caller", "notifications.SendAdminNotifications")
 
+	// Let all adminErrors writers finish updating adminErrors
 	adminErrors.writerCount.Wait()
 	funcLogger.Debug("adminErrors is finalized")
 
 	// No errors - only send slack message saying we tested.  If there are no errors, we don't send emails
-	if syncMapLength(adminErrors.errorsMap) == 0 {
+	if adminErrorsIsEmpty() {
 		if isTest {
-			slackMessages := make([]*slackMessage, 0)
-			slackMsgText := "Test run completed successfully"
-			for _, sm := range sendMessagers {
-				if messager, ok := sm.(*slackMessage); ok {
-					slackMessages = append(slackMessages, messager)
-				}
-			}
-			for _, slackMessage := range slackMessages {
-				if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
-					funcLogger.Error("Failed to send slack message")
-					return slackErr
-				}
+			if err := sendSlackNoErrorTestMessages(ctx, sendMessagers); err != nil {
+				funcLogger.Error("Error sending admin notifications saying there were no errors in test mode")
+				return err
 			}
 		}
 		funcLogger.Debug("No errors to send")
 		return nil
 	}
 
-	// If there are errors, prepare the long-form and abridged messages
-	adminErrorsMapFinal := prepareAdminErrorsForFullMessage()
-	setupErrorsCombined, pushErrorsCombined := prepareAbridgedAdminSlices()
-
-	// Prepare the full and abridged messages
-	timestamp := time.Now().Format(time.RFC822)
-	fullMessageStruct := struct {
-		Timestamp           string
-		Operation           string
-		AdminErrors         map[string]AdminDataFinal
-		SetupErrorsCombined []string
-		PushErrorsCombined  []string
-		Abridged            bool
-	}{
-		Timestamp:           timestamp,
-		Operation:           operation,
-		AdminErrors:         adminErrorsMapFinal,
-		SetupErrorsCombined: setupErrorsCombined,
-		PushErrorsCombined:  pushErrorsCombined,
-		Abridged:            false,
-	}
-	abridgedMessageStruct := struct {
-		Timestamp           string
-		Operation           string
-		AdminErrors         map[string]AdminDataFinal
-		SetupErrorsCombined []string
-		PushErrorsCombined  []string
-		Abridged            bool
-	}{
-		Timestamp:           timestamp,
-		Operation:           operation,
-		AdminErrors:         adminErrorsMapFinal,
-		SetupErrorsCombined: setupErrorsCombined,
-		PushErrorsCombined:  pushErrorsCombined,
-		Abridged:            true,
-	}
-
-	fullMessage, err := prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), fullMessageStruct)
+	fullMessage, abridgedMessage, err := prepareFullAndAbridgedMessages(operation)
 	if err != nil {
-		funcLogger.Errorf("Could not prepare full admin message from template: %s", err)
-		return err
-	}
-	abridgedMessage, err := prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), abridgedMessageStruct)
-	if err != nil {
-		funcLogger.Errorf("Could not prepare abridged admin message from template: %s", err)
+		funcLogger.Errorf("Could not prepare full or abridged admin message from template: %s", err)
 		return err
 	}
 
 	// Run SendMessage on all configured sendMessagers
+	g := new(errgroup.Group)
 	for _, sm := range sendMessagers {
-		wg.Add(1)
-		go func(sm SendMessager) {
-			defer wg.Done()
+		sm := sm
+		g.Go(func() error {
+			var messageToSend, logEnding string
 			switch sm.(type) {
 			case *email:
-				// Send long-form message
-				if err := SendMessage(ctx, sm, fullMessage); err != nil {
-					existsSendError = true
-					funcLogger.Error("Failed to send admin email")
-				}
+				messageToSend = fullMessage
+				logEnding = "admin email"
 			case *slackMessage:
-				// Send abridged message
-				if err := SendMessage(ctx, sm, abridgedMessage); err != nil {
-					existsSendError = true
-					funcLogger.Error("Failed to send slack message")
-				}
+				messageToSend = abridgedMessage
+				logEnding = "slack message"
 			default:
-				funcLogger.Error("Unsupported SendMessager")
+				err := errors.New("unsupported SendMessager")
+				funcLogger.Error(err)
+				return err
 			}
-		}(sm)
+			if err := SendMessage(ctx, sm, messageToSend); err != nil {
+				funcLogger.Errorf("Failed to send %s", logEnding)
+				return err
+			}
+			return nil
+		})
 	}
-	wg.Wait()
 
-	if existsSendError {
+	if err := g.Wait(); err != nil {
 		return errors.New("sending admin notifications failed.  Please see logs")
+	}
+
+	return nil
+}
+
+func prepareFullAndAbridgedMessages(operation string) (fullMessage string, abridgedMessage string, err error) {
+	funcLogger := log.WithFields(log.Fields{
+		"caller":    "notifications.prepareFullAndAbridgedMessages",
+		"operation": operation,
+	})
+	timestamp := time.Now().Format(time.RFC822)
+
+	// If there are errors, prepare the long-form and abridged messages
+	// Prepare the full and abridged messages
+	adminErrorsMapFinal := prepareAdminErrorsForFullMessage()
+	fullMessageStruct := struct {
+		Timestamp   string
+		Operation   string
+		AdminErrors map[string]AdminDataFinal
+		Abridged    bool
+	}{
+		Timestamp:   timestamp,
+		Operation:   operation,
+		AdminErrors: adminErrorsMapFinal,
+		Abridged:    false,
+	}
+	fullMessage, err = prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), fullMessageStruct)
+	if err != nil {
+		funcLogger.Errorf("Could not prepare full admin message from template: %s", err)
+		return "", "", err
+	}
+
+	setupErrorsCombined, pushErrorsCombined := prepareAbridgedAdminSlices()
+	abridgedMessageStruct := struct {
+		Timestamp           string
+		Operation           string
+		SetupErrorsCombined []string
+		PushErrorsCombined  []string
+		Abridged            bool
+	}{
+		Timestamp:           timestamp,
+		Operation:           operation,
+		SetupErrorsCombined: setupErrorsCombined,
+		PushErrorsCombined:  pushErrorsCombined,
+		Abridged:            true,
+	}
+	abridgedMessage, err = prepareMessageFromTemplate(strings.NewReader(adminErrorsTemplate), abridgedMessageStruct)
+	if err != nil {
+		funcLogger.Errorf("Could not prepare abridged admin message from template: %s", err)
+		return "", "", err
+	}
+	return fullMessage, abridgedMessage, nil
+}
+
+func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessager) error {
+	funcLogger := log.WithField("caller", "sendSlackNoErrorTestMessages")
+	slackMessages := make([]*slackMessage, 0)
+	slackMsgText := "Test run completed successfully"
+	for _, sm := range sendMessagers {
+		if messager, ok := sm.(*slackMessage); ok {
+			slackMessages = append(slackMessages, messager)
+		}
+	}
+	for _, slackMessage := range slackMessages {
+		if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
+			funcLogger.Error("Failed to send slack message")
+			return slackErr
+		}
 	}
 	return nil
 }
@@ -325,14 +365,14 @@ func addErrorToAdminErrors(n Notification) {
 	switch nValue := n.(type) {
 	// For *setupErrors, store or append the setupError text to the appropriate field
 	case *setupError:
-		if actual, loaded := adminErrors.errorsMap.LoadOrStore(
+		if data, loaded := adminErrors.errorsMap.LoadOrStore(
 			nValue.service,
 			&adminData{
 				SetupErrors: []string{nValue.message},
 			},
 		); loaded {
 			// Service already has *adminData stored
-			if accumulatedAdminData, ok := actual.(*adminData); !ok {
+			if accumulatedAdminData, ok := data.(*adminData); !ok {
 				funcLogger.Panic("Invalid data stored in admin errors map.")
 			} else {
 				// Just append the newest setup error to the slice
@@ -341,7 +381,7 @@ func addErrorToAdminErrors(n Notification) {
 		}
 	// This case is a bit more complicated, since the pushErrors are stored in a sync.Map
 	case *pushError:
-		actual, loaded := adminErrors.errorsMap.LoadOrStore(
+		data, loaded := adminErrors.errorsMap.LoadOrStore(
 			// Roughly an initialization of the PushErrors sync.Map
 			nValue.service,
 			&adminData{
@@ -349,10 +389,10 @@ func addErrorToAdminErrors(n Notification) {
 			},
 		)
 		if loaded {
-			if adminData, ok := actual.(*adminData); !ok {
+			if accumulatedAdminData, ok := data.(*adminData); !ok {
 				funcLogger.Panic("Invalid data stored in admin errors map.")
 			} else {
-				adminData.PushErrors.Store(nValue.node, nValue.message)
+				accumulatedAdminData.PushErrors.Store(nValue.node, nValue.message)
 			}
 		} else {
 			// At this point, since we didn't wrap the LoadOrStore call in an if-contraction (if <expression>; loaded {})
@@ -401,9 +441,10 @@ type adminDataUnsync struct {
 // adminErrorsToAdminDataUnsync translates the accumulated adminErrors.errorsMap into a map[string]adminDataUnsync so that
 // we have easier access to the structure of the data
 func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
+	funcLogger := log.WithField("caller", "notifications.adminErrorsToAdminDataUnsync")
+
 	adminErrorsMap := make(map[string]*adminData)
 	adminErrorsMapUnsync := make(map[string]adminDataUnsync)
-	funcLogger := log.WithField("caller", "notifications.adminErrorsToAdminDataUnsync")
 	// 1.  Write adminErrors from sync.Map to Map called adminErrorsMap
 	adminErrors.errorsMap.Range(func(service, aData any) bool {
 		s, ok := service.(string)
@@ -451,3 +492,6 @@ func adminErrorsToAdminDataUnsync() map[string]adminDataUnsync {
 func (a *adminData) isEmpty() bool {
 	return ((len(a.SetupErrors) == 0) && (syncMapLength(&a.PushErrors) == 0))
 }
+
+// adminErrorsIsEmpty checks to see if there are no adminErrors
+func adminErrorsIsEmpty() bool { return syncMapLength(adminErrors.errorsMap) == 0 }

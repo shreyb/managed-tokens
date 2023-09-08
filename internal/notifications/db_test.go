@@ -19,11 +19,11 @@ import (
 // serviceErrorCounts and a boolean indicating that we should not track error counts
 func TestSetErrorCountsByServiceNilDBCase(t *testing.T) {
 	ctx := context.Background()
-	result, trackErrors := setErrorCountsByService(ctx, "fakeService", nil)
+	result, err := setErrorCountsByService(ctx, "fakeService", nil)
 	if result != nil {
 		t.Errorf("Expected nil serviceErrorCounts.  Got %v", result)
 	}
-	if trackErrors {
+	if err == nil {
 		t.Error("Expected trackErrors to be false.  Got true.")
 	}
 }
@@ -43,7 +43,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 		dbData
 		service                    string
 		expectedServiceErrorCounts *serviceErrorCounts
-		expectedShouldTrackErrors  bool
 	}
 
 	testCases := []testCase{
@@ -52,7 +51,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 			dbData:                     dbData{},
 			service:                    "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{},
-			expectedShouldTrackErrors:  true,
 		},
 		{
 			description: "Only single-service setup errors, 0 case",
@@ -67,7 +65,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service:                    "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{errorCount{0, false}, nil},
-			expectedShouldTrackErrors:  true,
 		},
 		{
 			description: "Only single-service setup errors, nonzero case",
@@ -82,7 +79,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service:                    "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{errorCount{42, false}, nil},
-			expectedShouldTrackErrors:  true,
 		},
 		{
 			description: "Multiple service setup errors, pick the right one",
@@ -101,7 +97,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 			},
 			service:                    "service1",
 			expectedServiceErrorCounts: &serviceErrorCounts{errorCount{42, false}, nil},
-			expectedShouldTrackErrors:  true,
 		},
 		{
 			description: "Single-service push errors, single node, 0 case",
@@ -123,7 +118,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 					"node1": {0, false},
 				},
 			},
-			expectedShouldTrackErrors: true,
 		},
 		{
 			description: "Single-service push errors, single node, non-zero case",
@@ -145,7 +139,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 					"node1": {42, false},
 				},
 			},
-			expectedShouldTrackErrors: true,
 		},
 		{
 			description: "Single-service push errors, multiple nodes",
@@ -173,7 +166,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 					"node2": {84, false},
 				},
 			},
-			expectedShouldTrackErrors: true,
 		},
 		{
 			description: "Multiple-service push errors, multiple nodes, select the right service",
@@ -211,7 +203,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 					"node3": {86, false},
 				},
 			},
-			expectedShouldTrackErrors: true,
 		},
 		{
 			description: "Multiple-service setup and push errors, multiple nodes, select the right service",
@@ -259,7 +250,6 @@ func TestSetErrorCountsByService(t *testing.T) {
 					"node3": {86, false},
 				},
 			},
-			expectedShouldTrackErrors: true,
 		},
 	}
 
@@ -274,12 +264,12 @@ func TestSetErrorCountsByService(t *testing.T) {
 				}
 				defer m.Close()
 
-				counts, shouldTrackErrors := setErrorCountsByService(ctx, test.service, m)
+				counts, err := setErrorCountsByService(ctx, test.service, m)
+				if err != nil {
+					t.Errorf("Expected nil error.  Got %s instead", err)
+				}
 				if !reflect.DeepEqual(counts.setupErrors, test.expectedServiceErrorCounts.setupErrors) && !reflect.DeepEqual(counts.pushErrors, test.expectedServiceErrorCounts.pushErrors) {
 					t.Errorf("Got different serviceErrorCounts than expected for test %s.  Expected %v, got %v", test.description, test.expectedServiceErrorCounts, counts)
-				}
-				if shouldTrackErrors != test.expectedShouldTrackErrors {
-					t.Errorf("Got different decision about tracking errors than expected for test %s.  Expected %t, got %t", test.description, test.expectedShouldTrackErrors, shouldTrackErrors)
 				}
 			},
 		)

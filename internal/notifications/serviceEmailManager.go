@@ -11,13 +11,15 @@ import (
 	"github.com/shreyb/managed-tokens/internal/db"
 )
 
-// EmailManager is simply a channel on which Notification objects can be sent and received
+// ServiceEmailManager contains all the information needed to receive Notifications for services and ensure they get sent in the
+// correct email
 type ServiceEmailManager struct {
 	ReceiveChan         chan Notification
 	Service             string
 	Email               *email
 	Database            *db.ManagedTokensDatabase
 	NotificationMinimum int
+	wg                  *sync.WaitGroup
 }
 
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
@@ -35,6 +37,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	em := &ServiceEmailManager{
 		Service:     service,
 		ReceiveChan: make(chan Notification),
+		wg:          wg,
 	}
 	for _, opt := range opts {
 		if err := opt(em); err != nil {
@@ -42,24 +45,38 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		}
 	}
 
-	// Get our previous error information for this service
-	ec, trackErrorCounts := setErrorCountsByService(ctx, em.Service, em.Database)
+	shouldTrackErrorCounts := true
+	ec, err := setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
+	if err != nil {
+		funcLogger.Error("Error setting error counts.  Will not track errors.")
+		shouldTrackErrorCounts = false
+	}
 
-	// Set up the various admin channels needed
 	adminChan := make(chan Notification)
 	startAdminErrorAdder(adminChan)
+	runServiceNotificationHandler(ctx, em, adminChan, ec, shouldTrackErrorCounts)
+
+	return em
+}
+
+// runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
+// on the ServiceEmailManager's ReceiveChan.
+func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan<- Notification, ec *serviceErrorCounts, shouldTrackErrorCounts bool) {
+	funcLogger := log.WithFields(log.Fields{
+		"caller":  "notifications.runServiceNotificationHandler",
+		"service": em.Service,
+	})
 
 	// Start listening for new notifications
 	go func() {
 		serviceErrorsTable := make(map[string]string, 0)
-		defer wg.Done()
+		defer em.wg.Done()
 		defer close(adminChan)
 		for {
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
 					funcLogger.Error("Timeout exceeded in notification Manager")
-
 				} else {
 					funcLogger.Error(err)
 				}
@@ -68,52 +85,69 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 			case n, chanOpen := <-em.ReceiveChan:
 				// Channel is closed --> save errors to database and send notifications
 				if !chanOpen {
-					if trackErrorCounts {
+					if shouldTrackErrorCounts {
 						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
 							funcLogger.Error("Error saving new error counts in database.  Please investigate")
 						}
 					}
-					if len(serviceErrorsTable) > 0 {
-						tableString := aggregateServicePushErrors(serviceErrorsTable)
-						msg, err := prepareServiceEmail(ctx, tableString, e)
-						if err != nil {
-							funcLogger.Error("Error preparing service email for sending")
-						}
-						if err = SendMessage(ctx, e, msg); err != nil {
-							funcLogger.Error("Error sending email")
-						}
-					}
+					sendServiceEmailIfErrors(ctx, serviceErrorsTable, em)
 					return
 				}
+
 				// Channel is open: direct the message as needed
-				log.WithFields(log.Fields{
-					"service": n.GetService(),
-					"message": n.GetMessage(),
-				}).Debug("Received notification message")
+				funcLogger.WithField("message", n.GetMessage()).Debug("Received notification message")
 				shouldSend := true
-				if trackErrorCounts {
+				if shouldTrackErrorCounts {
 					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, ec, em.NotificationMinimum)
 					if !shouldSend {
 						log.WithField("service", n.GetService()).Debug("Error count less than error limit.  Not sending notification")
+						continue
 					}
 				}
 				if shouldSend {
-					msg := "Error counts either not tracked or exceeded error limit.  Sending notification"
-					if nValue, ok := n.(*pushError); ok {
-						serviceErrorsTable[nValue.node] = n.GetMessage()
-						log.WithFields(log.Fields{
-							"service": nValue.service,
-							"node":    nValue.node,
-						}).Debug(msg)
-					} else {
-						log.WithField("service", n.GetService()).Debug(msg)
-					}
+					addPushErrorNotificationToServiceErrorsTable(n, serviceErrorsTable)
 					adminChan <- n
 				}
 			}
 		}
 	}()
-	return em
+}
+
+func addPushErrorNotificationToServiceErrorsTable(n Notification, serviceErrorsTable map[string]string) {
+	// Note that we ONLY send push errors to the stakeholders.  Only admins will get all Notifications.
+	funcLogger := log.WithFields(log.Fields{
+		"caller":  "notifications.addPushErrorNotificationToServiceErrorsTable",
+		"service": n.GetService(),
+	})
+
+	msg := "Error counts either not tracked or exceeded error limit.  Sending notification"
+	if nValue, ok := n.(*pushError); ok {
+		serviceErrorsTable[nValue.node] = n.GetMessage()
+		funcLogger.WithField("node", nValue.node).Debug(msg)
+		return
+	}
+	funcLogger.Debug(msg)
+}
+
+func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string]string, em *ServiceEmailManager) {
+	funcLogger := log.WithFields(log.Fields{
+		"caller":  "notifications.sendServiceEmailIfErrors",
+		"service": em.Service,
+	})
+
+	if len(serviceErrorsTable) == 0 {
+		funcLogger.Debug("No errors to send for service")
+		return
+	}
+
+	tableString := aggregateServicePushErrors(serviceErrorsTable)
+	msg, err := prepareServiceEmail(ctx, tableString, em.Email)
+	if err != nil {
+		funcLogger.Error("Error preparing service email for sending")
+	}
+	if err = SendMessage(ctx, em.Email, msg); err != nil {
+		funcLogger.Error("Error sending email")
+	}
 }
 
 // prepareServiceEmail sets a passed-in email object's templateStruct field to the passed in errorTable, and returns a string that contains
