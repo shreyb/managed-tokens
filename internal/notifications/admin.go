@@ -254,6 +254,24 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 	return nil
 }
 
+func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessager) error {
+	funcLogger := log.WithField("caller", "sendSlackNoErrorTestMessages")
+	slackMessages := make([]*slackMessage, 0)
+	slackMsgText := "Test run completed successfully"
+	for _, sm := range sendMessagers {
+		if messager, ok := sm.(*slackMessage); ok {
+			slackMessages = append(slackMessages, messager)
+		}
+	}
+	for _, slackMessage := range slackMessages {
+		if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
+			funcLogger.Error("Failed to send slack message")
+			return slackErr
+		}
+	}
+	return nil
+}
+
 func prepareFullAndAbridgedMessages(operation string) (fullMessage string, abridgedMessage string, err error) {
 	funcLogger := log.WithFields(log.Fields{
 		"caller":    "notifications.prepareFullAndAbridgedMessages",
@@ -301,24 +319,6 @@ func prepareFullAndAbridgedMessages(operation string) (fullMessage string, abrid
 		return "", "", err
 	}
 	return fullMessage, abridgedMessage, nil
-}
-
-func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessager) error {
-	funcLogger := log.WithField("caller", "sendSlackNoErrorTestMessages")
-	slackMessages := make([]*slackMessage, 0)
-	slackMsgText := "Test run completed successfully"
-	for _, sm := range sendMessagers {
-		if messager, ok := sm.(*slackMessage); ok {
-			slackMessages = append(slackMessages, messager)
-		}
-	}
-	for _, slackMessage := range slackMessages {
-		if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
-			funcLogger.Error("Failed to send slack message")
-			return slackErr
-		}
-	}
-	return nil
 }
 
 // prepareAbridgedAdminSlices takes the stored adminErrors and returns two []string objects containing the various setup and push errors, not broken
