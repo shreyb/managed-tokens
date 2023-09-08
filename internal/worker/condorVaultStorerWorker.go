@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -79,6 +80,13 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 					msg = "Timeout error"
 				} else {
 					msg = "Could not store and get vault tokens"
+					unwrappedErr := errors.Unwrap(err)
+					if unwrappedErr != nil {
+						var authNeededErrorPtr *vaultToken.ErrAuthNeeded
+						if errors.As(unwrappedErr, &authNeededErrorPtr) {
+							msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
+						}
+					}
 				}
 				configLogger.Error(msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
@@ -118,7 +126,7 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 
 	g := new(errgroup.Group)
 
-	// One goroutine per credd
+	// One goroutine per TokenStorer
 	for _, tokenStorer := range tokenStorers {
 		tokenStorer := tokenStorer
 		g.Go(func() error {
@@ -129,8 +137,16 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 	// Wait for all StoreAndValidateToken operations to complete
 	if err := g.Wait(); err != nil {
 		msg := "error obtaining and/or storing vault tokens for one or more credd"
-		funcLogger.Errorf(msg)
-		return errors.New(msg)
+
+		var retErr error
+		var authNeededErrorPtr *vaultToken.ErrAuthNeeded
+		if errors.As(err, &authNeededErrorPtr) {
+			retErr = fmt.Errorf("%s: %w", msg, err)
+		} else {
+			retErr = errors.New(msg)
+		}
+		funcLogger.Error(retErr.Error())
+		return retErr
 	}
 
 	return nil

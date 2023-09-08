@@ -12,18 +12,18 @@ import (
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
-type mockTokenStorer struct {
+type MockTokenStorer struct {
 	tokenStorerFunc func(context.Context, *environment.CommandEnvironment) error
 	tokenValidator  func() error
 }
 
-func (t *mockTokenStorer) getServiceName() string { return "mockService" }
-func (t *mockTokenStorer) getCredd() string       { return "mockCredd" }
-func (t *mockTokenStorer) getVaultServer() string { return "mockVaultServer" }
-func (t *mockTokenStorer) validateToken() error {
+func (t *MockTokenStorer) getServiceName() string { return "mockService" }
+func (t *MockTokenStorer) getCredd() string       { return "mockCredd" }
+func (t *MockTokenStorer) getVaultServer() string { return "mockVaultServer" }
+func (t *MockTokenStorer) validateToken() error {
 	return t.tokenValidator()
 }
-func (t *mockTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
+func (t *MockTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
 	return t.tokenStorerFunc(ctx, environ)
 }
 
@@ -35,12 +35,13 @@ func TestStoreAndValidateToken(t *testing.T) {
 	}
 
 	storerError := errors.New("Error storing vault token")
+	storerErrorAuthNeededTimeout := &ErrAuthNeeded{underlyingError: errHtgettokenTimeout}
 	validatorError := errors.New("Error validating vault token")
 
 	testCases := []testCase{
 		{
 			"No-error case",
-			&mockTokenStorer{
+			&MockTokenStorer{
 				func(context.Context, *environment.CommandEnvironment) error { return nil },
 				func() error { return nil },
 			},
@@ -48,7 +49,7 @@ func TestStoreAndValidateToken(t *testing.T) {
 		},
 		{
 			"Bad storer, good validator",
-			&mockTokenStorer{
+			&MockTokenStorer{
 				func(context.Context, *environment.CommandEnvironment) error { return storerError },
 				func() error { return nil },
 			},
@@ -56,7 +57,7 @@ func TestStoreAndValidateToken(t *testing.T) {
 		},
 		{
 			"Good storer, bad validator",
-			&mockTokenStorer{
+			&MockTokenStorer{
 				func(context.Context, *environment.CommandEnvironment) error { return nil },
 				func() error { return validatorError },
 			},
@@ -64,11 +65,19 @@ func TestStoreAndValidateToken(t *testing.T) {
 		},
 		{
 			"Bad storer, bad validator",
-			&mockTokenStorer{
+			&MockTokenStorer{
 				func(context.Context, *environment.CommandEnvironment) error { return storerError },
 				func() error { return validatorError },
 			},
 			storerError,
+		},
+		{
+			"Auth needed - timeout error, good validator",
+			&MockTokenStorer{
+				func(context.Context, *environment.CommandEnvironment) error { return storerErrorAuthNeededTimeout },
+				func() error { return nil },
+			},
+			storerErrorAuthNeededTimeout,
 		},
 	}
 
@@ -91,7 +100,7 @@ func TestStoreAndValidateToken(t *testing.T) {
 }
 
 func TestSetupCmdWithEnvironmentForTokenStorer(t *testing.T) {
-	tokenStorer := &mockTokenStorer{}
+	tokenStorer := &MockTokenStorer{}
 	environ := new(environment.CommandEnvironment)
 
 	expected := exec.CommandContext(context.Background(), vaultExecutables["condor_vault_storer"], tokenStorer.getServiceName())
@@ -229,6 +238,64 @@ func TestSetupEnvironmentForTokenStorer(t *testing.T) {
 				if resultEnv := setupEnvironmentForTokenStorer(oldEnv, credd, vaultServer); *resultEnv != *expectedEnv {
 					t.Errorf("Did not get expected environmnent.  Expected %s, got %s", expectedEnv.String(), resultEnv.String())
 				}
+			},
+		)
+	}
+}
+
+func TestCheckStdOutForErrorAuthNeeded(t *testing.T) {
+	type testCase struct {
+		description          string
+		stdoutStderr         []byte
+		expectedErrTypeCheck error
+		expectedWrappedError error
+	}
+
+	testCases := []testCase{
+		{
+			"Random string - should not find result",
+			[]byte("This is a random string"),
+			nil,
+			nil,
+		},
+		{
+			"Auth needed",
+			[]byte("Authentication needed for myservice"),
+			&ErrAuthNeeded{},
+			nil,
+		},
+		{
+			"Auth needed - timeout",
+			[]byte("Authentication needed for myservice\n\n\nblahblah\n\nhtgettoken: Polling for response took longer than 2 minutes"),
+			&ErrAuthNeeded{},
+			errHtgettokenTimeout,
+		},
+		{
+			"Auth needed - permission denied",
+			[]byte("Authentication needed for myservice\n\n\nblahblah\n\nhtgettoken: blahblah HTTP Error 403: Forbidden: permission denied"),
+			&ErrAuthNeeded{},
+			errHtgettokenPermissionDenied,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				err := checkStdoutStderrForAuthNeededError(test.stdoutStderr)
+				if err == nil && test.expectedErrTypeCheck == nil {
+					return
+				}
+				var err1 *ErrAuthNeeded
+				if !errors.As(err, &err1) {
+					t.Errorf("Expected returned error to be of type *errAuthNeeded.  Got %T instead", err)
+					return
+				}
+
+				if errVal := errors.Unwrap(err); !errors.Is(errVal, test.expectedWrappedError) {
+					t.Errorf("Did not get expected wrapped error.  Expected error %v to be wrapped, but full error is %v.", test.expectedWrappedError, err)
+				}
+
 			},
 		)
 	}
