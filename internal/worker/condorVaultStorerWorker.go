@@ -37,7 +37,7 @@ var (
 			Namespace: "managed_tokens",
 			Name:      "token_store_duration_seconds",
 			Help:      "Duration (in seconds) for a vault token to get stored in a condor credd",
-			Buckets:   prometheus.LinearBuckets(0.5, 0.1, 20),
+			Buckets:   prometheus.LinearBuckets(5, 0.5, 20),
 		},
 		[]string{
 			"service",
@@ -185,6 +185,7 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			dur := time.Since(start).Seconds()
 			tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
 			tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Observe(dur)
+			funcLogger.Debugf("FAKE: %f", dur)
 			return err
 		})
 	}
