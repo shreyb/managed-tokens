@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -22,16 +23,41 @@ import (
 
 // TODO:  add metric for duration to push token
 
-var tokenPushTime = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
+// Metrics
+var (
+	tokenPushTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "managed_tokens",
+			Name:      "last_token_push_timestamp",
+			Help:      "The timestamp of the last successful push of a service vault token to an interactive node by the Managed Tokens Service",
+		},
+		[]string{
+			"service",
+			"node",
+		},
+	)
+	tokenPushDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "managed_tokens",
+			Name:      "token_push_duration_seconds",
+			Help:      "Duration (in seconds) for a vault token to get pushed to a node",
+			Buckets:   prometheus.LinearBuckets(0, 0.1, 10),
+		},
+		[]string{
+			"service",
+			"node",
+		},
+	)
+	pushFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "managed_tokens",
-		Name:      "last_token_push_timestamp",
-		Help:      "The timestamp of the last successful push of a service vault token to an interactive node by the Managed Tokens Service",
+		Name:      "failed_services_push_count",
+		Help:      "The number of services for which pushing tokens failed in the last round",
 	},
-	[]string{
-		"service",
-		"node",
-	},
+		[]string{
+			"service",
+			"node",
+		},
+	)
 )
 
 const pushDefaultTimeoutStr string = "30s"
@@ -50,7 +76,9 @@ func (p *pushTokenSuccess) changeSuccessValue(changeTo bool) {
 }
 
 func init() {
-	metrics.MetricsRegistry.MustRegister(tokenPushTime)
+	metrics.MetricsRegistry.MustRegister(tokenPushTimestamp)
+	metrics.MetricsRegistry.MustRegister(tokenPushDuration)
+	metrics.MetricsRegistry.MustRegister(pushFailureCount)
 }
 
 func (v *pushTokenSuccess) GetService() service.Service {
@@ -194,9 +222,9 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						close(nChan)               // Close aggregation chan
 						<-notificationsForwardDone // Wait until we've forwarded the message on
 
-						// Set tokenPushTime metric
+						// Set tokenPushTimestamp metric
 						if pushSuccess.success {
-							tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
+							tokenPushTimestamp.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 							successNodes.LoadOrStore(destinationNode, struct{}{})
 						}
 
@@ -243,7 +271,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
-	var fileCopierOptions string
 	funcLogger := log.WithFields(log.Fields{
 		"experiment":          c.Service.Experiment(),
 		"role":                c.Service.Role(),
@@ -251,7 +278,13 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		"destinationFilename": destinationFile,
 		"node":                node,
 	})
+	startTime := time.Now()
+	defer func() {
+		dur := time.Since(startTime).Seconds()
+		tokenPushDuration.WithLabelValues(c.Service.Name(), node).Observe(dur)
+	}()
 
+	var fileCopierOptions string
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
 	if !ok {
 		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
@@ -269,6 +302,7 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 
 	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
 		funcLogger.Errorf("Could not copy file to destination")
+		pushFailureCount.WithLabelValues(c.Service.Name(), node).Inc()
 		return err
 	}
 	funcLogger.Info("Success copying file to destination")
