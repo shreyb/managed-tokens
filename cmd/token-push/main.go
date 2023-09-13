@@ -63,7 +63,7 @@ var (
 			"stage",
 		},
 	)
-	servicePushFailureCount = prometheus.NewGauge(prometheus.GaugeOpts{
+	servicePushFailureCount = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "managed_tokens",
 		Name:      "failed_services_push_count",
 		Help:      "The number of services for which pushing tokens failed in the last round",
