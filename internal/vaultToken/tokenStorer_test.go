@@ -17,9 +17,9 @@ type MockTokenStorer struct {
 	tokenValidator  func() error
 }
 
-func (t *MockTokenStorer) getServiceName() string { return "mockService" }
-func (t *MockTokenStorer) getCredd() string       { return "mockCredd" }
-func (t *MockTokenStorer) getVaultServer() string { return "mockVaultServer" }
+func (t *MockTokenStorer) GetServiceName() string { return "mockService" }
+func (t *MockTokenStorer) GetCredd() string       { return "mockCredd" }
+func (t *MockTokenStorer) GetVaultServer() string { return "mockVaultServer" }
 func (t *MockTokenStorer) validateToken() error {
 	return t.tokenValidator()
 }
@@ -103,7 +103,7 @@ func TestSetupCmdWithEnvironmentForTokenStorer(t *testing.T) {
 	tokenStorer := &MockTokenStorer{}
 	environ := new(environment.CommandEnvironment)
 
-	expected := exec.CommandContext(context.Background(), vaultExecutables["condor_vault_storer"], tokenStorer.getServiceName())
+	expected := exec.CommandContext(context.Background(), vaultExecutables["condor_vault_storer"], tokenStorer.GetServiceName())
 	result := setupCmdWithEnvironmentForTokenStorer(context.Background(), tokenStorer, environ)
 
 	if result.Path != expected.Path {
