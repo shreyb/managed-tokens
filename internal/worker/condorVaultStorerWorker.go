@@ -5,18 +5,65 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 	"github.com/shreyb/managed-tokens/internal/vaultToken"
 )
 
+// Metrics
+var (
+	tokenStoreTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "managed_tokens",
+			Name:      "last_token_store_timestamp",
+			Help:      "The timestamp of the last successful store of a service vault token in a condor credd by the Managed Tokens Service",
+		},
+		[]string{
+			"service",
+			"credd",
+		},
+	)
+	tokenStoreDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "managed_tokens",
+			Name:      "token_store_duration_seconds",
+			Help:      "Duration (in seconds) for a vault token to get stored in a condor credd",
+			Buckets:   prometheus.LinearBuckets(0.5, 0.1, 20),
+		},
+		[]string{
+			"service",
+			"credd",
+		},
+	)
+	storeFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "managed_tokens",
+		Name:      "failed_vault_token_store_count",
+		Help:      "The number of times the Managed Tokens Service failed to store a vault token in a condor credd",
+	},
+		[]string{
+			"service",
+			"credd",
+		},
+	)
+)
+
 const vaultStorerDefaultTimeoutStr string = "60s"
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(tokenStoreTimestamp)
+	metrics.MetricsRegistry.MustRegister(tokenStoreDuration)
+	metrics.MetricsRegistry.MustRegister(storeFailureCount)
+
+}
 
 // vaultStorerSuccess is a type that conveys whether StoreAndGetTokenWorker successfully stores and obtains tokens for each service
 type vaultStorerSuccess struct {
@@ -130,7 +177,15 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 	for _, tokenStorer := range tokenStorers {
 		tokenStorer := tokenStorer
 		g.Go(func() error {
-			return vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
+			start := time.Now()
+			err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
+			if err != nil {
+				storeFailureCount.WithLabelValues(serviceName, tokenStorer.GetCredd()).Inc()
+			}
+			dur := time.Since(start).Seconds()
+			tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
+			tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Observe(dur)
+			return err
 		})
 	}
 
