@@ -21,8 +21,6 @@ import (
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
-// TODO:  add metric for duration to push token
-
 // Metrics
 var (
 	tokenPushTimestamp = prometheus.NewGaugeVec(
@@ -50,8 +48,8 @@ var (
 	)
 	pushFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "managed_tokens",
-		Name:      "failed_services_push_count",
-		Help:      "The number of services for which pushing tokens failed in the last round",
+		Name:      "failed_token_push_count",
+		Help:      "The number of times the Managed Tokens service failed to push a token to an interactive node",
 	},
 		[]string{
 			"service",
@@ -61,6 +59,12 @@ var (
 )
 
 const pushDefaultTimeoutStr string = "30s"
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(tokenPushTimestamp)
+	metrics.MetricsRegistry.MustRegister(tokenPushDuration)
+	metrics.MetricsRegistry.MustRegister(pushFailureCount)
+}
 
 // pushTokenSuccess is a type that conveys whether PushTokensWorker successfully pushes vault tokens to destination nodes for a service
 type pushTokenSuccess struct {
@@ -73,12 +77,6 @@ func (p *pushTokenSuccess) changeSuccessValue(changeTo bool) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	p.success = changeTo
-}
-
-func init() {
-	metrics.MetricsRegistry.MustRegister(tokenPushTimestamp)
-	metrics.MetricsRegistry.MustRegister(tokenPushDuration)
-	metrics.MetricsRegistry.MustRegister(pushFailureCount)
 }
 
 func (v *pushTokenSuccess) GetService() service.Service {
