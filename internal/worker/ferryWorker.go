@@ -120,10 +120,6 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	}
 
 	startRequest := time.Now()
-	defer func() {
-		dur := time.Since(startRequest).Seconds()
-		ferryRequestDuration.Observe(dur)
-	}()
 	ferryRequestCtx, ferryRequestCancel := context.WithTimeout(ctx, ferryRequestTimeout)
 	defer ferryRequestCancel()
 	resp, err := requestRunnerWithAuthMethodFunc(ferryRequestCtx, b.String(), "GET")
@@ -162,5 +158,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	entry.uid = parsedResponse.FerryOutput.Uid
 
 	funcLogger.Info("Successfully got data from FERRY")
+	dur := time.Since(startRequest).Seconds()
+	ferryRequestDuration.Observe(dur)
 	return &entry, nil
 }

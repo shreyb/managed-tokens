@@ -181,11 +181,11 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
 			if err != nil {
 				storeFailureCount.WithLabelValues(serviceName, tokenStorer.GetCredd()).Inc()
+			} else {
+				dur := time.Since(start).Seconds()
+				tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
+				tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Observe(dur)
 			}
-			dur := time.Since(start).Seconds()
-			tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
-			tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Observe(dur)
-			funcLogger.Debugf("FAKE: %f", dur)
 			return err
 		})
 	}
