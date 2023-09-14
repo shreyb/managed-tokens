@@ -32,12 +32,11 @@ var (
 			"credd",
 		},
 	)
-	tokenStoreDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+	tokenStoreDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
 			Namespace: "managed_tokens",
 			Name:      "token_store_duration_seconds",
 			Help:      "Duration (in seconds) for a vault token to get stored in a condor credd",
-			Buckets:   prometheus.LinearBuckets(5, 0.5, 20),
 		},
 		[]string{
 			"service",
@@ -184,7 +183,7 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			} else {
 				dur := time.Since(start).Seconds()
 				tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
-				tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Observe(dur)
+				tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Set(dur)
 			}
 			return err
 		})

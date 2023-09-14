@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	kinitDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+	kinitDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
 			Namespace: "managed_tokens",
 			Name:      "kinit_duration_seconds",
 			Help:      "Duration (in seconds) for a kerberos ticket to be created from the service principal",
@@ -132,6 +132,6 @@ func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
 	}
 	funcLogger.Debug("Kerberos ticket obtained and verified")
 	dur := time.Since(start).Seconds()
-	kinitDuration.WithLabelValues(sc.Service.Name()).Observe(dur)
+	kinitDuration.WithLabelValues(sc.Service.Name()).Set(dur)
 	return nil
 }

@@ -34,12 +34,11 @@ var (
 			"node",
 		},
 	)
-	tokenPushDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
+	tokenPushDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
 			Namespace: "managed_tokens",
 			Name:      "token_push_duration_seconds",
 			Help:      "Duration (in seconds) for a vault token to get pushed to a node",
-			Buckets:   prometheus.LinearBuckets(0, 0.1, 10),
 		},
 		[]string{
 			"service",
@@ -279,7 +278,7 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 	startTime := time.Now()
 	defer func() {
 		dur := time.Since(startTime).Seconds()
-		tokenPushDuration.WithLabelValues(c.Service.Name(), node).Observe(dur)
+		tokenPushDuration.WithLabelValues(c.Service.Name(), node).Set(dur)
 	}()
 
 	var fileCopierOptions string

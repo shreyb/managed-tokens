@@ -29,7 +29,7 @@ var (
 			"success",
 		},
 	)
-	adminErrorNotificationSendDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+	adminErrorNotificationSendDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "admin_error_email_send_duration_seconds",
 		Help:      "Time in seconds it took to successfully send an admin error email",
@@ -281,7 +281,7 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 			} else {
 				funcLogger.Debugf("Sent %s", logEnding)
 				successForMetric = true
-				adminErrorNotificationSendDuration.WithLabelValues(metricLabel).Observe(dur)
+				adminErrorNotificationSendDuration.WithLabelValues(metricLabel).Set(dur)
 			}
 			adminErrorNotificationAttemptTimestamp.WithLabelValues(metricLabel, strconv.FormatBool(successForMetric)).SetToCurrentTime()
 			return err
