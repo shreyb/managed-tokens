@@ -40,6 +40,7 @@ var (
 
 func init() {
 	metrics.MetricsRegistry.MustRegister(ferryRequestDuration)
+	metrics.MetricsRegistry.MustRegister(ferryRequestErrorCount)
 }
 
 // UIDEntryFromFerry is an entry that represents data returned from the FERRY getUserInfo API.  It implements utils.FerryUIDDatum
