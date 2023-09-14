@@ -275,12 +275,8 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		"destinationFilename": destinationFile,
 		"node":                node,
 	})
-	startTime := time.Now()
-	defer func() {
-		dur := time.Since(startTime).Seconds()
-		tokenPushDuration.WithLabelValues(c.Service.Name(), node).Set(dur)
-	}()
 
+	startTime := time.Now()
 	var fileCopierOptions string
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
 	if !ok {
@@ -297,11 +293,15 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		c.CommandEnvironment,
 	)
 
-	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
+	err := fileCopier.CopyToDestination(ctx, f)
+	if err != nil {
 		funcLogger.Errorf("Could not copy file to destination")
 		pushFailureCount.WithLabelValues(c.Service.Name(), node).Inc()
 		return err
 	}
+
+	dur := time.Since(startTime).Seconds()
+	tokenPushDuration.WithLabelValues(c.Service.Name(), node).Set(dur)
 	funcLogger.Info("Success copying file to destination")
 	return nil
 
