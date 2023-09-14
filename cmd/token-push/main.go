@@ -45,10 +45,9 @@ var timeouts = map[string]time.Duration{
 }
 
 var (
-	startSetup      time.Time
-	startProcessing time.Time
-	startCleanup    time.Time
-	prometheusUp    = true
+	startSetup   time.Time
+	startCleanup time.Time
+	prometheusUp = true
 )
 
 // Metrics
@@ -56,7 +55,7 @@ var (
 	promDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "stage_duration_seconds",
-		Help:      "The amount of time it took to run a stage (setup|processing|cleanup) of a Managed Tokens Service executable",
+		Help:      "The amount of time it took to run a stage Managed Tokens Service executable",
 	},
 		[]string{
 			"executable",
@@ -516,12 +515,6 @@ func run(ctx context.Context) error {
 	}
 
 	// Begin Processing
-	startProcessing = time.Now()
-	defer func() {
-		if prometheusUp {
-			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
-		}
-	}()
 
 	// Add verbose to the global context
 	if viper.GetBool("verbose") {
@@ -530,6 +523,7 @@ func run(ctx context.Context) error {
 
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
+	startKerberos := time.Now()
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberos")
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
@@ -542,9 +536,13 @@ func run(ctx context.Context) error {
 		exeLogger.Info("No more serviceConfigs to operate on.  Cleaning up now")
 		return nil
 	}
+	if prometheusUp {
+		promDuration.WithLabelValues(currentExecutable, "getKerberosTickets").Set(time.Since(startKerberos).Seconds())
+	}
 
 	// 2. Get and store vault tokens
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
+	startCondorVault := time.Now()
 	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
 
 	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
@@ -561,6 +559,10 @@ func run(ctx context.Context) error {
 				exeLogger.WithField("service", serviceName).Error("Could not remove vault tokens for service")
 			}
 		}(serviceName)
+	}
+
+	if prometheusUp {
+		promDuration.WithLabelValues(currentExecutable, "storeAndGetTokens").Set(time.Since(startCondorVault).Seconds())
 	}
 
 	// If we're in test mode, stop here
@@ -580,6 +582,7 @@ func run(ctx context.Context) error {
 
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
+	startPing := time.Now()
 	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "ping")
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
@@ -589,8 +592,13 @@ func run(ctx context.Context) error {
 		}
 	}
 
+	if prometheusUp {
+		promDuration.WithLabelValues(currentExecutable, "pingNodes").Set(time.Since(startPing).Seconds())
+	}
+
 	// 4. Push vault tokens to nodes
 	// Get channels and start worker for pushing tokens to service nodes
+	startPush := time.Now()
 	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "push")
 
 	// Aggregate the successes
@@ -598,6 +606,10 @@ func run(ctx context.Context) error {
 		if pushSuccess.GetSuccess() {
 			successfulServices[cmdUtils.GetServiceName(pushSuccess.GetService())] = true
 		}
+	}
+
+	if prometheusUp {
+		promDuration.WithLabelValues(currentExecutable, "pushTokens").Set(time.Since(startPush).Seconds())
 	}
 
 	return nil

@@ -43,7 +43,7 @@ var (
 	promDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "stage_duration_seconds",
-		Help:      "The amount of time it took to run a stage (setup|processing|cleanup) of a Managed Tokens Service executable",
+		Help:      "The amount of time it took to run a stage of a Managed Tokens Service executable",
 	},
 		[]string{
 			"executable",
@@ -60,9 +60,8 @@ var (
 )
 
 var (
-	startSetup      time.Time
-	startProcessing time.Time
-	prometheusUp    = true
+	startSetup   time.Time
+	prometheusUp = true
 )
 
 func init() {
@@ -303,16 +302,9 @@ func run(ctx context.Context) error {
 	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
 	defer sendAdminNotifications(notificationsChan, &adminNotifications)
 
-	// Setup complete
-	if prometheusUp {
-		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
-	}
-
-	// Begin processing
-	startProcessing = time.Now()
+	// Send metrics anytime run() returns
 	defer func() {
 		if prometheusUp {
-			promDuration.WithLabelValues(currentExecutable, "processing").Set(time.Since(startProcessing).Seconds())
 			if err := metrics.PushToPrometheus(); err != nil {
 				// Non-essential - don't halt execution here
 				exeLogger.Error("Could not push metrics to prometheus pushgateway")
@@ -321,6 +313,14 @@ func run(ctx context.Context) error {
 			}
 		}
 	}()
+
+	// Setup complete
+	if prometheusUp {
+		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
+	}
+
+	// Begin processing
+	startRequest := time.Now()
 
 	// Add verbose to the global context
 	if viper.GetBool("verbose") {
@@ -388,6 +388,7 @@ func run(ctx context.Context) error {
 	}()
 
 	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
+	promDuration.WithLabelValues(currentExecutable, "getFERRYData").Set(time.Since(startRequest).Seconds())
 
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
@@ -412,6 +413,7 @@ func run(ctx context.Context) error {
 	}
 
 	// INSERT all collected FERRY data into FERRYUIDDatabase
+	startDBInsert := time.Now()
 	var dbContext context.Context
 	if timeout, ok := timeouts["db"]; ok {
 		dbContext = utils.ContextWithOverrideTimeout(ctx, timeout)
@@ -445,6 +447,7 @@ func run(ctx context.Context) error {
 	}
 	exeLogger.Debug("Verified INSERT")
 	exeLogger.Info("Successfully refreshed Managed Tokens DB.")
+	promDuration.WithLabelValues(currentExecutable, "refreshManagedTokensDB").Set(time.Since(startDBInsert).Seconds())
 	ferryRefreshTime.SetToCurrentTime()
 	return nil
 }
