@@ -2,14 +2,41 @@ package notifications
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/metrics"
 )
+
+// Metrics
+var (
+	serviceErrorNotificationAttemptTimestamp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "service_error_email_last_sent_timestamp",
+		Help:      "Last time managed tokens service attempted to send an service error notification",
+	},
+		[]string{
+			"service",
+			"success",
+		},
+	)
+	serviceErrorNotificationSendDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "managed_tokens",
+		Name:      "service_error_email_send_duration_seconds",
+		Help:      "Time in seconds it took to successfully send an service error email",
+	})
+)
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(serviceErrorNotificationAttemptTimestamp)
+	metrics.MetricsRegistry.MustRegister(serviceErrorNotificationSendDuration)
+}
 
 // ServiceEmailManager contains all the information needed to receive Notifications for services and ensure they get sent in the
 // correct email
@@ -145,9 +172,18 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 	if err != nil {
 		funcLogger.Error("Error preparing service email for sending")
 	}
-	if err = SendMessage(ctx, em.Email, msg); err != nil {
+
+	start := time.Now()
+	var success bool
+	err = SendMessage(ctx, em.Email, msg)
+	dur := time.Since(start).Seconds()
+	if err != nil {
 		funcLogger.Error("Error sending email")
+	} else {
+		serviceErrorNotificationSendDuration.Observe(dur)
+		success = true
 	}
+	serviceErrorNotificationAttemptTimestamp.WithLabelValues(em.Service, strconv.FormatBool(success)).SetToCurrentTime()
 }
 
 // prepareServiceEmail sets a passed-in email object's templateStruct field to the passed in errorTable, and returns a string that contains
