@@ -4,15 +4,46 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/metrics"
 )
+
+// Metrics
+var (
+	adminErrorNotificationAttemptTimestamp = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "admin_error_email_last_sent_timestamp",
+		Help:      "Last time managed tokens service attempted to send an admin error notification",
+	},
+		[]string{
+			"notification_type",
+			"success",
+		},
+	)
+	adminErrorNotificationSendDuration = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "admin_error_email_send_duration_seconds",
+		Help:      "Time in seconds it took to successfully send an admin error email",
+	},
+		[]string{
+			"notification_type",
+		},
+	)
+)
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(adminErrorNotificationAttemptTimestamp)
+	metrics.MetricsRegistry.MustRegister(adminErrorNotificationSendDuration)
+}
 
 // For Admin notifications, we expect caller to instantiate admin email object, admin slackMessage object, and pass them to SendAdminNotifications.
 
@@ -226,24 +257,34 @@ func SendAdminNotifications(ctx context.Context, operation string, adminTemplate
 	for _, sm := range sendMessagers {
 		sm := sm
 		g.Go(func() error {
-			var messageToSend, logEnding string
+			var messageToSend, logEnding, metricLabel string
+			var successForMetric bool
 			switch sm.(type) {
 			case *email:
 				messageToSend = fullMessage
 				logEnding = "admin email"
+				metricLabel = "email"
 			case *slackMessage:
 				messageToSend = abridgedMessage
 				logEnding = "slack message"
+				metricLabel = "slack_message"
 			default:
 				err := errors.New("unsupported SendMessager")
 				funcLogger.Error(err)
 				return err
 			}
-			if err := SendMessage(ctx, sm, messageToSend); err != nil {
+			start := time.Now()
+			err := SendMessage(ctx, sm, messageToSend)
+			dur := time.Since(start).Seconds()
+			if err != nil {
 				funcLogger.Errorf("Failed to send %s", logEnding)
-				return err
+			} else {
+				funcLogger.Debugf("Sent %s", logEnding)
+				successForMetric = true
+				adminErrorNotificationSendDuration.WithLabelValues(metricLabel).Set(dur)
 			}
-			return nil
+			adminErrorNotificationAttemptTimestamp.WithLabelValues(metricLabel, strconv.FormatBool(successForMetric)).SetToCurrentTime()
+			return err
 		})
 	}
 

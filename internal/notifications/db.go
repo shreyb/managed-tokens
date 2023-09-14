@@ -5,10 +5,39 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/metrics"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
+
+var (
+	setupErrorCountGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "current_setup_error_count",
+		Help:      "Count of how many consecutive setup errors there have been for a single service",
+	},
+		[]string{
+			"service",
+		},
+	)
+	pushErrorCountGauge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "managed_tokens",
+		Name:      "current_push_error_count",
+		Help:      "Count of how many consecutive push errors there have been for a single service/node combination",
+	},
+		[]string{
+			"service",
+			"node",
+		},
+	)
+)
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(setupErrorCountGauge)
+	metrics.MetricsRegistry.MustRegister(pushErrorCountGauge)
+}
 
 // errorCount is an integer that keeps track of whether its value was changed from when it was initially loaded
 type errorCount struct {
@@ -179,10 +208,12 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 		if pushErrorCountVal, pushErrorCountOk := ec.pushErrors[nValue.node]; pushErrorCountOk {
 			newValue, sendNotification = adjustCount(pushErrorCountVal.value)
 			pushErrorCountVal.set(newValue)
+			pushErrorCountGauge.WithLabelValues(nValue.GetService(), nValue.GetNode()).Set(float64(newValue))
 			ec.pushErrors[nValue.GetNode()] = pushErrorCountVal
 		} else {
 			// First time we have an error for this service/node combo. Start the counter, do not send notification
 			ec.pushErrors[nValue.GetNode()] = errorCount{1, true}
+			pushErrorCountGauge.WithLabelValues(nValue.GetService(), nValue.GetNode()).Set(1)
 		}
 		log.WithFields(log.Fields{
 			"service":          nValue.GetService(),
@@ -196,6 +227,7 @@ func adjustErrorCountsByServiceAndDirectNotification(n Notification, ec *service
 	if _, ok := n.(*setupError); ok {
 		newValue, sendNotification = adjustCount(ec.setupErrors.value)
 		ec.setupErrors.set(newValue)
+		setupErrorCountGauge.WithLabelValues(n.GetService()).Set(float64(newValue))
 		log.WithFields(log.Fields{
 			"service":          n.GetService(),
 			"count":            ec.setupErrors.value,

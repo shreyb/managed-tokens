@@ -10,10 +10,13 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
@@ -21,6 +24,24 @@ const ferryRequestDefaultTimeoutStr string = "30s"
 const ferryUserUIDAPI string = "getUserInfo"
 
 var ferryURLUIDTemplate = template.Must(template.New("ferry").Parse("{{.Hostname}}:{{.Port}}/{{.API}}?username={{.Username}}"))
+
+var (
+	ferryRequestDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "managed_tokens",
+		Name:      "ferry_request_duration_seconds",
+		Help:      "The amount of time it took in seconds to make a request to FERRY and receive the response",
+	})
+	ferryRequestErrorCount = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "managed_tokens",
+		Name:      "ferry_request_error_count",
+		Help:      "The number of requests to FERRY that failed",
+	})
+)
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(ferryRequestDuration)
+	metrics.MetricsRegistry.MustRegister(ferryRequestErrorCount)
+}
 
 // UIDEntryFromFerry is an entry that represents data returned from the FERRY getUserInfo API.  It implements utils.FerryUIDDatum
 type UIDEntryFromFerry struct {
@@ -99,11 +120,13 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 		funcLogger.Fatal(fatalErr)
 	}
 
+	startRequest := time.Now()
 	ferryRequestCtx, ferryRequestCancel := context.WithTimeout(ctx, ferryRequestTimeout)
 	defer ferryRequestCancel()
 	resp, err := requestRunnerWithAuthMethodFunc(ferryRequestCtx, b.String(), "GET")
 	if err != nil {
 		funcLogger.Error("Attempt to get UID from FERRY failed")
+		ferryRequestErrorCount.Inc()
 		if err2 := ctx.Err(); errors.Is(err2, context.DeadlineExceeded) {
 			funcLogger.Error("Timeout error")
 			return &entry, err2
@@ -115,6 +138,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		ferryRequestErrorCount.Inc()
 		funcLogger.Error("Could not read body from HTTP response")
 		return &entry, err
 	}
@@ -126,6 +150,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	}
 
 	if parsedResponse.FerryStatus == "failure" {
+		ferryRequestErrorCount.Inc()
 		funcLogger.Errorf("FERRY server error: %s", parsedResponse.FerryError)
 		return &entry, errors.New("unspecified FERRY error.  Check logs")
 	}
@@ -134,5 +159,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	entry.uid = parsedResponse.FerryOutput.Uid
 
 	funcLogger.Info("Successfully got data from FERRY")
+	dur := time.Since(startRequest).Seconds()
+	ferryRequestDuration.Observe(dur)
 	return &entry, nil
 }

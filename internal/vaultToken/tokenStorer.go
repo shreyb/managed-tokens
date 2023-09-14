@@ -32,9 +32,9 @@ func init() {
 // TokenStorer contains the methods needed to store a vault token in the condor credd and a hashicorp vault.  It should be passed into
 // StoreAndValidateTokens so that any token that is stored is also validated
 type TokenStorer interface {
-	getServiceName() string
-	getCredd() string
-	getVaultServer() string
+	GetServiceName() string
+	GetCredd() string
+	GetVaultServer() string
 	getTokensAndStoreInVault(context.Context, *environment.CommandEnvironment) error
 	validateToken() error
 }
@@ -42,9 +42,9 @@ type TokenStorer interface {
 // StoreAndValidateToken stores a vault token in the passed in Hashicorp vault server and the passed in credd.
 func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) error {
 	funcLogger := log.WithFields(log.Fields{
-		"serviceName": t.getServiceName(),
-		"vaultServer": t.getVaultServer(),
-		"credd":       t.getCredd(),
+		"serviceName": t.GetServiceName(),
+		"vaultServer": t.GetVaultServer(),
+		"credd":       t.GetCredd(),
 	})
 	if err := t.getTokensAndStoreInVault(ctx, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -80,9 +80,9 @@ func NewInteractiveTokenStorer(serviceName, credd, vaultServer string) *Interact
 	}
 }
 
-func (t *InteractiveTokenStorer) getServiceName() string { return t.serviceName }
-func (t *InteractiveTokenStorer) getCredd() string       { return t.credd }
-func (t *InteractiveTokenStorer) getVaultServer() string { return t.vaultServer }
+func (t *InteractiveTokenStorer) GetServiceName() string { return t.serviceName }
+func (t *InteractiveTokenStorer) GetCredd() string       { return t.credd }
+func (t *InteractiveTokenStorer) GetVaultServer() string { return t.vaultServer }
 func (t *InteractiveTokenStorer) validateToken() error {
 	return validateServiceVaultToken(t.serviceName)
 }
@@ -135,9 +135,9 @@ func NewNonInteractiveTokenStorer(serviceName, credd, vaultServer string) *NonIn
 	}
 }
 
-func (t *NonInteractiveTokenStorer) getServiceName() string { return t.serviceName }
-func (t *NonInteractiveTokenStorer) getCredd() string       { return t.credd }
-func (t *NonInteractiveTokenStorer) getVaultServer() string { return t.vaultServer }
+func (t *NonInteractiveTokenStorer) GetServiceName() string { return t.serviceName }
+func (t *NonInteractiveTokenStorer) GetCredd() string       { return t.credd }
+func (t *NonInteractiveTokenStorer) GetVaultServer() string { return t.vaultServer }
 func (t *NonInteractiveTokenStorer) validateToken() error {
 	return validateServiceVaultToken(t.serviceName)
 }
@@ -176,12 +176,12 @@ func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context
 
 func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) *exec.Cmd {
 	funcLogger := log.WithFields(log.Fields{
-		"service":     t.getServiceName(),
-		"vaultServer": t.getVaultServer(),
-		"credd":       t.getCredd(),
+		"service":     t.GetServiceName(),
+		"vaultServer": t.GetVaultServer(),
+		"credd":       t.GetCredd(),
 	})
-	cmdArgs := getCmdArgsForTokenStorer(ctx, t.getServiceName())
-	newEnv := setupEnvironmentForTokenStorer(environ, t.getCredd(), t.getVaultServer())
+	cmdArgs := getCmdArgsForTokenStorer(ctx, t.GetServiceName())
+	newEnv := setupEnvironmentForTokenStorer(environ, t.GetCredd(), t.GetVaultServer())
 	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
 	funcLogger.Info("Storing and obtaining vault token")

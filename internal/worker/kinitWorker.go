@@ -4,16 +4,46 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/shreyb/managed-tokens/internal/kerberos"
+	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
+var (
+	kinitDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "managed_tokens",
+			Name:      "kinit_duration_seconds",
+			Help:      "Duration (in seconds) for a kerberos ticket to be created from the service principal",
+		},
+		[]string{
+			"service",
+		},
+	)
+	kinitFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "managed_tokens",
+		Name:      "failed_kinit_count",
+		Help:      "The number of times the Managed Tokens Service failed to create a kerberos ticket from the service principal",
+	},
+		[]string{
+			"service",
+		},
+	)
+)
+
 const kerberosDefaultTimeoutStr string = "20s"
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(kinitDuration)
+	metrics.MetricsRegistry.MustRegister(kinitFailureCount)
+}
 
 // kinitSuccess is a type that conveys whether GetKerberosTicketsWorker successfully obtains a kerberos ticket for each service
 type kinitSuccess struct {
@@ -85,18 +115,23 @@ func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
 		"experiment": sc.Service.Experiment(),
 		"role":       sc.Service.Role(),
 	})
+	start := time.Now()
 
 	if err := kerberos.GetTicket(ctx, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 		msg := "Could not obtain kerberos ticket"
 		funcLogger.Error(msg)
+		kinitFailureCount.WithLabelValues(sc.Service.Name()).Inc()
 		return err
 	}
 
 	if err := kerberos.CheckPrincipal(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
 		msg := "Kerberos ticket verification failed"
 		funcLogger.Error(msg)
+		kinitFailureCount.WithLabelValues(sc.Service.Name()).Inc()
 		return err
 	}
 	funcLogger.Debug("Kerberos ticket obtained and verified")
+	dur := time.Since(start).Seconds()
+	kinitDuration.WithLabelValues(sc.Service.Name()).Set(dur)
 	return nil
 }

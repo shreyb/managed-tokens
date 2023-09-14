@@ -5,16 +5,46 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/notifications"
 	"github.com/shreyb/managed-tokens/internal/ping"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
+var (
+	pingDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "managed_tokens",
+			Name:      "ping_duration_seconds",
+			Help:      "Duration (in seconds) to ping a node",
+		},
+		[]string{
+			"node",
+		},
+	)
+	pingFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "managed_tokens",
+		Name:      "failed_ping_count",
+		Help:      "The number of times the Managed Tokens Service failed to ping a node",
+	},
+		[]string{
+			"node",
+		},
+	)
+)
+
 const pingDefaultTimeoutStr string = "10s"
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(pingDuration)
+	metrics.MetricsRegistry.MustRegister(pingFailureCount)
+}
 
 // pingSuccess is a type that conveys whether PingAggregatorWorker successfully pings all the configured destination nodes for each service
 type pingSuccess struct {
@@ -116,9 +146,16 @@ func pingAllNodes(ctx context.Context, nodes ...ping.PingNoder) <-chan ping.Ping
 	for _, n := range nodes {
 		go func(n ping.PingNoder) {
 			defer wg.Done()
+			start := time.Now()
 			p := ping.PingNodeStatus{
 				PingNoder: n,
 				Err:       n.PingNode(ctx),
+			}
+			if p.Err != nil {
+				pingFailureCount.WithLabelValues(n.String()).Inc()
+			} else {
+				dur := time.Since(start).Seconds()
+				pingDuration.WithLabelValues(n.String()).Observe(dur)
 			}
 			c <- p
 		}(n)

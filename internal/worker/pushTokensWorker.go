@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -20,21 +21,49 @@ import (
 	"github.com/shreyb/managed-tokens/internal/utils"
 )
 
-// TODO:  add metric for duration to push token
-
-var tokenPushTime = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
+// Metrics
+var (
+	tokenPushTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "managed_tokens",
+			Name:      "last_token_push_timestamp",
+			Help:      "The timestamp of the last successful push of a service vault token to an interactive node by the Managed Tokens Service",
+		},
+		[]string{
+			"service",
+			"node",
+		},
+	)
+	tokenPushDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: "managed_tokens",
+			Name:      "token_push_duration_seconds",
+			Help:      "Duration (in seconds) for a vault token to get pushed to a node",
+		},
+		[]string{
+			"service",
+			"node",
+		},
+	)
+	pushFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "managed_tokens",
-		Name:      "last_token_push_timestamp",
-		Help:      "The timestamp of the last successful push of a service vault token to an interactive node by the Managed Tokens Service",
+		Name:      "failed_token_push_count",
+		Help:      "The number of times the Managed Tokens service failed to push a token to an interactive node",
 	},
-	[]string{
-		"service",
-		"node",
-	},
+		[]string{
+			"service",
+			"node",
+		},
+	)
 )
 
 const pushDefaultTimeoutStr string = "30s"
+
+func init() {
+	metrics.MetricsRegistry.MustRegister(tokenPushTimestamp)
+	metrics.MetricsRegistry.MustRegister(tokenPushDuration)
+	metrics.MetricsRegistry.MustRegister(pushFailureCount)
+}
 
 // pushTokenSuccess is a type that conveys whether PushTokensWorker successfully pushes vault tokens to destination nodes for a service
 type pushTokenSuccess struct {
@@ -47,10 +76,6 @@ func (p *pushTokenSuccess) changeSuccessValue(changeTo bool) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	p.success = changeTo
-}
-
-func init() {
-	metrics.MetricsRegistry.MustRegister(tokenPushTime)
 }
 
 func (v *pushTokenSuccess) GetService() service.Service {
@@ -194,9 +219,9 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						close(nChan)               // Close aggregation chan
 						<-notificationsForwardDone // Wait until we've forwarded the message on
 
-						// Set tokenPushTime metric
+						// Set tokenPushTimestamp metric
 						if pushSuccess.success {
-							tokenPushTime.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
+							tokenPushTimestamp.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 							successNodes.LoadOrStore(destinationNode, struct{}{})
 						}
 
@@ -243,7 +268,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
-	var fileCopierOptions string
 	funcLogger := log.WithFields(log.Fields{
 		"experiment":          c.Service.Experiment(),
 		"role":                c.Service.Role(),
@@ -252,6 +276,8 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		"node":                node,
 	})
 
+	startTime := time.Now()
+	var fileCopierOptions string
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
 	if !ok {
 		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
@@ -267,10 +293,15 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		c.CommandEnvironment,
 	)
 
-	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
+	err := fileCopier.CopyToDestination(ctx, f)
+	if err != nil {
 		funcLogger.Errorf("Could not copy file to destination")
+		pushFailureCount.WithLabelValues(c.Service.Name(), node).Inc()
 		return err
 	}
+
+	dur := time.Since(startTime).Seconds()
+	tokenPushDuration.WithLabelValues(c.Service.Name(), node).Set(dur)
 	funcLogger.Info("Success copying file to destination")
 	return nil
 
