@@ -182,8 +182,8 @@ func initTimeouts() error {
 				exeLogger.WithField(timeoutKey, timeoutString).Warn("Could not parse configured timeout duration.  Using default")
 				continue
 			}
-			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
+			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 		}
 	}
 
