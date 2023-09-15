@@ -143,16 +143,6 @@ func initConfig() error {
 	return nil
 }
 
-// getDevEnvironment first checks the environment variable MANAGED_TOKENS_DEV_ENVIRONMENT for the devEnvironment, then the configuration file.
-// If it finds neither are set, it returns the default global setting.  This logic is handled by the underlying logic in the
-// viper library
-func getDevEnvironmentLabel() string {
-	// For devs, this variable can be set to differentiate between dev and prod for metrics, for example
-	viper.SetDefault("devEnvironmentLabel", devEnvironmentLabelDefault)
-	viper.BindEnv("devEnvironmentLabel", "MANAGED_TOKENS_DEV_ENVIRONMENT")
-	return viper.GetString("devEnvironmentLabel")
-}
-
 // Set up logs
 func initLogs() {
 	log.SetLevel(log.DebugLevel)
