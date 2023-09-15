@@ -180,6 +180,10 @@ github.com/spf13/viper/internal/encoding/yaml
 # github.com/subosito/gotenv v1.4.1
 ## explicit; go 1.18
 github.com/subosito/gotenv
+# github.com/yukitsune/lokirus v1.0.1
+## explicit; go 1.18
+github.com/yukitsune/lokirus
+github.com/yukitsune/lokirus/loki
 # golang.org/x/crypto v0.0.0-20220824171710-5757bc0c5503
 ## explicit; go 1.17
 golang.org/x/crypto/curve25519

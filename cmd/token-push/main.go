@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/yukitsune/lokirus"
 
 	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
@@ -34,6 +35,11 @@ var (
 	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger         *log.Entry
 )
+
+// devEnvironmentLabel can be set
+var devEnvironmentLabel string
+
+const devEnvironmentLabelDefault string = "production"
 
 // Supported timeouts and their default values
 var timeouts = map[string]time.Duration{
@@ -100,6 +106,8 @@ func init() {
 		os.Exit(1)
 	}
 
+	devEnvironmentLabel = getDevEnvironmentLabel()
+
 	// If user wants to list all services, do that and exit
 	if viper.GetBool("list-services") {
 		allServices := make([]string, 0)
@@ -162,6 +170,16 @@ func initConfig() error {
 	return nil
 }
 
+// getDevEnvironment first checks the environment variable MANAGED_TOKENS_DEV_ENVIRONMENT for the devEnvironment, then the configuration file.
+// If it finds neither are set, it returns the default global setting.  This logic is handled by the underlying logic in the
+// viper library
+func getDevEnvironmentLabel() string {
+	// For devs, this variable can be set to differentiate between dev and prod for metrics, for example
+	viper.SetDefault("devEnvironmentLabel", devEnvironmentLabelDefault)
+	viper.BindEnv("devEnvironmentLabel", "MANAGED_TOKENS_DEV_ENVIRONMENT")
+	return viper.GetString("devEnvironmentLabel")
+}
+
 // Set up logs
 func initLogs() {
 	log.SetLevel(log.DebugLevel)
@@ -185,6 +203,27 @@ func initLogs() {
 		log.FatalLevel: viper.GetString(logConfigLookup),
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Loki.  Example here taken from README: https://github.com/YuKitsune/lokirus/blob/main/README.md
+	lokiOpts := lokirus.NewLokiHookOptions().
+		// Grafana doesn't have a "panic" level, but it does have a "critical" level
+		// https://grafana.com/docs/grafana/latest/explore/logs-integration/
+		WithLevelMap(lokirus.LevelMap{log.PanicLevel: "critical"}).
+		WithFormatter(&log.JSONFormatter{}).
+		WithStaticLabels(lokirus.Labels{
+			"app":         "managed-tokens",
+			"command":     currentExecutable,
+			"environment": devEnvironmentLabel,
+		})
+	lokiHook := lokirus.NewLokiHookWithOpts(
+		viper.GetString("loki.host"),
+		lokiOpts,
+		log.InfoLevel,
+		log.WarnLevel,
+		log.ErrorLevel,
+		log.FatalLevel)
+
+	log.AddHook(lokiHook)
 
 	exeLogger = log.WithField("executable", currentExecutable)
 	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
@@ -370,14 +409,13 @@ func run(ctx context.Context) error {
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
 		// Run cleanup actions
-		func(successfulServices map[string]bool) { // Cleanup
-			if err := reportSuccessesAndFailures(ctx, successfulServices); err != nil {
-				exeLogger.Error("Error aggregating successes and failures")
-			}
-		}(successfulServices)
+		// Cleanup
+		if err := reportSuccessesAndFailures(ctx, successfulServices); err != nil {
+			exeLogger.Error("Error aggregating successes and failures")
+		}
 		// Push metrics to prometheus pushgateway
 		if prometheusUp {
-			if err := metrics.PushToPrometheus(); err != nil {
+			if err := metrics.PushToPrometheus(viper.GetString("prometheus.host"), getPrometheusJobName()); err != nil {
 				exeLogger.Error("Could not push metrics to prometheus pushgateway")
 			} else {
 				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")

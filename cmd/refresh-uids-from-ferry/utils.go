@@ -242,3 +242,16 @@ func getUserPrincipalAndHtgettokenopts() (string, string) {
 	}
 	return userPrincipal, htgettokenOpts
 }
+
+// getPrometheusJobName gets the job name by parsing the configuration and the devEnvironment
+func getPrometheusJobName() string {
+	defaultJobName := "managed_tokens"
+	jobName := viper.GetString("prometheus.jobname")
+	if jobName == "" {
+		jobName = defaultJobName
+	}
+	if devEnvironmentLabel == devEnvironmentLabelDefault {
+		return jobName
+	}
+	return fmt.Sprintf("%s_%s", jobName, devEnvironmentLabel)
+}

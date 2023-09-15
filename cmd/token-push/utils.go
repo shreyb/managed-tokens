@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/spf13/viper"
@@ -126,4 +127,17 @@ func addServiceToServicesSlice(services []service.Service, configExperiment, rea
 	}
 	services = append(services, serv)
 	return services
+}
+
+// getPrometheusJobName gets the job name by parsing the configuration and the devEnvironment
+func getPrometheusJobName() string {
+	defaultJobName := "managed_tokens"
+	jobName := viper.GetString("prometheus.jobname")
+	if jobName == "" {
+		jobName = defaultJobName
+	}
+	if devEnvironmentLabel == devEnvironmentLabelDefault {
+		return jobName
+	}
+	return fmt.Sprintf("%s_%s", jobName, devEnvironmentLabel)
 }
