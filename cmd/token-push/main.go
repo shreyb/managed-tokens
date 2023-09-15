@@ -36,7 +36,7 @@ var (
 	exeLogger         *log.Entry
 )
 
-// devEnvironmentLabel can be set
+// devEnvironmentLabel can be set via config or environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
 var devEnvironmentLabel string
 
 const devEnvironmentLabelDefault string = "production"
