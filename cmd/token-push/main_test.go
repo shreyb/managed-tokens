@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
+
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/testUtils"
-	"github.com/spf13/viper"
 )
 
 func TestInitServices(t *testing.T) {
