@@ -233,12 +233,10 @@ func initTimeouts() error {
 			timeout, err := time.ParseDuration(timeoutString)
 			if err != nil {
 				exeLogger.WithField("timeoutKey", timeoutKey).Warn("Could not parse configured timeout.  Using default")
+				continue
 			}
-			exeLogger.WithFields(log.Fields{
-				"timeoutKey":   timeoutKey,
-				"timeoutValue": timeout,
-			}).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
+			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 		}
 	}
 
