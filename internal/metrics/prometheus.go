@@ -6,7 +6,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 var (
@@ -15,8 +14,8 @@ var (
 )
 
 // PushToPrometheus uses the package MetricsRegistry to push registered metrics to the configured Prometheus pushgateway
-func PushToPrometheus() error {
-	pusher := push.New(viper.GetString("prometheus.host"), viper.GetString("prometheus.jobname")).Gatherer(MetricsRegistry)
+func PushToPrometheus(hostName, jobName string) error {
+	pusher := push.New(hostName, jobName).Gatherer(MetricsRegistry)
 	if err := pusher.Add(); err != nil {
 		log.Errorf("Could not push metrics to the prometheus pushgateway: %s", err)
 		return err

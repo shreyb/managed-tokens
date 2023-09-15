@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/yukitsune/lokirus"
 
 	"github.com/shreyb/managed-tokens/internal/db"
 	"github.com/shreyb/managed-tokens/internal/environment"
@@ -30,6 +31,10 @@ var (
 	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger         *log.Entry
 )
+
+var devEnvironmentLabel string
+
+const devEnvironmentLabelDefault string = "production"
 
 // Supported Timeouts and their defaults
 var timeouts = map[string]time.Duration{
@@ -88,6 +93,8 @@ func init() {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
 		os.Exit(1)
 	}
+
+	devEnvironmentLabel = getDevEnvironmentLabel()
 
 	initLogs()
 	if err := initTimeouts(); err != nil {
@@ -160,6 +167,27 @@ func initLogs() {
 		log.PanicLevel: viper.GetString(logConfigLookup),
 	}, &log.TextFormatter{FullTimestamp: true}))
 
+	// Loki.  Example here taken from README: https://github.com/YuKitsune/lokirus/blob/main/README.md
+	lokiOpts := lokirus.NewLokiHookOptions().
+		// Grafana doesn't have a "panic" level, but it does have a "critical" level
+		// https://grafana.com/docs/grafana/latest/explore/logs-integration/
+		WithLevelMap(lokirus.LevelMap{log.PanicLevel: "critical"}).
+		WithFormatter(&log.JSONFormatter{}).
+		WithStaticLabels(lokirus.Labels{
+			"app":         "managed-tokens",
+			"command":     currentExecutable,
+			"environment": devEnvironmentLabel,
+		})
+	lokiHook := lokirus.NewLokiHookWithOpts(
+		viper.GetString("loki.host"),
+		lokiOpts,
+		log.InfoLevel,
+		log.WarnLevel,
+		log.ErrorLevel,
+		log.FatalLevel)
+
+	log.AddHook(lokiHook)
+
 	exeLogger = log.WithField("executable", currentExecutable)
 	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
 
@@ -180,8 +208,8 @@ func initTimeouts() error {
 				exeLogger.WithField(timeoutKey, timeoutString).Warn("Could not parse configured timeout duration.  Using default")
 				continue
 			}
-			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 			timeouts[timeoutKey] = timeout
+			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
 		}
 	}
 
@@ -305,7 +333,7 @@ func run(ctx context.Context) error {
 	// Send metrics anytime run() returns
 	defer func() {
 		if prometheusUp {
-			if err := metrics.PushToPrometheus(); err != nil {
+			if err := metrics.PushToPrometheus(viper.GetString("prometheus.host"), getPrometheusJobName()); err != nil {
 				// Non-essential - don't halt execution here
 				exeLogger.Error("Could not push metrics to prometheus pushgateway")
 			} else {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/spf13/viper"
@@ -126,4 +127,27 @@ func addServiceToServicesSlice(services []service.Service, configExperiment, rea
 	}
 	services = append(services, serv)
 	return services
+}
+
+// getDevEnvironment first checks the environment variable MANAGED_TOKENS_DEV_ENVIRONMENT for the devEnvironment, then the configuration file.
+// If it finds neither are set, it returns the default global setting.  This logic is handled by the underlying logic in the
+// viper library
+func getDevEnvironmentLabel() string {
+	// For devs, this variable can be set to differentiate between dev and prod for metrics, for example
+	viper.SetDefault("devEnvironmentLabel", devEnvironmentLabelDefault)
+	viper.BindEnv("devEnvironmentLabel", "MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL")
+	return viper.GetString("devEnvironmentLabel")
+}
+
+// getPrometheusJobName gets the job name by parsing the configuration and the devEnvironment
+func getPrometheusJobName() string {
+	defaultJobName := "managed_tokens"
+	jobName := viper.GetString("prometheus.jobname")
+	if jobName == "" {
+		jobName = defaultJobName
+	}
+	if devEnvironmentLabel == devEnvironmentLabelDefault {
+		return jobName
+	}
+	return fmt.Sprintf("%s_%s", jobName, devEnvironmentLabel)
 }
