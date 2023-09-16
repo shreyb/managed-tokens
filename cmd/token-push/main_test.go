@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/viper"
 
+	"github.com/shreyb/managed-tokens/internal/metrics"
 	"github.com/shreyb/managed-tokens/internal/service"
 	"github.com/shreyb/managed-tokens/internal/testUtils"
 )
@@ -237,5 +239,56 @@ func timeoutsReset() {
 		"vaultstorer": time.Duration(60 * time.Second),
 		"ping":        time.Duration(10 * time.Second),
 		"push":        time.Duration(30 * time.Second),
+	}
+}
+
+func TestInitMetrics(t *testing.T) {
+	metricsReset := func() {
+		reset()
+		prometheusUp = true
+		metrics.MetricsRegistry = prometheus.NewRegistry()
+	}
+	type testCase struct {
+		description          string
+		testHost             string
+		expectedErrNil       bool
+		expectedPrometheusUp bool
+	}
+
+	testCases := []testCase{
+		{
+			"valid host",
+			"http://www.google.com",
+			true,
+			true,
+		},
+		{
+			"invalid host",
+			"thisisnotavalidhost",
+			false,
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				metricsReset()
+				defer metricsReset()
+
+				viper.Set("prometheus.host", test.testHost)
+				err := initMetrics()
+				if err != nil && test.expectedErrNil {
+					t.Errorf("Expected nil error.  Got %v instead", err)
+				}
+				if err == nil && !test.expectedErrNil {
+					t.Error("Expected non-nil error.  Got nil instead")
+				}
+				if test.expectedPrometheusUp != prometheusUp {
+					t.Errorf("Got wrong result for prometheusUp.  Expected %t, got %t", test.expectedPrometheusUp, prometheusUp)
+				}
+			},
+		)
 	}
 }
