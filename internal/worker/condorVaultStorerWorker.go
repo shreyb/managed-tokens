@@ -170,6 +170,7 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, serviceName string, tokenStorers ...vaultToken.TokenStorer) error {
 	funcLogger := log.WithField("serviceName", serviceName)
 
+	var once sync.Once
 	g := new(errgroup.Group)
 
 	// One goroutine per TokenStorer
@@ -177,15 +178,19 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 		tokenStorer := tokenStorer
 		g.Go(func() error {
 			start := time.Now()
-			err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
-			if err != nil {
+			if err := vaultToken.GetAndStoreToken(ctx, tokenStorer, environ); err != nil {
 				storeFailureCount.WithLabelValues(serviceName, tokenStorer.GetCredd()).Inc()
-			} else {
-				dur := time.Since(start).Seconds()
-				tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
-				tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Set(dur)
+				return err
 			}
-			return err
+			var validatorErr error
+			once.Do(func() { validatorErr = vaultToken.ValidateToken(tokenStorer) })
+			if validatorErr != nil {
+				return validatorErr
+			}
+			dur := time.Since(start).Seconds()
+			tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
+			tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Set(dur)
+			return nil
 		})
 	}
 

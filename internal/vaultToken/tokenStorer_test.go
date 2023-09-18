@@ -27,16 +27,18 @@ func (t *MockTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ 
 	return t.tokenStorerFunc(ctx, environ)
 }
 
-func TestStoreAndValidateToken(t *testing.T) {
+var (
+	storerError                  = errors.New("Error storing vault token")
+	storerErrorAuthNeededTimeout = &ErrAuthNeeded{underlyingError: errHtgettokenTimeout}
+	validatorError               = errors.New("Error validating vault token")
+)
+
+func TestGetAndStoreToken(t *testing.T) {
 	type testCase struct {
 		description string
 		TokenStorer
 		expectedErr error
 	}
-
-	storerError := errors.New("Error storing vault token")
-	storerErrorAuthNeededTimeout := &ErrAuthNeeded{underlyingError: errHtgettokenTimeout}
-	validatorError := errors.New("Error validating vault token")
 
 	testCases := []testCase{
 		{
@@ -55,22 +57,7 @@ func TestStoreAndValidateToken(t *testing.T) {
 			},
 			storerError,
 		},
-		{
-			"Good storer, bad validator",
-			&MockTokenStorer{
-				func(context.Context, *environment.CommandEnvironment) error { return nil },
-				func() error { return validatorError },
-			},
-			validatorError,
-		},
-		{
-			"Bad storer, bad validator",
-			&MockTokenStorer{
-				func(context.Context, *environment.CommandEnvironment) error { return storerError },
-				func() error { return validatorError },
-			},
-			storerError,
-		},
+
 		{
 			"Auth needed - timeout error, good validator",
 			&MockTokenStorer{
@@ -85,7 +72,7 @@ func TestStoreAndValidateToken(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				if err := StoreAndValidateToken(
+				if err := GetAndStoreToken(
 					context.Background(),
 					test.TokenStorer,
 					&environment.CommandEnvironment{},
@@ -94,9 +81,47 @@ func TestStoreAndValidateToken(t *testing.T) {
 				}
 			},
 		)
+	}
+}
 
+func TestValidateToken(t *testing.T) {
+	type testCase struct {
+		description string
+		TokenStorer
+		expectedErr error
 	}
 
+	testCases := []testCase{
+		{
+			"Good storer, Good validator",
+			&MockTokenStorer{
+				func(context.Context, *environment.CommandEnvironment) error { return nil },
+				func() error { return nil },
+			},
+			nil,
+		},
+		{
+			"Good storer, bad validator",
+			&MockTokenStorer{
+				func(context.Context, *environment.CommandEnvironment) error { return nil },
+				func() error { return validatorError },
+			},
+			validatorError,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				if err := ValidateToken(
+					test.TokenStorer,
+				); !errors.Is(test.expectedErr, err) {
+					t.Errorf("Expected error %s.  Got %s", test.expectedErr, err)
+				}
+			},
+		)
+	}
 }
 
 func TestSetupCmdWithEnvironmentForTokenStorer(t *testing.T) {
