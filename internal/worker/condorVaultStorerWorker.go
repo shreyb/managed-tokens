@@ -96,7 +96,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	var wg sync.WaitGroup
 
 	holdoffStart := make(chan struct{}) // This channel will be closed when worker is ready to begin the held-off configs' work
-	var holdoffMux sync.Mutex           // Each Config with vaultStoreHoldoff will have to lock/unock this mutex to carry on
+	var holdoffMux sync.Mutex           // Each Config with vaultStoreHoldoff will have to lock/unlock this mutex to carry on
 	var holdoffWg sync.WaitGroup
 
 	for sc := range chans.GetServiceConfigChan() {
