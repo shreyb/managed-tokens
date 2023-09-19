@@ -496,6 +496,7 @@ func run(ctx context.Context) error {
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
+			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -512,6 +513,7 @@ func run(ctx context.Context) error {
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
+				vaultTokenStoreHoldoffFunc,
 			)
 			if err != nil {
 				funcLogger.Error("Could not create config for service")
