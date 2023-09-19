@@ -77,11 +77,3 @@ func SetVaultServer(value string) func(*Config) error {
 		return nil
 	}
 }
-
-// SetSupportedExtrasKeyValue returns a func(*Config) that sets the value for the given supportedExtraskey in the Extras map
-func SetSupportedExtrasKeyValue(key supportedExtrasKey, value any) func(*Config) error {
-	return func(c *Config) error {
-		c.Extras[key] = value
-		return nil
-	}
-}
