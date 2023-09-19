@@ -39,9 +39,8 @@ type TokenStorer interface {
 	validateToken() error
 }
 
-// GetAndStoreToken is the main way for external callers to obtain a vault token and store it in the Condor
-// Credd.  The passed-in TokenStorer dictates how the token is actually stored
-func GetAndStoreToken(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) error {
+// StoreAndValidateToken stores a vault token in the passed in Hashicorp vault server and the passed in credd.
+func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) error {
 	funcLogger := log.WithFields(log.Fields{
 		"serviceName": t.GetServiceName(),
 		"vaultServer": t.GetVaultServer(),
@@ -56,16 +55,6 @@ func GetAndStoreToken(ctx context.Context, t TokenStorer, environ *environment.C
 		return err
 	}
 	funcLogger.Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
-	return nil
-}
-
-// ValidateToken will validate a vault token as indicated by the behavior of the passed-in TokenStorer
-func ValidateToken(t TokenStorer) error {
-	funcLogger := log.WithFields(log.Fields{
-		"serviceName": t.GetServiceName(),
-		"vaultServer": t.GetVaultServer(),
-		"credd":       t.GetCredd(),
-	})
 
 	if err := t.validateToken(); err != nil {
 		funcLogger.Error("Could not validate vault token for TokenStorer")
