@@ -573,8 +573,8 @@ func run(ctx context.Context) error {
 	startCondorVault := time.Now()
 	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
 
-	// To avoid kerberos cache race conditions, condor_vault_storer must be run sequentially, so we'll wait until all are done,
-	// remove any service configs that we couldn't get tokens for from serviceConfigs, and then begin transferring to nodes
+	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
+	// and then begin transferring to nodes
 	failedVaultConfigs := removeFailedServiceConfigs(condorVaultChans, serviceConfigs)
 	for _, failure := range failedVaultConfigs {
 		exeLogger.WithField("service", failure.Service.Name()).Error("Failed to obtain vault token.  Will not try to push vault token to service nodes")
