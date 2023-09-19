@@ -9,7 +9,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/shreyb/managed-tokens/internal/environment"
 	"github.com/shreyb/managed-tokens/internal/metrics"
@@ -170,33 +169,33 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, serviceName string, tokenStorers ...vaultToken.TokenStorer) error {
 	funcLogger := log.WithField("serviceName", serviceName)
 
-	g := new(errgroup.Group)
+	var authNeededErrorPtr *vaultToken.ErrAuthNeeded
+	var authErr error
+	var success bool = true
 
-	// One goroutine per TokenStorer
+	// If we get any errors here, we mark the whole operation as having failed.  Also, if we see any authentication errors,
+	// we want to make sure the error we return from this func wraps that error.
 	for _, tokenStorer := range tokenStorers {
-		tokenStorer := tokenStorer
-		g.Go(func() error {
-			start := time.Now()
-			err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
-			if err != nil {
-				storeFailureCount.WithLabelValues(serviceName, tokenStorer.GetCredd()).Inc()
-			} else {
-				dur := time.Since(start).Seconds()
-				tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
-				tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Set(dur)
+		start := time.Now()
+		err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
+		if err != nil {
+			success = false
+			if errors.As(err, &authNeededErrorPtr) {
+				authErr = err
 			}
-			return err
-		})
+			storeFailureCount.WithLabelValues(serviceName, tokenStorer.GetCredd()).Inc()
+			continue
+		}
+		dur := time.Since(start).Seconds()
+		tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
+		tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Set(dur)
 	}
 
-	// Wait for all StoreAndValidateToken operations to complete
-	if err := g.Wait(); err != nil {
-		msg := "error obtaining and/or storing vault tokens for one or more credd"
-
+	if !success {
 		var retErr error
-		var authNeededErrorPtr *vaultToken.ErrAuthNeeded
-		if errors.As(err, &authNeededErrorPtr) {
-			retErr = fmt.Errorf("%s: %w", msg, err)
+		msg := "error obtaining and/or storing vault tokens for one or more credd"
+		if authErr != nil {
+			retErr = fmt.Errorf("%s: %w", msg, authErr)
 		} else {
 			retErr = errors.New(msg)
 		}
