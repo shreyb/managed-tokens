@@ -125,7 +125,7 @@ func getDefaultVaultTokenLocation() (string, error) {
 }
 
 func validateServiceVaultToken(serviceName string) error {
-	funcLogger := log.WithField("serviceName", serviceName)
+	funcLogger := log.WithField("service", serviceName)
 	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
 		funcLogger.Error("Could not get default vault token location")
