@@ -9,9 +9,11 @@ import (
 
 	"github.com/shreyb/managed-tokens/internal/cmdUtils"
 	"github.com/shreyb/managed-tokens/internal/db"
+	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/shreyb/managed-tokens/internal/worker"
 )
 
-// Functional options for worker.Config initialization
+// Functional option helpers for worker.Config initialization
 
 // getDesiredUIDByOverrideOrLookup gets the DesiredUID for a service by checking the configuration in the "account"
 // field.  It then checks the configuration to see if there is a configured override for the UID.  If it not overridden,
@@ -56,4 +58,14 @@ func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
 func getFileCopierOptionsFromConfig(serviceConfigPath string) string {
 	fileCopierOptions, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
 	return viper.GetString(fileCopierOptions)
+}
+
+// getVaultTokenStoreHoldoffFuncOpt examines the passed-in service to determine whether to
+// return a NOOP func, or if the service is a cmdUtils.ExperimentOverriddenService,
+// a func(*worker.Config) that sets the vault token store holdoff for the passed in Config
+func getVaultTokenStoreHoldoffFuncOpt(s service.Service) func(*worker.Config) error {
+	if _, ok := s.(*cmdUtils.ExperimentOverriddenService); ok {
+		return worker.SetVaultTokenStoreHoldoff()
+	}
+	return func(c *worker.Config) error { return nil } // NOOP
 }

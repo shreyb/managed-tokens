@@ -19,27 +19,6 @@ type unPingableNodes struct {
 	sync.Map
 }
 
-// supportedExtrasKey is an enumerated key for the Config.Extras map.  Callers wishing to store values
-// in the Config.Extras map should use a SupportedExtrasKey as the key
-type supportedExtrasKey int
-
-const (
-	// DefaultRoleFileTemplate is a key to store the value of the default role file template in the Config.Extras map
-	DefaultRoleFileDestinationTemplate supportedExtrasKey = iota
-	FileCopierOptions
-)
-
-func (s supportedExtrasKey) String() string {
-	switch s {
-	case DefaultRoleFileDestinationTemplate:
-		return "DefaultRoleFileDestinationTemplate"
-	case FileCopierOptions:
-		return "FileCopierOptions"
-	default:
-		return "unsupported extras key"
-	}
-}
-
 // Config is a mega struct containing all the information the workers need to have or pass onto lower level funcs.
 type Config struct {
 	service.Service
@@ -125,17 +104,4 @@ func (c *Config) RegisterUnpingableNode(node string) {
 func (c *Config) IsNodeUnpingable(node string) bool {
 	_, ok := c.unPingableNodes.Load(node)
 	return ok
-}
-
-// GetDefaultRoleFileTemplateValueFromExtras retrieves the default role file template value from the worker.Config,
-// and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
-// passes, for example:
-//
-//	c := worker.NewConfig( // various options )
-//	// set the default role file template in here
-//	tmplString, ok := GetDefaultRoleFileTemplateValueFromExtras(c)
-//	if !ok { // handle missing or incorrect value }
-func GetDefaultRoleFileDestinationTemplateValueFromExtras(c *Config) (string, bool) {
-	defaultRoleFileDestinationTemplateString, ok := c.Extras[DefaultRoleFileDestinationTemplate].(string)
-	return defaultRoleFileDestinationTemplateString, ok
 }

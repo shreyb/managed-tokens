@@ -94,22 +94,48 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 	// One goroutine per service config
 	var wg sync.WaitGroup
+
+	holdoffStart := make(chan struct{}) // This channel will be closed when worker is ready to begin the held-off configs' work
+	var holdoffMux sync.Mutex           // Each Config with vaultStoreHoldoff will have to lock/unock this mutex to carry on
+	var holdoffWg sync.WaitGroup
+
 	for sc := range chans.GetServiceConfigChan() {
+		var holdoff bool
 		success := &vaultStorerSuccess{
 			Service: sc.Service,
 		}
-		wg.Add(1)
+		holdoffVal, holdoffOk := GetVaultTokenStoreHoldoff(sc)
+		if holdoffVal && holdoffOk {
+			holdoffWg.Add(1)
+			holdoff = true
+		} else {
+			wg.Add(1)
+		}
 
 		go func(sc *Config) {
-			defer wg.Done()
-			defer func(v *vaultStorerSuccess) {
-				chans.GetSuccessChan() <- v
-			}(success)
-
 			configLogger := log.WithFields(log.Fields{
 				"experiment": sc.Service.Experiment(),
 				"role":       sc.Service.Role(),
+				"service":    sc.Name(),
 			})
+
+			if holdoff {
+				// Wait until all the possible concurrent operations are done
+				configLogger.Debug("Holding off service - VaultTokenStoreHoldoff was set")
+				<-holdoffStart
+				holdoffMux.Lock()
+				configLogger.Debug("Starting held-off service vault token store.  Acquired lock")
+				defer func() {
+					configLogger.Debug("Finished held-off service vault token store. Releasing lock")
+					holdoffMux.Unlock()
+					holdoffWg.Done()
+				}()
+			} else {
+				defer wg.Done()
+			}
+			defer func(v *vaultStorerSuccess) {
+				chans.GetSuccessChan() <- v
+			}(success)
 
 			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 			defer vaultStorerCancel()
@@ -141,7 +167,13 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			}
 		}(sc)
 	}
-	wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
+	// Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
+	// First the concurrent operations
+	wg.Wait()
+
+	// Then wait until we complete the held-off goroutines
+	close(holdoffStart)
+	holdoffWg.Wait()
 }
 
 // StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will
@@ -167,7 +199,7 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 // using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
 // If there was an error with ANY of the schedds, StoreAndGetTokensForSchedds will return an error
 func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, serviceName string, tokenStorers ...vaultToken.TokenStorer) error {
-	funcLogger := log.WithField("serviceName", serviceName)
+	funcLogger := log.WithField("service", serviceName)
 
 	var authNeededErrorPtr *vaultToken.ErrAuthNeeded
 	var authErr error
