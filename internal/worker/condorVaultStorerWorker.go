@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -81,6 +80,7 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 // stores a refresh token in the configured vault and obtains vault and bearer tokens.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
+	// Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
 	defer close(chans.GetSuccessChan())
 	defer func() {
 		close(chans.GetNotificationsChan())
@@ -92,88 +92,47 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 		log.Fatal("Could not parse vault storer timeout")
 	}
 
-	// One goroutine per service config
-	var wg sync.WaitGroup
-
-	holdoffStart := make(chan struct{}) // This channel will be closed when worker is ready to begin the held-off configs' work
-	var holdoffMux sync.Mutex           // Each Config with vaultStoreHoldoff will have to lock/unlock this mutex to carry on
-	var holdoffWg sync.WaitGroup
-
 	for sc := range chans.GetServiceConfigChan() {
-		var holdoff bool
 		success := &vaultStorerSuccess{
 			Service: sc.Service,
 		}
-		holdoffVal, holdoffOk := GetVaultTokenStoreHoldoff(sc)
-		if holdoffVal && holdoffOk {
-			holdoffWg.Add(1)
-			holdoff = true
-		} else {
-			wg.Add(1)
+
+		configLogger := log.WithFields(log.Fields{
+			"experiment": sc.Service.Experiment(),
+			"role":       sc.Service.Role(),
+			"service":    sc.Name(),
+		})
+
+		vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
+
+		tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
+		for _, schedd := range sc.Schedds {
+			tokenStorers = append(tokenStorers, vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
 		}
 
-		go func(sc *Config) {
-			configLogger := log.WithFields(log.Fields{
-				"experiment": sc.Service.Experiment(),
-				"role":       sc.Service.Role(),
-				"service":    sc.Name(),
-			})
-
-			if holdoff {
-				// Wait until all the possible concurrent operations are done
-				configLogger.Debug("Holding off service - VaultTokenStoreHoldoff was set")
-				<-holdoffStart
-				holdoffMux.Lock()
-				configLogger.Debug("Starting held-off service vault token store.  Acquired lock")
-				defer func() {
-					configLogger.Debug("Finished held-off service vault token store. Releasing lock")
-					holdoffMux.Unlock()
-					holdoffWg.Done()
-				}()
+		if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.Service.Name(), tokenStorers...); err != nil {
+			var msg string
+			if errors.Is(err, context.DeadlineExceeded) {
+				msg = "Timeout error"
 			} else {
-				defer wg.Done()
-			}
-			defer func(v *vaultStorerSuccess) {
-				chans.GetSuccessChan() <- v
-			}(success)
-
-			vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
-			defer vaultStorerCancel()
-
-			tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
-			for _, schedd := range sc.Schedds {
-				tokenStorers = append(tokenStorers, vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
-			}
-
-			if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.Service.Name(), tokenStorers...); err != nil {
-				var msg string
-				if errors.Is(err, context.DeadlineExceeded) {
-					msg = "Timeout error"
-				} else {
-					msg = "Could not store and get vault tokens"
-					unwrappedErr := errors.Unwrap(err)
-					if unwrappedErr != nil {
-						var authNeededErrorPtr *vaultToken.ErrAuthNeeded
-						if errors.As(unwrappedErr, &authNeededErrorPtr) {
-							msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
-						}
+				msg = "Could not store and get vault tokens"
+				unwrappedErr := errors.Unwrap(err)
+				if unwrappedErr != nil {
+					var authNeededErrorPtr *vaultToken.ErrAuthNeeded
+					if errors.As(unwrappedErr, &authNeededErrorPtr) {
+						msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
 					}
 				}
-				configLogger.Error(msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
-			} else {
-				success.success = true
-				configLogger.Info("Successfully got and stored vault tokens")
 			}
-		}(sc)
+			configLogger.Error(msg)
+			chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
+		} else {
+			success.success = true
+			configLogger.Info("Successfully got and stored vault tokens")
+		}
+		chans.GetSuccessChan() <- success
+		vaultStorerCancel()
 	}
-	// Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
-	// First the concurrent operations
-	wg.Wait()
-
-	// Then wait until we complete the held-off goroutines
-	close(holdoffStart)
-	holdoffWg.Wait()
 }
 
 // StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will
