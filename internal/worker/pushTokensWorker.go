@@ -170,6 +170,11 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 						// Channel for each goroutine launched below to send notifications on for later aggregation
 						nChan := make(chan notifications.Notification, len(destinationFilenames))
+						nodeStatus := struct {
+							success bool
+							mux     sync.Mutex
+						}{success: true}
+
 						for _, destinationFilename := range destinationFilenames {
 							filenameWg.Add(1)
 							go func(destinationFilename string) {
@@ -193,8 +198,16 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 										notificationErrorString = notificationErrorString + err.Error()
 										nodeLogger.Error("Error pushing vault tokens to destination node")
 									}
-									pushSuccess.changeSuccessValue(false)
+									pushSuccess.changeSuccessValue(false) // Mark the whole service config as failed
+
+									// Mark this node as failed
 									failNodes.LoadOrStore(destinationNode, struct{}{})
+									func() {
+										nodeStatus.mux.Lock()
+										defer nodeStatus.mux.Unlock()
+										nodeStatus.success = false
+									}()
+
 									nChan <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
 								}
 							}(destinationFilename)
@@ -220,7 +233,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 						<-notificationsForwardDone // Wait until we've forwarded the message on
 
 						// Set tokenPushTimestamp metric
-						if pushSuccess.success {
+						if nodeStatus.success {
 							tokenPushTimestamp.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 							successNodes.LoadOrStore(destinationNode, struct{}{})
 						}
