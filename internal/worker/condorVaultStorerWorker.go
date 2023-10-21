@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/user"
+	"path"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -195,4 +198,37 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 	}
 
 	return nil
+}
+
+func getServiceTokenForCreddLocation(tokenRootPath, serviceName, credd string) string {
+	funcLogger := log.WithFields(log.Fields{
+		"tokenRootPath": tokenRootPath,
+		"service":       serviceName,
+		"credd":         credd,
+	})
+	var uid string
+	currentUser, err := user.Current()
+	if err != nil {
+		funcLogger.Error(`Could not get current user.  Will use string "000" instead`)
+		uid = "000"
+	} else {
+		uid = currentUser.Uid
+	}
+
+	tokenFilename := fmt.Sprintf("vt_u%s-%s-%s", uid, credd, serviceName)
+	return path.Join(tokenRootPath, tokenFilename)
+}
+
+// getCondorVaultTokenLocation returns the location of vault token that HTCondor uses based on the current user's UID
+func getCondorVaultTokenLocation(serviceName string) string {
+	var uid string
+	currentUser, err := user.Current()
+	if err != nil {
+		log.WithField("service", serviceName).Error(`Could not get current user.  Will use string "000" instead`)
+		uid = "000"
+	} else {
+		uid = currentUser.Uid
+	}
+	filename := fmt.Sprintf("vt_u%s-%s", uid, serviceName)
+	return path.Join(os.TempDir(), filename)
 }
