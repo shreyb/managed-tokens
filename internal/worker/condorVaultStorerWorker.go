@@ -232,3 +232,80 @@ func getCondorVaultTokenLocation(serviceName string) string {
 	filename := fmt.Sprintf("vt_u%s-%s", uid, serviceName)
 	return path.Join(os.TempDir(), filename)
 }
+
+// TODO funcs needed:
+// backupCondorVaultToken
+// - Note: If we get non nil error, alert user that present condor vault token will be overwritten
+// stageStoredTokenFile
+// storeServiceTokenForCreddFile
+
+// TODO unit test this as much as can be possible.  It may not be that possible to create the errors since
+func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() error, retErr error) {
+	funcLogger := log.WithField("service", serviceName)
+
+	// Check for token at condorVaultTokenLocation, and move it out if needed
+	condorVaultTokenLocation := getCondorVaultTokenLocation(serviceName)
+	if _, err := os.Stat(condorVaultTokenLocation); !errors.Is(err, os.ErrNotExist) {
+		// We had a vault token at condorVaultTokenLocation.  Move it to a temp file for now
+		previousTokenTempFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_condor_vault_token")
+		if err != nil {
+			funcLogger.Debug("Could not create temp file for old token file")
+			return nil, err
+		}
+		funcLogger.Debugf("condor vault token already exists at %s.  Moving to temp location %s", condorVaultTokenLocation, previousTokenTempFile.Name())
+		// TODO:  Think about how to test this
+		if err := os.Rename(condorVaultTokenLocation, previousTokenTempFile.Name()); err != nil {
+			funcLogger.Error("Could not move currently-existing condor vault token to staging location")
+			retErr = err
+		}
+		restorePriorTokenFunc = func() error {
+			// TODO:  This part is not tested.  Think about how to do that
+			if err := os.Rename(previousTokenTempFile.Name(), condorVaultTokenLocation); err != nil {
+				// Create location in os.TempDir() that is stamped for possible later retrieval
+				now := time.Now().Format(time.RFC3339)
+				finalBackupLocation := path.Join(os.TempDir(), fmt.Sprintf("managed_tokens_vt_bak-%s-%s", serviceName, now))
+				funcLogger.Errorf("Could not move previous token back to condor vault location.  Attempting to save it to %s", finalBackupLocation)
+				if err := os.Rename(previousTokenTempFile.Name(), finalBackupLocation); err != nil {
+					funcLogger.Errorf("Could not restore previously-existing vault token.  Will not delete backup copy made at %s", previousTokenTempFile.Name())
+				}
+				return errRestorePriorToken // TODO caller should check for this error to alert user to check logs for details on where the prior token is
+			}
+			return nil
+		}
+	}
+	return
+}
+
+// stageStoredTokenFile checks to see if there already exists a vault token for the given service and
+// credd.  If so, it will move that file to where HTCondor expects it (as defined by the return value of
+// getCondorVaultLocation)
+func stageStoredTokenFile(tokenRootPath, serviceName, credd string) error {
+	funcLogger := log.WithFields(log.Fields{
+		"service": serviceName,
+		"credd":   credd,
+	})
+	condorVaultTokenLocation := getCondorVaultTokenLocation(serviceName)
+
+	storedServiceCreddTokenLocation := getServiceTokenForCreddLocation(tokenRootPath, serviceName, credd)
+	if _, err := os.Stat(storedServiceCreddTokenLocation); errors.Is(err, os.ErrNotExist) {
+		funcLogger.Infof("No service credd token exists at %s.", storedServiceCreddTokenLocation)
+		return errNoServiceCreddToken
+	}
+
+	if err := os.Rename(storedServiceCreddTokenLocation, condorVaultTokenLocation); err != nil {
+		funcLogger.Error("Could not move stored service-credd vault token into place.  Will attempt to remove file at condor vault token location to ensure that a fresh one is generated.")
+		if err2 := os.Remove(condorVaultTokenLocation); err2 != nil {
+			funcLogger.Error("Could not remove condor vault token after failure to move stored service-credd vault token into place.  Please investigate")
+		}
+		return errMoveServiceCreddToken
+	}
+
+	funcLogger.Infof("Successfully moved stored token %s into place at %s", storedServiceCreddTokenLocation, condorVaultTokenLocation)
+	return nil
+}
+
+var (
+	errNoServiceCreddToken   = errors.New("no prior service credd token exists")
+	errMoveServiceCreddToken = errors.New("could not move service credd token into place")
+	errRestorePriorToken     = errors.New("could not restore previously-existing vault token.  Will not delete backup copy")
+)
