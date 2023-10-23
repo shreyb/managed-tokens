@@ -65,8 +65,12 @@ func TestGetCondorVaultTokenLocation(t *testing.T) {
 func TestBackupCondorVaultToken(t *testing.T) {
 	service := "my_service"
 	condorVaultTokenLocation := getCondorVaultTokenLocation(service)
-	cleanupFunc := stashCondorVaultTokenFileIfExists(t, service)
-	t.Cleanup(cleanupFunc)
+
+	if cleanupFunc := stashCondorVaultTokenFileIfExists(t, service); cleanupFunc != nil {
+		t.Cleanup(cleanupFunc)
+	} else {
+		t.Cleanup(func() { os.Remove(condorVaultTokenLocation) })
+	}
 
 	type testCase struct {
 		description                      string
@@ -145,9 +149,11 @@ func TestStageStoredTokenFile(t *testing.T) {
 	credd := "mycredd"
 
 	condorVaultTokenLocation := getCondorVaultTokenLocation(service)
-	cleanupFunc := stashCondorVaultTokenFileIfExists(t, service)
-	t.Cleanup(cleanupFunc)
-	t.Cleanup(func() { os.Remove(condorVaultTokenLocation) })
+	if cleanupFunc := stashCondorVaultTokenFileIfExists(t, service); cleanupFunc != nil {
+		t.Cleanup(cleanupFunc)
+	} else {
+		t.Cleanup(func() { os.Remove(condorVaultTokenLocation) })
+	}
 
 	testTokenContents := []byte("thisisatesttoken")
 	type testCase struct {
@@ -202,6 +208,82 @@ func TestStageStoredTokenFile(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestStoreServiceTokenForCreddFile(t *testing.T) {
+	service := "my_service"
+	credd := "mycredd"
+
+	tempDir := t.TempDir()
+	defaultTokenRootPath := tempDir
+
+	condorVaultTokenLocation := getCondorVaultTokenLocation(service)
+	serviceCreddTokenStorePath := getServiceTokenForCreddLocation(defaultTokenRootPath, service, credd)
+	testTokenContents := []byte("thisisatesttoken")
+
+	if cleanupFunc := stashCondorVaultTokenFileIfExists(t, service); cleanupFunc != nil {
+		t.Cleanup(cleanupFunc)
+	} else {
+		t.Cleanup(func() { os.Remove(condorVaultTokenLocation) })
+	}
+
+	type testCase struct {
+		description    string
+		setupFunc      func() (cleanupFunc func())
+		tokenRootPath  string
+		expectedErrNil bool
+	}
+
+	testCases := []testCase{
+		{
+			"Normal case",
+			func() (cleanupFunc func()) {
+				err := os.WriteFile(condorVaultTokenLocation, testTokenContents, 0644)
+				if err != nil {
+					t.FailNow()
+				}
+				return func() { os.Remove(condorVaultTokenLocation) }
+			},
+			defaultTokenRootPath,
+			true,
+		},
+		{
+			"Error moving file",
+			func() (cleanupFunc func()) {
+				err := os.WriteFile(condorVaultTokenLocation, testTokenContents, 0644)
+				if err != nil {
+					t.FailNow()
+				}
+				return func() { os.Remove(condorVaultTokenLocation) }
+			},
+			"/this/dir/does/not/exist",
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				if cleanupFunc := test.setupFunc; cleanupFunc != nil {
+					t.Cleanup(cleanupFunc())
+				}
+				err := storeServiceTokenForCreddFile(test.tokenRootPath, service, credd)
+				if !test.expectedErrNil {
+					assert.Error(t, err)
+					return
+				}
+				assert.NoError(t, err)
+				assert.FileExists(t, serviceCreddTokenStorePath)
+				contents, err := os.ReadFile(serviceCreddTokenStorePath)
+				if err != nil {
+					t.FailNow()
+				}
+				assert.Equal(t, testTokenContents, contents)
+			},
+		)
+	}
+
 }
 
 // If we have a vault token file in the condor location, move it now

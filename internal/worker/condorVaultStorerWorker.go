@@ -237,6 +237,8 @@ func getCondorVaultTokenLocation(serviceName string) string {
 // backupCondorVaultToken
 // - Note: If we get non nil error, alert user that present condor vault token will be overwritten
 // stageStoredTokenFile
+// - Note, if we get errNoServiceCreddToken, that's OK.  If we get errMoveServiceCreddToken, alert user that we'll be getting a brand new token.
+//    If we get a different error, that's a real error and alert user that something is wrong and we are getting a brand new token
 // storeServiceTokenForCreddFile
 
 // TODO unit test this as much as can be possible.  It may not be that possible to create the errors since
@@ -296,11 +298,32 @@ func stageStoredTokenFile(tokenRootPath, serviceName, credd string) error {
 		funcLogger.Error("Could not move stored service-credd vault token into place.  Will attempt to remove file at condor vault token location to ensure that a fresh one is generated.")
 		if err2 := os.Remove(condorVaultTokenLocation); err2 != nil {
 			funcLogger.Error("Could not remove condor vault token after failure to move stored service-credd vault token into place.  Please investigate")
+			return err2
 		}
 		return errMoveServiceCreddToken
 	}
 
 	funcLogger.Infof("Successfully moved stored token %s into place at %s", storedServiceCreddTokenLocation, condorVaultTokenLocation)
+	return nil
+}
+
+// storeServiceTokenForCreddFile moves the vault token in the condor staging path (defined by getCondorVaultLocation)
+// to the service-credd storage path (defined by getServiceTokenForCreddLocation)
+func storeServiceTokenForCreddFile(tokenRootPath, serviceName, credd string) error {
+	funcLogger := log.WithFields(log.Fields{
+		"service": serviceName,
+		"credd":   credd,
+	})
+	condorVaultTokenLocation := getCondorVaultTokenLocation(serviceName)
+	storedServiceCreddTokenLocation := getServiceTokenForCreddLocation(tokenRootPath, serviceName, credd)
+
+	funcLogger.Debug("Attempting to move condor vault token to service-credd vault token storage path")
+	err := os.Rename(condorVaultTokenLocation, storedServiceCreddTokenLocation)
+	if err != nil {
+		funcLogger.Errorf("Could not move condor vault token to service-credd vault storage path: %s", err)
+		return err
+	}
+	funcLogger.Infof("Successfully moved condor vault token to service-credd vault storage path: %s", storedServiceCreddTokenLocation)
 	return nil
 }
 
