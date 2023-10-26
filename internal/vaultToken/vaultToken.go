@@ -88,14 +88,14 @@ func RemoveServiceVaultTokens(serviceName string) error {
 			"service":  serviceName,
 			"filename": vaultToken,
 		})
-		err := os.Remove(vaultToken)
-		switch {
-		case errors.Is(err, os.ErrNotExist):
-			tokenLogger.Warn("Vault token not removed because the file does not exist")
-		case err != nil:
-			tokenLogger.Error("Could not remove vault token")
-			return err
-		default:
+		if err := os.Remove(vaultToken); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				tokenLogger.Info("Vault token not removed because the file does not exist")
+			} else {
+				tokenLogger.Error("Could not remove vault token")
+				return err
+			}
+		} else {
 			tokenLogger.Debug("Removed vault token")
 		}
 	}
