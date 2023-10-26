@@ -288,6 +288,7 @@ func run(ctx context.Context) error {
 	}
 	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 	keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
+	serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
 	serviceConfig, err = worker.NewConfig(
 		s,
 		worker.SetCommandEnvironment(
@@ -300,6 +301,7 @@ func run(ctx context.Context) error {
 		worker.SetVaultServer(vaultServer),
 		worker.SetUserPrincipal(userPrincipal),
 		worker.SetKeytabPath(keytabPath),
+		worker.SetServiceCreddVaultTokenPathRoot(serviceCreddVaultTokenPathRoot),
 	)
 	if err != nil {
 		funcLogger.Error("Could not create config for service")
