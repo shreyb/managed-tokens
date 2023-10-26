@@ -70,10 +70,19 @@ func SetSchedds(value []string) func(*Config) error {
 	}
 }
 
-// SetVaultServer returns a func(*Config) with the VaultServer field set to the passed in value
+// SetVaultServer returns a func(*Config) that sets the Config.VaultServer field set to the passed in value
 func SetVaultServer(value string) func(*Config) error {
 	return func(c *Config) error {
 		c.VaultServer = value
+		return nil
+	}
+}
+
+// SetServiceCreddVaultTokenPathRoot returns a func(*Config) that sets the Config.ServiceCreddVaultTokenPathRoot
+// field to the passed in value
+func SetServiceCreddVaultTokenPathRoot(value string) func(*Config) error {
+	return func(c *Config) error {
+		c.ServiceCreddVaultTokenPathRoot = value
 		return nil
 	}
 }
