@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -113,7 +114,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 			tokenStorers = append(tokenStorers, vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
 		}
 
-		if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.Service.Name(), tokenStorers...); err != nil {
+		if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...); err != nil {
 			var msg string
 			if errors.Is(err, context.DeadlineExceeded) {
 				msg = "Timeout error"
@@ -154,14 +155,14 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 		tokenStorers = append(tokenStorers, vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
 	}
 
-	return StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.Service.Name(), tokenStorers...)
+	return StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...)
 }
 
 // StoreAndGetTokensForSchedds will store a refresh token on the condor-configured vault server, obtain vault and bearer tokens for a service
 // using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
 // If there was an error with ANY of the schedds, StoreAndGetTokensForSchedds will return an error
-func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, serviceName string, tokenStorers ...vaultToken.TokenStorer) error {
-	funcLogger := log.WithField("service", serviceName)
+func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, tokenRootPath string, tokenStorers ...vaultToken.TokenStorer) error {
+	services := make(map[string]struct{})
 
 	var authNeededErrorPtr *vaultToken.ErrAuthNeeded
 	var authErr error
@@ -170,30 +171,81 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 	// If we get any errors here, we mark the whole operation as having failed.  Also, if we see any authentication errors,
 	// we want to make sure the error we return from this func wraps that error.
 	for _, tokenStorer := range tokenStorers {
-		start := time.Now()
-		err := vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
-		if err != nil {
-			success = false
-			if errors.As(err, &authNeededErrorPtr) {
-				authErr = err
+		func(tokenStorer vaultToken.TokenStorer) {
+			services[tokenStorer.GetServiceName()] = struct{}{}
+			funcLogger := log.WithFields(log.Fields{
+				"service": tokenStorer.GetServiceName(),
+				"credd":   tokenStorer.GetCredd(),
+			})
+			start := time.Now()
+
+			// Stage prior vault token, if it exists
+			restorePriorTokenFunc, err := backupCondorVaultToken(tokenStorer.GetServiceName())
+			if err != nil {
+				funcLogger.Errorf("Error backing up current vault token at %s.  Will overwrite this with a new vault token.", getCondorVaultTokenLocation(tokenStorer.GetServiceName()))
 			}
-			storeFailureCount.WithLabelValues(serviceName, tokenStorer.GetCredd()).Inc()
-			continue
-		}
-		dur := time.Since(start).Seconds()
-		tokenStoreTimestamp.WithLabelValues(serviceName, tokenStorer.GetCredd()).SetToCurrentTime()
-		tokenStoreDuration.WithLabelValues(serviceName, tokenStorer.GetCredd()).Set(dur)
+			defer func() {
+				if err := restorePriorTokenFunc(); err != nil {
+					funcLogger.Errorf("Error restoring prior condor vault token.  Please see the logs to see where the token might have been backed up.")
+				}
+			}()
+
+			if err = stageStoredTokenFile(tokenRootPath, tokenStorer.GetServiceName(), tokenStorer.GetCredd()); err != nil {
+				switch {
+				case errors.Is(err, errNoServiceCreddToken):
+					funcLogger.Info("No prior vault token exists for this service/credd combination.  Will get a new vault token")
+				case errors.Is(err, errMoveServiceCreddToken):
+					funcLogger.Warn("There was an error staging the prior vault token for this service and credd.  Will get a new vault token")
+				default:
+					funcLogger.Error("Could not stage prior vault token or clear the current vault token.  Please investigate, and be aware that stale credentials may get stored.")
+					success = false
+				}
+			}
+
+			// Make sure we store whatever comes out of storing the vault token
+			// Note that if this operation fails, assuming we got a condor vault token, that will
+			// stick around unless something else cleans up vault tokens.  This is actually OK, since
+			// eventually that vault token will expire, and htgettoken will determine that a new one is
+			// needed.
+			defer func() {
+				if err = storeServiceTokenForCreddFile(tokenRootPath, tokenStorer.GetServiceName(), tokenStorer.GetCredd()); err != nil {
+					funcLogger.Error("Could not store condor vault token for credd for future runs.  Please investigate")
+				}
+			}()
+
+			// Store vault token on credd
+			err = vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
+			if err != nil {
+				success = false
+				if errors.As(err, &authNeededErrorPtr) {
+					authErr = err
+				}
+				storeFailureCount.WithLabelValues(tokenStorer.GetServiceName(), tokenStorer.GetCredd()).Inc()
+				return
+			}
+
+			dur := time.Since(start).Seconds()
+			tokenStoreTimestamp.WithLabelValues(tokenStorer.GetServiceName(), tokenStorer.GetCredd()).SetToCurrentTime()
+			tokenStoreDuration.WithLabelValues(tokenStorer.GetServiceName(), tokenStorer.GetCredd()).Set(dur)
+		}(tokenStorer)
 	}
 
 	if !success {
 		var retErr error
+		logServices := make([]string, 0, len(services))
+
+		for service := range services {
+			logServices = append(logServices, service)
+		}
+		logServiceEntry := strings.Join(logServices, ", ")
+
 		msg := "error obtaining and/or storing vault tokens for one or more credd"
 		if authErr != nil {
 			retErr = fmt.Errorf("%s: %w", msg, authErr)
 		} else {
 			retErr = errors.New(msg)
 		}
-		funcLogger.Error(retErr.Error())
+		log.WithField("service(s)", logServiceEntry).Error(retErr.Error())
 		return retErr
 	}
 
@@ -234,14 +286,14 @@ func getCondorVaultTokenLocation(serviceName string) string {
 }
 
 // TODO funcs needed:
-// backupCondorVaultToken
-// - Note: If we get non nil error, alert user that present condor vault token will be overwritten
-// stageStoredTokenFile
-// - Note, if we get errNoServiceCreddToken, that's OK.  If we get errMoveServiceCreddToken, alert user that we'll be getting a brand new token.
-//    If we get a different error, that's a real error and alert user that something is wrong and we are getting a brand new token
-// storeServiceTokenForCreddFile
+// TODO:  Now make sure that our mains set up the worker configs
 
 // TODO unit test this as much as can be possible.  It may not be that possible to create the errors since
+
+// backupCondorVaultToken looks in the standard HTCondor location for a vault token.  If it finds
+// one there, it will create a backup copy.  It returns a function that will restore the backup
+// copy to the standard HTCondor location.  This returned func should ideally be defer called
+// by the caller.
 func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() error, retErr error) {
 	funcLogger := log.WithField("service", serviceName)
 
@@ -270,7 +322,7 @@ func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() er
 				if err := os.Rename(previousTokenTempFile.Name(), finalBackupLocation); err != nil {
 					funcLogger.Errorf("Could not restore previously-existing vault token.  Will not delete backup copy made at %s", previousTokenTempFile.Name())
 				}
-				return errRestorePriorToken // TODO caller should check for this error to alert user to check logs for details on where the prior token is
+				return errors.New("could not restore previous token")
 			}
 			return nil
 		}
@@ -330,5 +382,4 @@ func storeServiceTokenForCreddFile(tokenRootPath, serviceName, credd string) err
 var (
 	errNoServiceCreddToken   = errors.New("no prior service credd token exists")
 	errMoveServiceCreddToken = errors.New("could not move service credd token into place")
-	errRestorePriorToken     = errors.New("could not restore previously-existing vault token.  Will not delete backup copy")
 )
