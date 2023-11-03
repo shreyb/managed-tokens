@@ -25,18 +25,23 @@ func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() er
 
 	// Check for token at condorVaultTokenLocation, and move it out if needed
 	condorVaultTokenLocation := getCondorVaultTokenLocation(serviceName)
+	// TODO Strengthen this file check.  One more func that checks if a file exists or not, maybe goes into utils
 	if _, err := os.Stat(condorVaultTokenLocation); !errors.Is(err, os.ErrNotExist) {
+		if err != nil {
+			funcLogger.Errorf("Could not stat condor vault token file that exists: %s", err)
+			return restorePriorTokenFunc, err
+		}
 		// We had a vault token at condorVaultTokenLocation.  Move it to a temp file for now
 		previousTokenTempFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_condor_vault_token")
 		if err != nil {
-			funcLogger.Debug("Could not create temp file for old token file")
+			funcLogger.Error("Could not create temp file for old token file")
 			return restorePriorTokenFunc, err
 		}
 		funcLogger.Debugf("condor vault token already exists at %s.  Moving to temp location %s", condorVaultTokenLocation, previousTokenTempFile.Name())
 		// TODO:  Think about how to test this
 		if err := os.Rename(condorVaultTokenLocation, previousTokenTempFile.Name()); err != nil {
 			funcLogger.Error("Could not move currently-existing condor vault token to staging location")
-			retErr = err
+			return restorePriorTokenFunc, err
 		}
 		restorePriorTokenFunc = func() error {
 			// TODO:  This part is not tested.  Think about how to do that
@@ -50,8 +55,10 @@ func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() er
 				}
 				return errors.New("could not restore previous token")
 			}
+			funcLogger.Debugf("Restored prior condor vault token from %s to %s", previousTokenTempFile.Name(), condorVaultTokenLocation)
 			return nil
 		}
+		return restorePriorTokenFunc, nil
 	}
 	return
 }

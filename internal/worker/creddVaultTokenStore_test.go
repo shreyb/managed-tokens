@@ -100,7 +100,7 @@ func TestBackupCondorVaultToken(t *testing.T) {
 					os.Unsetenv("TMPDIR")
 				}
 			},
-			false,
+			true,
 			false,
 		},
 	}
