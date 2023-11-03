@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-//
-// function to save file to correct location -- if we had previous file, we should move it into place
-// -- should return error
-
 func TestGetServiceTokenForCreddLocation(t *testing.T) {
 	curUser, _ := user.Current()
 	uid := curUser.Uid
@@ -54,13 +50,6 @@ func TestGetCondorVaultTokenLocation(t *testing.T) {
 	result := getCondorVaultTokenLocation(serviceName)
 	assert.Equal(t, expectedResult, result)
 }
-
-// function to move file into place
-// -- accept service, credd, tokenRootPath
-// -- if file already exists at our location, it should save the file somewhere else
-// --- should return existingToken bool, existingTokenTempPath string, error
-// -- if there was no prior credd token, we should return an errNoServiceCreddToken, which the caller should handle (in our case, it should be OK with that)
-// func stageStoredTokenFile(tokenRootPath, service, credd string) (priorTokenExists bool, existingTokenTempPath string, err error)
 
 func TestBackupCondorVaultToken(t *testing.T) {
 	service := "my_service"
@@ -143,7 +132,6 @@ func TestBackupCondorVaultToken(t *testing.T) {
 
 }
 
-// stageStoredTokenFile(tokenRootPath, service, credd string) error
 func TestStageStoredTokenFile(t *testing.T) {
 	service := "my_service"
 	credd := "mycredd"

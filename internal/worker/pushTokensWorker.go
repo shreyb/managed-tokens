@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
+	"slices"
 	"strings"
 	"sync"
 	"text/template"
@@ -122,13 +122,6 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					chans.GetSuccessChan() <- p
 				}(pushSuccess)
 
-				currentUser, err := user.Current()
-				if err != nil {
-					serviceLogger.Error(err)
-					return
-				}
-				currentUID := currentUser.Uid
-
 				// Prepare default role file for the service
 				// Make sure we can get the destination filename
 				// Write the default role file to send
@@ -153,7 +146,15 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					}
 				}()
 
-				sourceFilename := fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, sc.Service.Name())
+				sourceFilename, err := findFirstCreddVaultToken(sc.ServiceCreddVaultTokenPathRoot, sc.Service.Name(), sc.Schedds)
+				if err != nil {
+					msg := "Could not find suitable vault token to push.  Will not push any vault tokens for this service."
+					serviceLogger.Error(msg)
+					pushSuccess.changeSuccessValue(false)
+					chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
+					return
+				}
+
 				destinationFilenames := []string{
 					fmt.Sprintf("/tmp/vt_u%d", sc.DesiredUID),
 					fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
@@ -380,4 +381,43 @@ func prepareDefaultRoleFile(sc *Config) (string, error) {
 	}
 	serviceLogger.WithField("filename", defaultRoleFile.Name()).Debug("Wrote default role file to transfer to nodes")
 	return defaultRoleFile.Name(), nil
+}
+
+// findFirstCreddVaultToken will cycle through the credds slice in an order determined by slices.Sort() and attempt to find a stored vault token for
+// a credd at the tokenRootPath.  If this fails, it will return the location used by condor_vault_storer to store tokens
+func findFirstCreddVaultToken(tokenRootPath, serviceName string, credds []string) (string, error) {
+	funcLogger := log.WithField("service", serviceName)
+
+	if len(credds) == 0 {
+		return "", errors.New("no credds given")
+	}
+
+	creddsSorted := make([]string, len(credds))
+	copy(creddsSorted, credds)
+	slices.Sort(creddsSorted)
+
+	// Check each possible credd path for the token file.  If we find one, use it
+	for i := 0; i < len(creddsSorted); i++ {
+		trialCredd := creddsSorted[i]
+		trialPath := getServiceTokenForCreddLocation(tokenRootPath, serviceName, trialCredd)
+
+		if _, err := os.Stat(trialPath); err == nil {
+			funcLogger.WithFields(log.Fields{
+				"credd":     trialCredd,
+				"tokenPath": trialPath,
+			}).Debug("Returning credd vault token location")
+			return trialPath, nil
+		}
+	}
+
+	// We didn't find a usable vault token at the tokenRootPath, so try /tmp for a condor vault token
+	trialPath := getCondorVaultTokenLocation(serviceName)
+	if _, err := os.Stat(trialPath); err == nil {
+		funcLogger.WithFields(log.Fields{
+			"tokenPath": trialPath,
+		}).Debug("No credd-specific vault token was found, but there was a vault token at the condor vault token location. Returning condor vault token location")
+		return trialPath, nil
+	}
+
+	return "", errors.New("could not find any vault tokens to return")
 }
