@@ -297,6 +297,9 @@ func getCondorVaultTokenLocation(serviceName string) string {
 func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() error, retErr error) {
 	funcLogger := log.WithField("service", serviceName)
 
+	// Default value for return func
+	restorePriorTokenFunc = func() error { return nil }
+
 	// Check for token at condorVaultTokenLocation, and move it out if needed
 	condorVaultTokenLocation := getCondorVaultTokenLocation(serviceName)
 	if _, err := os.Stat(condorVaultTokenLocation); !errors.Is(err, os.ErrNotExist) {
@@ -304,7 +307,7 @@ func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() er
 		previousTokenTempFile, err := os.CreateTemp(os.TempDir(), "managed_tokens_condor_vault_token")
 		if err != nil {
 			funcLogger.Debug("Could not create temp file for old token file")
-			return nil, err
+			return restorePriorTokenFunc, err
 		}
 		funcLogger.Debugf("condor vault token already exists at %s.  Moving to temp location %s", condorVaultTokenLocation, previousTokenTempFile.Name())
 		// TODO:  Think about how to test this
@@ -355,7 +358,10 @@ func stageStoredTokenFile(tokenRootPath, serviceName, credd string) error {
 		return errMoveServiceCreddToken
 	}
 
-	funcLogger.Infof("Successfully moved stored token %s into place at %s", storedServiceCreddTokenLocation, condorVaultTokenLocation)
+	funcLogger.WithFields(log.Fields{
+		"storageLocation":          storedServiceCreddTokenLocation,
+		"condorVaultTokenLocation": condorVaultTokenLocation,
+	}).Info("Successfully moved stored token into place for storage in vault and credd")
 	return nil
 }
 

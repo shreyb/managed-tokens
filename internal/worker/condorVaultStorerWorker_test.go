@@ -73,10 +73,10 @@ func TestBackupCondorVaultToken(t *testing.T) {
 	}
 
 	type testCase struct {
-		description                      string
-		setupFunc                        func() (cleanupFunc func())
-		expectedRestorePriorTokenFuncNil bool
-		expectedErrNil                   bool
+		description                       string
+		setupFunc                         func() (cleanupFunc func())
+		expectedRestorePriorTokenFuncNoop bool
+		expectedErrNil                    bool
 	}
 
 	testCases := []testCase{
@@ -111,7 +111,7 @@ func TestBackupCondorVaultToken(t *testing.T) {
 					os.Unsetenv("TMPDIR")
 				}
 			},
-			true,
+			false,
 			false,
 		},
 	}
@@ -124,8 +124,8 @@ func TestBackupCondorVaultToken(t *testing.T) {
 					t.Cleanup(cleanupFunc)
 				}
 				restorePriorTokenFunc, err := backupCondorVaultToken(service)
-				if test.expectedRestorePriorTokenFuncNil {
-					assert.Nil(t, restorePriorTokenFunc)
+				if test.expectedRestorePriorTokenFuncNoop {
+					assert.Nil(t, restorePriorTokenFunc())
 				} else {
 					if assert.NotNil(t, restorePriorTokenFunc) {
 						t.Cleanup(func() { restorePriorTokenFunc() })
