@@ -88,7 +88,7 @@ func TestBackupCondorVaultToken(t *testing.T) {
 			true,
 		},
 		{
-			"condor vault token exists prior, issue making tempfile",
+			"condor vault token exists prior, but can't be statted for some reason",
 			func() func() {
 				_, err := os.Create(condorVaultTokenLocation)
 				if err != nil {
@@ -103,6 +103,7 @@ func TestBackupCondorVaultToken(t *testing.T) {
 			true,
 			false,
 		},
+		// TODO Need to have real test where we can't make the tempfile
 	}
 
 	for _, test := range testCases {
