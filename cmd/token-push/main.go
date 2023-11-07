@@ -495,6 +495,7 @@ func run(ctx context.Context) error {
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
+			serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
 			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
 			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
 			c, err := worker.NewConfig(
@@ -506,6 +507,7 @@ func run(ctx context.Context) error {
 				),
 				worker.SetSchedds(schedds),
 				worker.SetVaultServer(vaultServer),
+				worker.SetServiceCreddVaultTokenPathRoot(serviceCreddVaultTokenPathRoot),
 				worker.SetUserPrincipal(userPrincipal),
 				worker.SetKeytabPath(keytabPath),
 				worker.SetDesiredUID(uid),

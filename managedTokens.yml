@@ -3,6 +3,7 @@ keytabPath: "/opt/managed-tokens/keytabs"
 condorCollectorHost: collectorhost.domain
 condorScheddConstraint: "my_constraint"
 vaultServer: vaultserver.domain
+serviceCreddVaultTokenPathRoot: "/var/lib/managed-tokens/service-credd-vault-tokens"
 kerberosPrincipalPattern: principal_pattern
 dbLocation: "/var/lib/managed-tokens/managed-tokens.db"
 errorCountToSendMessage: 3

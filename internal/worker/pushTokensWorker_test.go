@@ -2,10 +2,14 @@ package worker
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"os/user"
+	"path"
 	"testing"
 
 	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestSetDefaultRoleFileTemplateValueInExtras ensures that SetDefaultRoleFileTemplateValueInExtras corrently
@@ -131,5 +135,101 @@ func TestPrepareDefaultRoleFile(t *testing.T) {
 	data, _ := os.ReadFile(testFile)
 	if string(data) != "myrole\n" {
 		t.Errorf("Got wrong data in role file.  Expected \"myrole\n\", got \"%s\"", string(data))
+	}
+}
+
+func TestFindFirstCreddVaultToken(t *testing.T) {
+	tempTokenRootPath := t.TempDir()
+	serviceName := "my_service"
+	curUser, _ := user.Current()
+
+	type testCase struct {
+		description    string
+		setupFunc      func() (cleanupFunc func())
+		tokenRootPath  string
+		credds         []string
+		expectedPath   string
+		expectedErrNil bool
+	}
+
+	testCases := []testCase{
+		{
+			"If len(credds) == 0, should return error",
+			func() func() { return nil },
+			tempTokenRootPath,
+			[]string{},
+			"",
+			false,
+		},
+		{
+			"Should give /var/lib/.... location first",
+			func() func() {
+				expectedTokenFilename := fmt.Sprintf("vt_u%s-%s-%s", curUser.Uid, "a01", "my_service")
+				expectedPath := path.Join(tempTokenRootPath, expectedTokenFilename)
+				if _, err := os.Create(expectedPath); err != nil {
+					t.FailNow()
+				}
+				return nil
+			},
+			tempTokenRootPath,
+			[]string{"credd01", "credd02", "a01"},
+			path.Join(tempTokenRootPath, fmt.Sprintf("vt_u%s-%s-%s", curUser.Uid, "a01", "my_service")),
+			true,
+		},
+		{
+			"If we fail to find one at the first location, try another one",
+			func() func() {
+				expectedTokenFilename := fmt.Sprintf("vt_u%s-%s-%s", curUser.Uid, "credd01", "my_service")
+				expectedPath := path.Join(tempTokenRootPath, expectedTokenFilename)
+				if _, err := os.Create(expectedPath); err != nil {
+					t.FailNow()
+				}
+				return nil
+			},
+			tempTokenRootPath,
+			[]string{"credd01", "credd02", "a02"},
+			path.Join(tempTokenRootPath, fmt.Sprintf("vt_u%s-%s-%s", curUser.Uid, "credd01", "my_service")),
+			true,
+		},
+		{
+			"If not, should give /tmp location",
+			func() func() {
+				expectedPath := getCondorVaultTokenLocation(serviceName)
+				if _, err := os.Create(expectedPath); err != nil {
+					t.FailNow()
+				}
+				return func() { os.Remove(expectedPath) }
+			},
+			os.DevNull,
+			[]string{"credd01", "credd02", "a02"},
+			getCondorVaultTokenLocation(serviceName),
+			true,
+		},
+		{
+			"If both credds, /tmp fail, return error",
+			func() (cleanupFunc func()) { return nil },
+			os.DevNull,
+			[]string{"credd01", "credd02", "a02"},
+			"",
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				if cleanupFunc := test.setupFunc(); cleanupFunc != nil {
+					t.Cleanup(cleanupFunc)
+				}
+				result, err := findFirstCreddVaultToken(test.tokenRootPath, serviceName, test.credds)
+				assert.Equal(t, test.expectedPath, result)
+				if test.expectedErrNil {
+					assert.NoError(t, err)
+				} else {
+					assert.Error(t, err)
+				}
+			},
+		)
 	}
 }

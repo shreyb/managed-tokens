@@ -313,7 +313,16 @@ func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
 	return *vaultServerPtr, nil
 }
 
+// GetKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the directory
+// where the condorVaultStorer worker should look for and store service/credd-specific vault tokens.  If the override does not exist,
+// it uses the configuration to calculate the default path to the relevant directory
+func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
+	serviceCreddVaultTokenPathRootPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "serviceCreddVaultTokenPathRoot")
+	return viper.GetString(serviceCreddVaultTokenPathRootPath)
+}
+
 // Functions to set environment.CommandEnvironment inside worker.Config
+
 // Setkrb5ccname returns a function that sets the KRB5CCNAME directory environment variable in an environment.CommandEnvironment
 func Setkrb5ccnameInCommandEnvironment(krb5ccname string) func(*environment.CommandEnvironment) {
 	return func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) }

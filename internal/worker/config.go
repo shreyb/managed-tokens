@@ -26,9 +26,13 @@ type Config struct {
 	Nodes         []string // The destination nodes for PushTokensWorker to push copies of the vault tokens to
 	Account       string   // The user account the PushTokensWorker should use to connect to a destination node
 	KeytabPath    string   // The path on disk where the kerberos keytab is stored
-	DesiredUID    uint32   // The UID associated with the Account. This determines the destination filename
-	Schedds       []string // The list of schedds/credds where a StoreAndGetTokenWorker should store vault tokens
-	VaultServer   string   // The vault server hosting the Hashicorp Vault that the refresh token should be saved to
+	// The directory on disk where the vault tokens per credd are stored.  If this path is given, and either does not
+	// exist or does not have the relevant token, the utility will assume that the file/directory does not exist and
+	// create it
+	ServiceCreddVaultTokenPathRoot string
+	DesiredUID                     uint32   // The UID associated with the Account. This determines the destination filename
+	Schedds                        []string // The list of schedds/credds where a StoreAndGetTokenWorker should store vault tokens
+	VaultServer                    string   // The vault server hosting the Hashicorp Vault that the refresh token should be saved to
 	// Extras is a map where any value can be stored that may not fit into the above categories.
 	// To allow an external package to set an Extras value, define an exported func that sets
 	// the value directly.  For example:

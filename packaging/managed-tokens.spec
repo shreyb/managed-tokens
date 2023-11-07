@@ -78,7 +78,15 @@ test -d %{_sharedstatedir}/%{name} || {
 install -d %{_sharedstatedir}/%{name} -m 0774 -o rexbatch -g fife
 }
 
+# Directory for service-credd vault tokens at /var/lib/managed-tokens/service-credd-vault-tokens
+test -d %{_sharedstatedir}/%{name}/service-credd-vault-tokens  || {
+install -d %{_sharedstatedir}/%{name}/service-credd-vault-tokens -m 0774 -o rexbatch -g fife
+}
+
 %changelog
+* Thu Oct 26 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.11
+Added directory for service-credd vault tokens at /var/lib/managed-tokens/service-credd-vault-tokens
+
 * Mon Aug 14 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.8
 Added condor_credmon_vault as dependency
 
