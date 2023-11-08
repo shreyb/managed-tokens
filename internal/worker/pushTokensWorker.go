@@ -45,7 +45,7 @@ var (
 			"node",
 		},
 	)
-	pushFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+	pushFailureCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "failed_token_push_count",
 		Help:      "The number of times the Managed Tokens service failed to push a token to an interactive node",

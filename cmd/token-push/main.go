@@ -68,7 +68,7 @@ var (
 			"stage",
 		},
 	)
-	servicePushFailureCount = prometheus.NewCounter(prometheus.CounterOpts{
+	servicePushFailureCount = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "failed_services_push_count",
 		Help:      "The number of services for which pushing tokens failed in the last round",
@@ -656,14 +656,16 @@ func reportSuccessesAndFailures(ctx context.Context, successMap map[string]bool)
 	successes := make([]string, 0, len(successMap))
 	failures := make([]string, 0, len(successMap))
 
+	var failCount float64 = 0
 	for service, success := range successMap {
 		if success {
 			successes = append(successes, service)
 		} else {
 			failures = append(failures, service)
-			servicePushFailureCount.Inc()
+			failCount++
 		}
 	}
+	servicePushFailureCount.Set(failCount)
 
 	exeLogger.Infof("Successes: %s", strings.Join(successes, ", "))
 	exeLogger.Infof("Failures: %s", strings.Join(failures, ", "))

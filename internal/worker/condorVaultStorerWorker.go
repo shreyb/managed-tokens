@@ -42,7 +42,7 @@ var (
 			"credd",
 		},
 	)
-	storeFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+	storeFailureCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "failed_vault_token_store_count",
 		Help:      "The number of times the Managed Tokens Service failed to store a vault token in a condor credd",
