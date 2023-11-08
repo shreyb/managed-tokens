@@ -31,7 +31,7 @@ var (
 		Name:      "ferry_request_duration_seconds",
 		Help:      "The amount of time it took in seconds to make a request to FERRY and receive the response",
 	})
-	ferryRequestErrorCount = prometheus.NewCounter(prometheus.CounterOpts{
+	ferryRequestErrorCount = prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "ferry_request_error_count",
 		Help:      "The number of requests to FERRY that failed",

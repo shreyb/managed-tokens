@@ -28,7 +28,7 @@ var (
 			"node",
 		},
 	)
-	pingFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+	pingFailureCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "failed_ping_count",
 		Help:      "The number of times the Managed Tokens Service failed to ping a node",

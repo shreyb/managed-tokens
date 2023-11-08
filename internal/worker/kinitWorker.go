@@ -27,7 +27,7 @@ var (
 			"service",
 		},
 	)
-	kinitFailureCount = prometheus.NewCounterVec(prometheus.CounterOpts{
+	kinitFailureCount = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "managed_tokens",
 		Name:      "failed_kinit_count",
 		Help:      "The number of times the Managed Tokens Service failed to create a kerberos ticket from the service principal",
