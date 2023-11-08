@@ -1,5 +1,5 @@
 NAME = managed-tokens
-VERSION = v0.10.2
+VERSION = v0.11
 ROOTDIR = $(shell pwd)
 BUILD = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 rpmVersion := $(subst v,,$(VERSION))
