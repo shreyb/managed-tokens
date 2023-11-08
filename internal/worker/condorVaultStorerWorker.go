@@ -199,14 +199,16 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 				}
 			}
 
-			// Make sure we store whatever comes out of storing the vault token
+			// Make sure we store whatever comes out of storing the vault token, if that is a successful operation.
 			// Note that if this operation fails, assuming we got a condor vault token, that will
 			// stick around unless something else cleans up vault tokens.  This is actually OK, since
 			// eventually that vault token will expire, and htgettoken will determine that a new one is
 			// needed.
 			defer func() {
-				if err = storeServiceTokenForCreddFile(tokenRootPath, tokenStorer.GetServiceName(), tokenStorer.GetCredd()); err != nil {
-					funcLogger.Error("Could not store condor vault token for credd for future runs.  Please investigate")
+				if success {
+					if err = storeServiceTokenForCreddFile(tokenRootPath, tokenStorer.GetServiceName(), tokenStorer.GetCredd()); err != nil {
+						funcLogger.Error("Could not store condor vault token for credd for future runs.  Please investigate")
+					}
 				}
 			}()
 

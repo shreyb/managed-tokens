@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -272,6 +273,83 @@ func TestStoreServiceTokenForCreddFile(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestMoveFileCrossDevice(t *testing.T) {
+	// Base case
+	curUser, _ := user.Current()
+	srcFile, _ := os.CreateTemp(path.Join("/", "run", "user", curUser.Uid), "managed_tokens_test_src")
+	srcFile.WriteString("This is a test string")
+	defer srcFile.Close()
+	t.Cleanup(func() { os.Remove(srcFile.Name()) })
+
+	destDir := t.TempDir()
+	destFile, _ := os.CreateTemp(destDir, "managed_tokens_test_dest")
+	defer destFile.Close()
+
+	// Setup for source file that we can't remove after successfully copying it
+	newSrcDir := t.TempDir()
+	cantRemoveSrcFile, _ := os.CreateTemp(newSrcDir, "managed_tokens_test")
+	os.Chmod(newSrcDir, 0555)
+	os.Chmod(cantRemoveSrcFile.Name(), 0644)
+	defer os.Chmod(newSrcDir, 0755)
+
+	type testCase struct {
+		description string
+		src         string
+		dest        string
+		expectedErr error
+	}
+
+	testCases := []testCase{
+		{
+			"Base case",
+			srcFile.Name(),
+			destFile.Name(),
+			nil,
+		},
+		{
+			"Nonexistent source error",
+			"blahblah",
+			destFile.Name(),
+			&os.PathError{},
+		},
+		{
+			"Can't open file to write",
+			srcFile.Name(),
+			path.Join(os.DevNull, "blah"),
+			&os.PathError{},
+		},
+		{
+			"Not being able to remove the source file after successful copy",
+			cantRemoveSrcFile.Name(),
+			destFile.Name(),
+			errCannotRemoveFile,
+		},
+	}
+
+	var err1 *os.PathError
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				err := moveFileCrossDevice(test.src, test.dest)
+				if test.expectedErr == nil {
+					assert.NoError(t, err)
+				} else {
+					// First check if our test expected error is a placeholder for an error type
+					if errors.As(test.expectedErr, &err1) {
+						assert.ErrorAs(t, err, &err1)
+					} else {
+						// Now we see if the error matches the test result error
+						assert.ErrorIs(t, err, test.expectedErr)
+					}
+				}
+			},
+		)
+	}
+
+	// TODO Can we mock issue copying data?
 
 }
 

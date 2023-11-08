@@ -3,6 +3,7 @@ package worker
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path"
@@ -39,18 +40,29 @@ func backupCondorVaultToken(serviceName string) (restorePriorTokenFunc func() er
 		}
 		funcLogger.Debugf("condor vault token already exists at %s.  Moving to temp location %s", condorVaultTokenLocation, previousTokenTempFile.Name())
 		// TODO:  Think about how to test this
-		if err := os.Rename(condorVaultTokenLocation, previousTokenTempFile.Name()); err != nil {
+		if err := moveFileCrossDevice(condorVaultTokenLocation, previousTokenTempFile.Name()); err != nil {
+			if errors.Is(err, errCannotRemoveFile) {
+				funcLogger.Debug("Currently-existing condor vault token was backed up, but the original vault token was not removed.  Will try to force removal now.")
+				if err2 := os.Remove(condorVaultTokenLocation); err2 != nil {
+					funcLogger.Error("Could back up condor vault token, but could not clear vault token location.")
+					return restorePriorTokenFunc, err2
+				}
+			}
 			funcLogger.Error("Could not move currently-existing condor vault token to staging location")
 			return restorePriorTokenFunc, err
 		}
 		restorePriorTokenFunc = func() error {
 			// TODO:  This part is not tested.  Think about how to do that
-			if err := os.Rename(previousTokenTempFile.Name(), condorVaultTokenLocation); err != nil {
+			if err := moveFileCrossDevice(previousTokenTempFile.Name(), condorVaultTokenLocation); err != nil {
+				if errors.Is(err, errCannotRemoveFile) {
+					funcLogger.Debug("Restored previously-existing vault token, but could not delete backup copy. Will proceed")
+					return nil
+				}
 				// Create location in os.TempDir() that is stamped for possible later retrieval
 				now := time.Now().Format(time.RFC3339)
 				finalBackupLocation := path.Join(os.TempDir(), fmt.Sprintf("managed_tokens_vt_bak-%s-%s", serviceName, now))
 				funcLogger.Errorf("Could not move previous token back to condor vault location.  Attempting to save it to %s", finalBackupLocation)
-				if err := os.Rename(previousTokenTempFile.Name(), finalBackupLocation); err != nil {
+				if err := moveFileCrossDevice(previousTokenTempFile.Name(), finalBackupLocation); err != nil {
 					funcLogger.Errorf("Could not restore previously-existing vault token.  Will not delete backup copy made at %s", previousTokenTempFile.Name())
 				}
 				return errors.New("could not restore previous token")
@@ -79,7 +91,14 @@ func stageStoredTokenFile(tokenRootPath, serviceName, credd string) error {
 		return errNoServiceCreddToken
 	}
 
-	if err := os.Rename(storedServiceCreddTokenLocation, condorVaultTokenLocation); err != nil {
+	if err := moveFileCrossDevice(storedServiceCreddTokenLocation, condorVaultTokenLocation); err != nil {
+		if errors.Is(err, errCannotRemoveFile) {
+			funcLogger.WithFields(log.Fields{
+				"storageLocation":          storedServiceCreddTokenLocation,
+				"condorVaultTokenLocation": condorVaultTokenLocation,
+			}).Warn("Was able to move stored service-credd vault token into place, but old stored copy was left behind.  It may be overwritten later on")
+			return nil
+		}
 		funcLogger.Error("Could not move stored service-credd vault token into place.  Will attempt to remove file at condor vault token location to ensure that a fresh one is generated.")
 		if err2 := os.Remove(condorVaultTokenLocation); err2 != nil {
 			funcLogger.Error("Could not remove condor vault token after failure to move stored service-credd vault token into place.  Please investigate")
@@ -106,8 +125,14 @@ func storeServiceTokenForCreddFile(tokenRootPath, serviceName, credd string) err
 	storedServiceCreddTokenLocation := getServiceTokenForCreddLocation(tokenRootPath, serviceName, credd)
 
 	funcLogger.Debug("Attempting to move condor vault token to service-credd vault token storage path")
-	err := os.Rename(condorVaultTokenLocation, storedServiceCreddTokenLocation)
-	if err != nil {
+	if err := moveFileCrossDevice(condorVaultTokenLocation, storedServiceCreddTokenLocation); err != nil {
+		if errors.Is(err, errCannotRemoveFile) {
+			funcLogger.Warnf("Successfully copied condor vault token to service-credd vault storage path at %s but copy at condor vault token location was left behind.  Will try to force removal of condor vault token", storedServiceCreddTokenLocation)
+			if err2 := os.Remove(condorVaultTokenLocation); err2 != nil {
+				funcLogger.Error("Could not force removal of condor vault token.")
+				return err
+			}
+		}
 		funcLogger.Errorf("Could not move condor vault token to service-credd vault storage path: %s", err)
 		return err
 	}
@@ -148,7 +173,39 @@ func getServiceTokenForCreddLocation(tokenRootPath, serviceName, credd string) s
 	return path.Join(tokenRootPath, tokenFilename)
 }
 
+// moveFileCrossDevice will move a file from the src location to the dst location, including across device boundaries
+func moveFileCrossDevice(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		log.WithField("filename", src).Error("Could not open file for reading")
+		return err
+	}
+	defer srcFile.Close()
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		log.WithField("filename", dst).Error("Could not open file for writing")
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err = io.Copy(dstFile, srcFile); err != nil {
+		log.WithFields(log.Fields{
+			"source":      src,
+			"destination": dst,
+		}).Error("Could not write source data to destination")
+		return err
+	}
+
+	if err = os.Remove(src); err != nil {
+		log.WithField("filename", src).Error("Could not remove source file")
+		return errCannotRemoveFile
+	}
+
+	return nil
+}
+
 var (
 	errNoServiceCreddToken   = errors.New("no prior service credd token exists")
 	errMoveServiceCreddToken = errors.New("could not move service credd token into place")
+	errCannotRemoveFile      = errors.New("could not remove file")
 )
