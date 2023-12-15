@@ -2,6 +2,7 @@
 #
 ## token-push log
 #/var/log/managed-tokens/token-push.log {
+#    su USERCHANGEME GROUPCHANGEME
 #    weekly
 #    rotate 5
 #    dateext
@@ -12,6 +13,7 @@
 #
 ## token-push debug log
 #/var/log/managed-tokens/token-push.debug.log {
+#    su USERCHANGEME GROUPCHANGEME
 #    weekly
 #    rotate 2
 #    dateext
@@ -22,6 +24,7 @@
 #
 ## refresh-uids-from-ferry log
 #/var/log/managed-tokens/refresh-uids-from-ferry.log {
+#    su USERCHANGEME GROUPCHANGEME
 #    monthly
 #    rotate 5
 #    dateext
@@ -32,6 +35,7 @@
 #
 ## refresh-uids-from-ferry debug log
 #/var/log/managed-tokens/refresh-uids-from-ferry.debug.log {
+#    su USERCHANGEME GROUPCHANGEME
 #    monthly
 #    rotate 2
 #    dateext
