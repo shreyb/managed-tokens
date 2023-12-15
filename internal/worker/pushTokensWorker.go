@@ -350,20 +350,6 @@ func parseDefaultRoleFileDestinationTemplateFromConfig(c *Config) (string, error
 	}
 	return b.String(), nil
 }
-
-// GetFileCopierOptionsFromExtras retrieves the file copier options value from the worker.Config,
-// and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
-// passes, for example:
-//
-//	c := worker.NewConfig( // various options )
-//	// set the default role file template in here
-//	opts, ok := GetFileCopierOptionsFromExtras(c)
-//	if !ok { // handle missing or incorrect value }
-func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
-	fileCopierOptions, ok := c.Extras[FileCopierOptions].(string)
-	return fileCopierOptions, ok
-}
-
 // prepareDefaultRoleFile prepares the role file for the given service config
 func prepareDefaultRoleFile(sc *Config) (string, error) {
 	serviceLogger := log.WithFields(log.Fields{

@@ -3,6 +3,8 @@ package worker
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/shreyb/managed-tokens/internal/service"
 )
 
@@ -33,13 +35,14 @@ func TestSetVaultTokenStoreHoldoff(t *testing.T) {
 
 func TestGetDefaultRoleFileDestinationTemplateValueFromExtras(t *testing.T) {
 	config, _ := NewConfig(service.NewService("test_service"), SetSupportedExtrasKeyValue(DefaultRoleFileDestinationTemplate, "foobar"))
-	val, ok := config.Extras[DefaultRoleFileDestinationTemplate]
-	if !ok {
-		t.Error("DefaultRoleFileDestinationTemplate assignment not made:  Key not present in Extras map")
-	}
-	if valString, ok := val.(string); !ok {
-		t.Error("Stored value failed type check")
-	} else if valString != "foobar" {
-		t.Errorf("Stored value should be foobar.  Got %s instead", valString)
-	}
+	val, ok := GetDefaultRoleFileDestinationTemplateValueFromExtras(config)
+	assert.True(t, ok)
+	assert.Equal(t, "foobar", val)
+}
+
+func TestGetFileCopierOptionsFromExtras(t *testing.T) {
+	config, _ := NewConfig(service.NewService("test_service"), SetSupportedExtrasKeyValue(FileCopierOptions, "--testopts --moretestopts"))
+	val, ok := GetFileCopierOptionsFromExtras(config)
+	assert.True(t, ok)
+	assert.Equal(t, "--testopts --moretestopts", val)
 }
