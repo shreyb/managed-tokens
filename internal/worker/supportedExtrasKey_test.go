@@ -41,8 +41,45 @@ func TestGetDefaultRoleFileDestinationTemplateValueFromExtras(t *testing.T) {
 }
 
 func TestGetFileCopierOptionsFromExtras(t *testing.T) {
-	config, _ := NewConfig(service.NewService("test_service"), SetSupportedExtrasKeyValue(FileCopierOptions, "--testopts --moretestopts"))
-	val, ok := GetFileCopierOptionsFromExtras(config)
-	assert.True(t, ok)
-	assert.Equal(t, "--testopts --moretestopts", val)
+	testService := service.NewService("test_service")
+
+	type testCase struct {
+		description   string
+		setKeyValFunc func(*Config) error
+		expectedOpts  string
+		expectedOk    bool
+	}
+
+	testCases := []testCase{
+		{
+			"Default case",
+			func(c *Config) error { return nil },
+			defaultFileCopierOpts,
+			true,
+		},
+		{
+			"Valid opts stored",
+			SetSupportedExtrasKeyValue(FileCopierOptions, "thisisvalid --opts"),
+			"thisisvalid --opts",
+			true,
+		},
+		{
+			"Invalid opts stored - wrong type",
+			SetSupportedExtrasKeyValue(FileCopierOptions, 12345),
+			"",
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				config, _ := NewConfig(testService, test.setKeyValFunc)
+				val, ok := GetFileCopierOptionsFromExtras(config)
+				assert.Equal(t, test.expectedOpts, val)
+				assert.Equal(t, test.expectedOk, ok)
+			},
+		)
+	}
 }
