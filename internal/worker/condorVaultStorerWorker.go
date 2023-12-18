@@ -176,6 +176,13 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			})
 			start := time.Now()
 
+			// Before we stage any prior vault token, check to make sure our context hasn't already been canceled
+			if ctx.Err() != nil {
+				funcLogger.Error("context was canceled or the deadline exceeded before token vault staging.  Will not attempt to stage a stored token file or store vault token")
+				success = false
+				return
+			}
+
 			// Stage prior vault token, if it exists
 			restorePriorTokenFunc, err := backupCondorVaultToken(tokenStorer.GetServiceName())
 			if err != nil {
@@ -211,6 +218,13 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 					}
 				}
 			}()
+
+			// Last context check again here:  before we store vault token, check to make sure our context hasn't already been canceled
+			if ctx.Err() != nil {
+				funcLogger.Error("context was canceled or the deadline exceeded before token vault storage.  Will not attempt to store vault token")
+				success = false
+				return
+			}
 
 			// Store vault token on credd
 			err = vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
