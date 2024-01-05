@@ -25,8 +25,9 @@ import (
 	"os"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/shreyb/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 // Much thanks to K. Retzke - a lot of the boilerplate DB code is adapted from his fifemail application

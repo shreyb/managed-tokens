@@ -25,8 +25,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 // unPingableNodes holds the set of nodes that do not respond to a ping request

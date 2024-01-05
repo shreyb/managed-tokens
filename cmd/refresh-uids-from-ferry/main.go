@@ -33,11 +33,11 @@ import (
 	"github.com/spf13/viper"
 	"github.com/yukitsune/lokirus"
 
-	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/metrics"
-	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/db"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var (

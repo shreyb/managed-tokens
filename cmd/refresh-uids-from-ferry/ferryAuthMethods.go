@@ -29,8 +29,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/vaultToken"
-	"github.com/shreyb/managed-tokens/internal/worker"
+	"github.com/fermitools/managed-tokens/internal/vaultToken"
+	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
 // Supported FERRY Authentication methods

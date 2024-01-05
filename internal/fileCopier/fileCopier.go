@@ -25,8 +25,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var fileCopierExecutables map[string]string = map[string]string{

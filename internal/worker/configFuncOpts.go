@@ -16,7 +16,7 @@
 package worker
 
 import (
-	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/environment"
 )
 
 // SetCommandEnvironment is a helper func that takes a variadic of func(*environment.CommandEnvironment) and returns a func(*Config) that sets

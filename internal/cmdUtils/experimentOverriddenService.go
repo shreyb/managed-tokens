@@ -18,7 +18,7 @@ package cmdUtils
 import (
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 // ExperimentOverriddenService is a service where the experiment is overridden.  We want to monitor/act on the config key, but use

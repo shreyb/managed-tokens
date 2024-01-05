@@ -27,7 +27,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 // TestGetAllServices checks that GetAllServices correctly retrieves services from the ManagedTokensDatabase

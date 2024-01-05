@@ -20,7 +20,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 // TestKerberosEnvironmentWrappedCommand makes sure that KerberosEnvironmentWrappedCommand

@@ -25,7 +25,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var (

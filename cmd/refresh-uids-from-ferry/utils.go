@@ -28,13 +28,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/kerberos"
-	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
-	"github.com/shreyb/managed-tokens/internal/utils"
-	"github.com/shreyb/managed-tokens/internal/worker"
+	"github.com/fermitools/managed-tokens/internal/db"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/kerberos"
+	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
 // setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors

@@ -21,10 +21,11 @@ import (
 	"errors"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/metrics"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/fermitools/managed-tokens/internal/db"
+	"github.com/fermitools/managed-tokens/internal/metrics"
 )
 
 var (

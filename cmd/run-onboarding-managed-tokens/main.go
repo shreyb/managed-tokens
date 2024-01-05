@@ -29,12 +29,12 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/cmdUtils"
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/service"
-	"github.com/shreyb/managed-tokens/internal/utils"
-	"github.com/shreyb/managed-tokens/internal/vaultToken"
-	"github.com/shreyb/managed-tokens/internal/worker"
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/vaultToken"
+	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
 var (

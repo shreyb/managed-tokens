@@ -24,11 +24,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/internal/kerberos"
-	"github.com/shreyb/managed-tokens/internal/metrics"
-	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/kerberos"
+	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var (

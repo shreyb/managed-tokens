@@ -25,7 +25,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 // TestInsertUidsIntoTableFromFERRY checks that we can insert FERRY data into the ManagedTokensDatabase correctly

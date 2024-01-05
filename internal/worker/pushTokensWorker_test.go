@@ -23,7 +23,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/stretchr/testify/assert"
 )
 

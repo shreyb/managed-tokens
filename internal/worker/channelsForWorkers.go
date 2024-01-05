@@ -16,8 +16,8 @@
 package worker
 
 import (
-	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 // ChannelsForWorkers provides an interface to types that bundle a chan *Config, chan SuccessReporter, and chan notifications.Notification

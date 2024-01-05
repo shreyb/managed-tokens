@@ -21,7 +21,8 @@ import (
 	"testing"
 
 	"github.com/olekukonko/tablewriter"
-	"github.com/shreyb/managed-tokens/internal/utils"
+
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 // TestPrepareTableStringFromMap checks that PrepareTableStringFromMap properly translates a map into a table

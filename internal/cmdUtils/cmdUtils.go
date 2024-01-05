@@ -33,7 +33,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/environment"
 )
 
 var (

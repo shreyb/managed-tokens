@@ -20,7 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 func TestGetVaultTokenStoreHoldoff(t *testing.T) {

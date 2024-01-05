@@ -21,8 +21,8 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/cmdUtils"
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 // TestGetServiceName checks that GetServiceName properly returns the name of the

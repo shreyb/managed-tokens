@@ -18,7 +18,7 @@ package cmdUtils
 import (
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 func TestStoreSchedds(t *testing.T) {

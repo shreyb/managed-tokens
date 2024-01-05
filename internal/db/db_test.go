@@ -28,7 +28,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 // TestOpenOrCreateDatabase checks that we can create and reopen a new ManagedTokensDatabase

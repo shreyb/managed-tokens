@@ -22,10 +22,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/cmdUtils"
-	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/service"
-	"github.com/shreyb/managed-tokens/internal/worker"
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
+	"github.com/fermitools/managed-tokens/internal/db"
+	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
 // Functional option helpers for worker.Config initialization

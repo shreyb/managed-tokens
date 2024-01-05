@@ -23,10 +23,10 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/cmdUtils"
-	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/notifications"
-	"github.com/shreyb/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
+	"github.com/fermitools/managed-tokens/internal/db"
+	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 // General outline of how this works:

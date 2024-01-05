@@ -27,7 +27,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/shreyb/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/environment"
 )
 
 // Borrowed from hashicorp's vault API, since we ONLY need this func

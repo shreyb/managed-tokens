@@ -24,8 +24,8 @@ import (
 	"regexp"
 	"text/template"
 
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
 )
 

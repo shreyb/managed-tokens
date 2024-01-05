@@ -20,8 +20,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/service"
-	testUtils "github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/service"
+	testUtils "github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 type badFunctionalOptError struct {

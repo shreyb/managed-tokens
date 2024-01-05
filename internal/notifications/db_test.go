@@ -26,8 +26,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/db"
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/db"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 // TestSetErrorCountsByServiceNilDBCase checks that if we have a nil ManagedTokensDatabase, that setErrorCountsByService returns a nil

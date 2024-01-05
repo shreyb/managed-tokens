@@ -23,8 +23,8 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/service"
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 func TestInitServices(t *testing.T) {

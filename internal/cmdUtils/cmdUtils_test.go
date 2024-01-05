@@ -25,7 +25,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/shreyb/managed-tokens/internal/testUtils"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 // Helper funcs

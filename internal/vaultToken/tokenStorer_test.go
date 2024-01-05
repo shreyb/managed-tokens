@@ -23,8 +23,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/shreyb/managed-tokens/internal/environment"
-	"github.com/shreyb/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 type MockTokenStorer struct {
