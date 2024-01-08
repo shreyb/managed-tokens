@@ -182,7 +182,11 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 		return
 	}
 
-	tableString := aggregateServicePushErrors(serviceErrorsTable)
+	tableString := PrepareTableStringFromMap(
+		serviceErrorsTable,
+		"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
+		[]string{"Node", "Error"},
+	)
 	msg, err := prepareServiceEmail(ctx, tableString, em.Email)
 	if err != nil {
 		funcLogger.Error("Error preparing service email for sending")
