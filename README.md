@@ -1,6 +1,6 @@
-[![Go Report Card](https://goreportcard.com/badge/github.com/shreyb/managed-tokens)](https://goreportcard.com/report/github.com/shreyb/managed-tokens)
-![Go build and test](https://github.com/shreyb/managed-tokens/actions/workflows/go.yml/badge.svg)
-[![PkgGoDev](https://pkg.go.dev/badge/github.com/shreyb/managed-tokens)](https://pkg.go.dev/github.com/shreyb/managed-tokens)
+[![Go Report Card](https://goreportcard.com/badge/github.com/fermitools/managed-tokens)](https://goreportcard.com/report/github.com/fermitools/managed-tokens)
+![Go build and test](https://github.com/fermitools/managed-tokens/actions/workflows/go.yml/badge.svg)
+[![PkgGoDev](https://pkg.go.dev/badge/github.com/fermitools/managed-tokens)](https://pkg.go.dev/github.com/fermitools/managed-tokens)
 
 
 # managed-tokens

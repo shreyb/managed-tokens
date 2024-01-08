@@ -56,12 +56,4 @@ For all TODOs that are more general
 					* condorCreddHostOverride
 					* condorCollectorHostOverride
 		* Build procedure
-	* FIFE
-		* General tokens overview
-		* What tokens go where
-		* What users should expect from managed tokens
-	* Internal DCS wiki (for operators)
-		* Deployment
-		* Configuration on FIFE hardware
-* Get a license for this repo
 * Remove this file from repo.  From this point on, all TODOs should be issues in the github repo

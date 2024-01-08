@@ -1,4 +1,4 @@
-module github.com/shreyb/managed-tokens
+module github.com/fermitools/managed-tokens
 
 go 1.21
 
