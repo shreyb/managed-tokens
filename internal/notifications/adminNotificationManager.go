@@ -17,6 +17,7 @@ package notifications
 
 import (
 	"context"
+	"sync"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	log "github.com/sirupsen/logrus"
@@ -39,6 +40,8 @@ type AdminNotificationManager struct {
 	// all processing.  This should only be set to false if there are no other possible database writers (like ServiceEmailManager), to avoid double-counting
 	// of errors
 	DatabaseReadOnly bool
+	//notificationSourceWg is a waitgroup that keeps track of how many registered notificationSources are sending notifications to this AdminNotificationManager
+	notificationSourceWg sync.WaitGroup
 }
 
 // AdminNotificationManagerOption is a functional option that should be used as an argument to NewAdminNotificationManager to set various fields
@@ -81,9 +84,9 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	}
 	a.TrackErrorCounts = shouldTrackErrorCounts
 
-	adminChan := make(chan Notification)                             // Channel to send notifications to aggregator
-	startAdminErrorAdder(adminChan)                                  // Start admin errors aggregator concurrently
-	runAdminNotificationHandler(ctx, a, adminChan, allServiceCounts) // Start admin notification handler concurrently
+	adminErrorChan := make(chan Notification)                             // Channel to send notifications to aggregator
+	startAdminErrorAdder(adminErrorChan)                                  // Start admin errors aggregator concurrently
+	runAdminNotificationHandler(ctx, a, adminErrorChan, allServiceCounts) // Start admin notification handler concurrently
 
 	return a
 }
@@ -126,9 +129,46 @@ func getAllErrorCountsFromDatabase(ctx context.Context, services []string, datab
 	return allServiceCounts, true
 }
 
-// startAdminErrorAdder is the function that most callers should use to send errors to the admin message handlers.  It allows the caller
-// to specify a channel, adminChan, to send Notifications on.  These Notifications are forwarded to the admin message handlers and
-// sorted appropriately.  Callers should
+// registerNotificationSource will return a channel on which callers can send Notifications.  It also spins up a listener goroutine that forwards
+// these Notifications to the AdminNotificationManager's ReceiveChan as long as the context is alive
+func (a *AdminNotificationManager) registerNotificationSource(ctx context.Context) chan<- Notification {
+	c := make(chan Notification)
+	a.notificationSourceWg.Add(1)
+	go func() {
+		defer a.notificationSourceWg.Done()
+		for n := range c {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				a.ReceiveChan <- n
+			}
+		}
+	}()
+	return c
+}
+
+// RequestToCloseReceiveChan will wait until either all notificationSources have finished sending Notifications, or until the context expires.
+// If the former happens, then the AdminNotificationsManager's ReceiveChan will be closed.  Otherwise, the function will return without closing
+// the channel (allowing the program to exit without sending notifications)
+func (a *AdminNotificationManager) RequestToCloseReceiveChan(ctx context.Context) {
+	c := make(chan struct{})
+	go func() {
+		a.notificationSourceWg.Wait()
+		close(c)
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c:
+			close(a.ReceiveChan)
+		}
+	}
+}
+
+// startAdminErrorAdder is the function that callers should use to send errors to be aggregated at the notifications package level.
+// It allows the caller to specify a channel, adminChan, to send Notifications on.  These errors are added to the global variable adminErrors
 func startAdminErrorAdder(adminChan <-chan Notification) {
 	adminErrors.writerCount.Add(1)
 	go func() {

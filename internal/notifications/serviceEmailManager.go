@@ -56,10 +56,11 @@ func init() {
 // ServiceEmailManager contains all the information needed to receive Notifications for services and ensure they get sent in the
 // correct email
 type ServiceEmailManager struct {
-	ReceiveChan         chan Notification
-	Service             string
-	Email               *email
-	Database            *db.ManagedTokensDatabase
+	ReceiveChan chan Notification
+	Service     string
+	Email       *email
+	Database    *db.ManagedTokensDatabase
+	*AdminNotificationManager
 	NotificationMinimum int
 	wg                  *sync.WaitGroup
 	trackErrorCounts    bool
@@ -88,6 +89,19 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		}
 	}
 
+	// TODO add func opt to token-push to be setting AdminNotificationManager
+	if em.AdminNotificationManager == nil {
+		funcOpts := make([]AdminNotificationManagerOption, 0)
+		if em.Database != nil {
+			setDB := func(a *AdminNotificationManager) error {
+				a.Database = em.Database
+				return nil
+			}
+			funcOpts = append(funcOpts, setDB)
+		}
+		em.AdminNotificationManager = NewAdminNotificationManager(ctx, funcOpts...)
+	}
+
 	shouldTrackErrorCounts := true
 	ec, err := setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
 	if err != nil {
@@ -96,8 +110,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	}
 	em.trackErrorCounts = shouldTrackErrorCounts
 
-	adminChan := make(chan Notification)
-	startAdminErrorAdder(adminChan)
+	adminChan := em.AdminNotificationManager.registerNotificationSource(ctx)
 	runServiceNotificationHandler(ctx, em, adminChan, ec)
 
 	return em
