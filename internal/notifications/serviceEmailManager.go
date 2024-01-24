@@ -62,6 +62,7 @@ type ServiceEmailManager struct {
 	Database            *db.ManagedTokensDatabase
 	NotificationMinimum int
 	wg                  *sync.WaitGroup
+	trackErrorCounts    bool
 }
 
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
@@ -93,17 +94,18 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		funcLogger.Error("Error setting error counts.  Will not track errors.")
 		shouldTrackErrorCounts = false
 	}
+	em.trackErrorCounts = shouldTrackErrorCounts
 
 	adminChan := make(chan Notification)
 	startAdminErrorAdder(adminChan)
-	runServiceNotificationHandler(ctx, em, adminChan, ec, shouldTrackErrorCounts)
+	runServiceNotificationHandler(ctx, em, adminChan, ec)
 
 	return em
 }
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
-func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan<- Notification, ec *serviceErrorCounts, shouldTrackErrorCounts bool) {
+func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan<- Notification, ec *serviceErrorCounts) {
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.runServiceNotificationHandler",
 		"service": em.Service,
@@ -127,7 +129,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 			case n, chanOpen := <-em.ReceiveChan:
 				// Channel is closed --> save errors to database and send notifications
 				if !chanOpen {
-					if shouldTrackErrorCounts {
+					if em.trackErrorCounts {
 						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
 							funcLogger.Error("Error saving new error counts in database.  Please investigate")
 						}
@@ -139,7 +141,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				// Channel is open: direct the message as needed
 				funcLogger.WithField("message", n.GetMessage()).Debug("Received notification message")
 				shouldSend := true
-				if shouldTrackErrorCounts {
+				if em.trackErrorCounts {
 					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, ec, em.NotificationMinimum)
 					if !shouldSend {
 						log.WithField("service", n.GetService()).Debug("Error count less than error limit.  Not sending notification")

@@ -62,8 +62,7 @@ func init() {
 
 // runAdminNotificationHandler handles the routing and counting of errors that result from a
 // Notification being sent on the AdminNotificationManager's ReceiveChan
-// TODO:  Get rid of shouldTrackErrorCounts.  WE should be looking at a.TrackErrorCounts instead
-func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, adminChan chan<- Notification, allServiceCounts map[string]*serviceErrorCounts, shouldTrackErrorCounts bool) {
+func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, adminChan chan<- Notification, allServiceCounts map[string]*serviceErrorCounts) {
 	funcLogger := log.WithField("caller", "runAdminNotificationHandler")
 
 	go func() {
@@ -82,7 +81,7 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 				// Channel is closed --> send notifications
 				if !chanOpen {
 					// Only save error counts if we expect no other NotificationsManagers (like ServiceEmailManager) to write to the database
-					if shouldTrackErrorCounts && !a.DatabaseReadOnly {
+					if a.TrackErrorCounts && !a.DatabaseReadOnly {
 						for service, ec := range allServiceCounts {
 							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
 								funcLogger.WithField("service", n.GetService()).Error("Error saving new error counts in database.  Please investigate")
@@ -93,7 +92,7 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 				} else {
 					// Send notification to admin message aggregator
 					shouldSend := true
-					if shouldTrackErrorCounts {
+					if a.TrackErrorCounts {
 						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
 						if !shouldSend {
 							funcLogger.Debug("Error count less than error limit.  Not sending notification.")

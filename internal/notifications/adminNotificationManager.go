@@ -74,16 +74,16 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	}
 
 	// Get our previous error information for this service
-	// TODO shouldTrackErrorCounts is redundant.  We should just adjust the value of a.TrackErrorCounts based on these decisions
 	var allServiceCounts map[string]*serviceErrorCounts
 	shouldTrackErrorCounts, servicesToTrackErrorCounts := determineIfShouldTrackErrorCounts(ctx, a)
 	if shouldTrackErrorCounts {
 		allServiceCounts, shouldTrackErrorCounts = getAllErrorCountsFromDatabase(ctx, servicesToTrackErrorCounts, a.Database)
 	}
+	a.TrackErrorCounts = shouldTrackErrorCounts
 
-	adminChan := make(chan Notification)                                                     // Channel to send notifications to aggregator
-	startAdminErrorAdder(adminChan)                                                          // Start admin errors aggregator concurrently
-	runAdminNotificationHandler(ctx, a, adminChan, allServiceCounts, shouldTrackErrorCounts) // Start admin notification handler concurrently
+	adminChan := make(chan Notification)                             // Channel to send notifications to aggregator
+	startAdminErrorAdder(adminChan)                                  // Start admin errors aggregator concurrently
+	runAdminNotificationHandler(ctx, a, adminChan, allServiceCounts) // Start admin notification handler concurrently
 
 	return a
 }
