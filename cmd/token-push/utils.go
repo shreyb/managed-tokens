@@ -85,7 +85,6 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 	err := notifications.SendAdminNotifications(
 		ctx,
 		currentExecutable,
-		viper.GetString("templates.adminerrors"),
 		viper.GetBool("test"),
 		(*adminNotificationsPtr)...,
 	)

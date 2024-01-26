@@ -302,7 +302,6 @@ func run(ctx context.Context) error {
 		err := notifications.SendAdminNotifications(
 			ctx,
 			currentExecutable,
-			viper.GetString("templates.adminerrors"),
 			viper.GetBool("test"),
 			(*adminNotificationsPtr)...,
 		)

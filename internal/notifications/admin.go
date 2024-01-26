@@ -110,7 +110,7 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file
 // configured at adminTemplatePath
-func SendAdminNotifications(ctx context.Context, operation string, adminTemplatePath string, isTest bool, sendMessagers ...SendMessager) error {
+func SendAdminNotifications(ctx context.Context, operation string, isTest bool, sendMessagers ...SendMessager) error {
 	funcLogger := log.WithField("caller", "notifications.SendAdminNotifications")
 
 	// Let all adminErrors writers finish updating adminErrors
