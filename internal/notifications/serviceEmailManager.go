@@ -25,7 +25,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 )
 
@@ -59,7 +58,8 @@ type ServiceEmailManager struct {
 	ReceiveChan chan Notification
 	Service     string
 	Email       *email
-	Database    *db.ManagedTokensDatabase
+	// AdminNotificationsManager is a pointer to an AdminNotificationManager that carries with it, among other things, the db.ManagedTokensDatabase
+	// that the ServiceEmailManager should read from and write to
 	*AdminNotificationManager
 	NotificationMinimum int
 	wg                  *sync.WaitGroup
@@ -89,7 +89,6 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		}
 	}
 
-	// TODO add func opt to token-push to be setting AdminNotificationManager
 	if em.AdminNotificationManager == nil {
 		funcOpts := make([]AdminNotificationManagerOption, 0)
 		if em.Database != nil {

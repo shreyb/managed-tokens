@@ -150,7 +150,8 @@ func (a *AdminNotificationManager) registerNotificationSource(ctx context.Contex
 
 // RequestToCloseReceiveChan will wait until either all notificationSources have finished sending Notifications, or until the context expires.
 // If the former happens, then the AdminNotificationsManager's ReceiveChan will be closed.  Otherwise, the function will return without closing
-// the channel (allowing the program to exit without sending notifications)
+// the channel (allowing the program to exit without sending notifications).  In the case of multiple goroutines sending notifications to
+// the AdminNotificationManager, this method is how the ReceiveChan should be closed.
 func (a *AdminNotificationManager) RequestToCloseReceiveChan(ctx context.Context) {
 	c := make(chan struct{})
 	go func() {

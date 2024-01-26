@@ -379,35 +379,15 @@ func run(ctx context.Context) error {
 	var setupWg sync.WaitGroup                  // WaitGroup to keep track of concurrent setup actions
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
 
-	sendAdminNotifications := func(adminNotificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
-		handleNotificationsFinalization()
-		close(adminNotificationsChan)
-		err := notifications.SendAdminNotifications(
-			ctx,
-			currentExecutable,
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			(*adminNotificationsPtr)...,
-		)
-		if err != nil {
-			// We don't want to halt execution at this point
-			exeLogger.Error("Error sending admin notifications")
-		}
-		return err
-	}
-
 	database, databaseErr := openDatabaseAndLoadServices()
 
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
-	adminNotifications, adminNotificationsChan := setupAdminNotifications(ctx, database)
+	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
 	if databaseErr != nil {
-		adminNotificationsChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+		admNotMgr.ReceiveChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
 	} else {
 		defer database.Close()
 	}
-
-	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-	defer sendAdminNotifications(adminNotificationsChan, &adminNotifications)
 
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
@@ -424,6 +404,8 @@ func run(ctx context.Context) error {
 				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
+		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+		sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
@@ -537,7 +519,7 @@ func run(ctx context.Context) error {
 				return
 			}
 			collectServiceConfigs <- c
-			registerServiceNotificationsChan(ctx, s, database)
+			registerServiceNotificationsChan(ctx, s, admNotMgr)
 		}(s)
 	}
 	serviceConfigSetupWg.Wait()

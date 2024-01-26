@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
@@ -31,7 +32,9 @@ import (
 )
 
 // Prep admin notifications
-func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) ([]notifications.SendMessager, chan notifications.Notification) {
+// setupAdminNotifications prepares and returns the notifications.AdminNotificationManager that the various workers will eventually send their notifications to.
+// It also returns a slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (*notifications.AdminNotificationManager, []notifications.SendMessager) {
 	var adminNotifications []notifications.SendMessager
 	var prefix string
 	if viper.GetBool("test") {
@@ -67,8 +70,30 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 		funcOpts = append(funcOpts, setDB)
 	}
 
-	adminNotificationReceiveChan := notifications.NewAdminNotificationManager(ctx, funcOpts...).ReceiveChan
-	return adminNotifications, adminNotificationReceiveChan
+	a := notifications.NewAdminNotificationManager(ctx, funcOpts...)
+	return a, adminNotifications
+}
+
+func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificationManager, adminNotificationsPtr *[]notifications.SendMessager) error {
+	funcLogger := log.WithFields(log.Fields{
+		"executable": currentExecutable,
+		"func":       "sendAdminNotifications",
+	})
+	handleNotificationsFinalization()
+	a.RequestToCloseReceiveChan(ctx)
+
+	err := notifications.SendAdminNotifications(
+		ctx,
+		currentExecutable,
+		viper.GetString("templates.adminerrors"),
+		viper.GetBool("test"),
+		(*adminNotificationsPtr)...,
+	)
+	if err != nil {
+		// We don't want to halt execution at this point
+		funcLogger.Error("Error sending admin notifications")
+	}
+	return err
 }
 
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs

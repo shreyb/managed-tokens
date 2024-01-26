@@ -24,7 +24,6 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
-	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
 )
@@ -57,7 +56,7 @@ var notificationsFromWorkersChan = make(chan notifications.Notification) // Glob
 // registerServiceNotificationsChan starts up a new notifications.ServiceEmailManager for a service and registers that ServiceEmailManager's
 // notifications channel to the service name.  This registration is stored in the serviceNotificationChanMap.  It also increments a waitgroup
 // so the caller can keep track of how many ServiceEmailManagers have been opened.
-func registerServiceNotificationsChan(ctx context.Context, s service.Service, database *db.ManagedTokensDatabase) {
+func registerServiceNotificationsChan(ctx context.Context, s service.Service, a *notifications.AdminNotificationManager) {
 	serviceName := cmdUtils.GetServiceName(s)
 
 	timestamp := time.Now().Format(time.RFC822)
@@ -82,12 +81,12 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, da
 	}
 	funcOpts = append(funcOpts, setNotificationMinimum, setEmail)
 
-	if database != nil {
-		setDB := func(em *notifications.ServiceEmailManager) error {
-			em.Database = database
+	if a != nil {
+		setAdminNotificationManager := func(em *notifications.ServiceEmailManager) error {
+			em.AdminNotificationManager = a
 			return nil
 		}
-		funcOpts = append(funcOpts, setDB)
+		funcOpts = append(funcOpts, setAdminNotificationManager)
 	}
 
 	m := notifications.NewServiceEmailManager(ctx, &serviceEmailManagersWg, serviceName, e, funcOpts...) // Start our ServiceEmailManager
