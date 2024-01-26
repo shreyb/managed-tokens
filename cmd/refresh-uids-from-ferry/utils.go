@@ -38,7 +38,8 @@ import (
 )
 
 // setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors
-func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (adminNotifications []notifications.SendMessager, notificationsChan chan notifications.Notification) {
+// It also returns a slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (a *notifications.AdminNotificationManager, adminNotifications []notifications.SendMessager) {
 	// Send admin notifications at end of run
 	var prefix string
 	if viper.GetBool("test") {
@@ -80,8 +81,23 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 		funcOpts = append(funcOpts, setDB, writeableDatabase)
 	}
 
-	notificationsChan = notifications.NewAdminNotificationManager(ctx, funcOpts...).ReceiveChan // Listen for messages from run
-	return adminNotifications, notificationsChan
+	a = notifications.NewAdminNotificationManager(ctx, funcOpts...)
+	return a, adminNotifications
+}
+
+func sendAdminNotifications(ctx context.Context, notificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+	close(notificationsChan)
+	err := notifications.SendAdminNotifications(
+		ctx,
+		currentExecutable,
+		viper.GetBool("test"),
+		(*adminNotificationsPtr)...,
+	)
+	if err != nil {
+		// We don't want to halt execution at this point
+		exeLogger.Error("Error sending admin notifications")
+	}
+	return err
 }
 
 // getAllAccountsFromConfig reads the configuration file and gets a slice of accounts
