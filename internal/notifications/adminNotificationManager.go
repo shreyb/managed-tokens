@@ -164,6 +164,7 @@ func (a *AdminNotificationManager) RequestToCloseReceiveChan(ctx context.Context
 			return
 		case <-c:
 			close(a.ReceiveChan)
+			return
 		}
 	}
 }
