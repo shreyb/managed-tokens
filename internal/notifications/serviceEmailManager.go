@@ -164,7 +164,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				}
 				if shouldSend {
 					addPushErrorNotificationToServiceErrorsTable(n, serviceErrorsTable)
-					em.adminNotificationChannel <- n
+					em.adminNotificationChannel <- SourceNotification{n}
 				}
 			}
 		}
