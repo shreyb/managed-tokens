@@ -61,9 +61,11 @@ type ServiceEmailManager struct {
 	// AdminNotificationsManager is a pointer to an AdminNotificationManager that carries with it, among other things, the db.ManagedTokensDatabase
 	// that the ServiceEmailManager should read from and write to
 	*AdminNotificationManager
-	NotificationMinimum int
-	wg                  *sync.WaitGroup
-	trackErrorCounts    bool
+	// adminNotificationChannel  is a channel on which messages can be sent to the type's AdminNotificationManager
+	adminNotificationChannel chan<- Notification
+	NotificationMinimum      int
+	wg                       *sync.WaitGroup
+	trackErrorCounts         bool
 }
 
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
@@ -109,15 +111,15 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	}
 	em.trackErrorCounts = shouldTrackErrorCounts
 
-	adminChan := em.AdminNotificationManager.registerNotificationSource(ctx)
-	runServiceNotificationHandler(ctx, em, adminChan, ec)
+	em.adminNotificationChannel = em.AdminNotificationManager.registerNotificationSource(ctx)
+	runServiceNotificationHandler(ctx, em, ec)
 
 	return em
 }
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
-func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan<- Notification, ec *serviceErrorCounts) {
+func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, ec *serviceErrorCounts) {
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.runServiceNotificationHandler",
 		"service": em.Service,
@@ -127,7 +129,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 	go func() {
 		serviceErrorsTable := make(map[string]string, 0)
 		defer em.wg.Done()
-		defer close(adminChan)
+		defer close(em.adminNotificationChannel)
 		for {
 			select {
 			case <-ctx.Done():
@@ -162,7 +164,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				}
 				if shouldSend {
 					addPushErrorNotificationToServiceErrorsTable(n, serviceErrorsTable)
-					adminChan <- n
+					em.adminNotificationChannel <- n
 				}
 			}
 		}
