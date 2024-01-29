@@ -62,11 +62,11 @@ func init() {
 
 // runAdminNotificationHandler handles the routing and counting of errors that result from a
 // Notification being sent on the AdminNotificationManager's ReceiveChan
-func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, adminErrorChan chan<- Notification, allServiceCounts map[string]*serviceErrorCounts) {
+func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, allServiceCounts map[string]*serviceErrorCounts) {
 	funcLogger := log.WithField("caller", "runAdminNotificationHandler")
 
 	go func() {
-		defer close(adminErrorChan)
+		defer close(a.adminErrorChan)
 		for {
 			select {
 			case <-ctx.Done():
@@ -100,7 +100,7 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 						}
 					}
 					if shouldSend {
-						adminErrorChan <- n
+						a.adminErrorChan <- n
 					}
 				}
 			}

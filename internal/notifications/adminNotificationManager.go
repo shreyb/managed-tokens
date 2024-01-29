@@ -42,6 +42,8 @@ type AdminNotificationManager struct {
 	DatabaseReadOnly bool
 	//notificationSourceWg is a waitgroup that keeps track of how many registered notificationSources are sending notifications to this AdminNotificationManager
 	notificationSourceWg sync.WaitGroup
+	// adminErrorChan is the channel on which all errors handled by this type should be forwarded to be added to the package's global var adminErrors
+	adminErrorChan chan Notification
 }
 
 // AdminNotificationManagerOption is a functional option that should be used as an argument to NewAdminNotificationManager to set various fields
@@ -84,9 +86,9 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	}
 	a.TrackErrorCounts = shouldTrackErrorCounts
 
-	adminErrorChan := make(chan Notification)                             // Channel to send notifications to aggregator
-	startAdminErrorAdder(adminErrorChan)                                  // Start admin errors aggregator concurrently
-	runAdminNotificationHandler(ctx, a, adminErrorChan, allServiceCounts) // Start admin notification handler concurrently
+	a.adminErrorChan = make(chan Notification)            // Channel to send notifications to aggregator
+	startAdminErrorAdder(a.adminErrorChan)                // Start admin errors aggregator concurrently
+	runAdminNotificationHandler(ctx, a, allServiceCounts) // Start admin notification handler concurrently
 
 	return a
 }
