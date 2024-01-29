@@ -63,12 +63,6 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 
 	// Functional options for AdminNotificationManager
 	funcOpts := make([]notifications.AdminNotificationManagerOption, 0)
-	dontTrackErrorCounts := func(a *notifications.AdminNotificationManager) error {
-		a.TrackErrorCounts = false
-		return nil
-	}
-	funcOpts = append(funcOpts, dontTrackErrorCounts)
-
 	if database != nil {
 		setDB := func(a *notifications.AdminNotificationManager) error {
 			a.Database = database
