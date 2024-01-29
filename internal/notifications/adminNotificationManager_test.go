@@ -16,6 +16,7 @@ package notifications
 
 import (
 	"context"
+	"sync"
 	"testing"
 )
 
@@ -54,4 +55,33 @@ func TestRequestToCloseReceiveChan(t *testing.T) {
 	}
 }
 
-// TODO Try to close receivechan more than once
+func TestRequestToCloseReceiveChanMultiple(t *testing.T) {
+	ctx := context.Background()
+	a := new(AdminNotificationManager)
+	a.receiveChan = make(chan Notification)
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	a.notificationSourceWg.Add(1)
+	// We can request to close the channel 10 times, but we should only do it once.  We should not get any panics
+	defer func() {
+		v := recover()
+		if v != nil {
+			t.Fatalf("Recovered: %v.  FAIL:  We should not have tried to close the already-closed receiveChan", v)
+		}
+	}()
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.RequestToCloseReceiveChan(ctx)
+		}()
+	}
+	go a.notificationSourceWg.Done()
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be canceled and receiveChan should be closed")
+	case <-a.receiveChan:
+		return
+	}
+}
