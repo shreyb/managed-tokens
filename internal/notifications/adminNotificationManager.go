@@ -85,6 +85,8 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 		allServiceCounts, shouldTrackErrorCounts = getAllErrorCountsFromDatabase(ctx, servicesToTrackErrorCounts, a.Database)
 	}
 	a.TrackErrorCounts = shouldTrackErrorCounts
+	funcLogger.Debugf("AdminNotificationManager.TrackErrorCounts: %t", a.TrackErrorCounts)
+	funcLogger.Debugf("AdminNotificationManager.DatabaseReadOnly: %t", a.DatabaseReadOnly)
 
 	a.adminErrorChan = make(chan Notification)            // Channel to send notifications to aggregator
 	startAdminErrorAdder(a.adminErrorChan)                // Start admin errors aggregator concurrently

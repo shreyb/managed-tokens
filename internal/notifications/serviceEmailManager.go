@@ -110,6 +110,11 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		shouldTrackErrorCounts = false
 	}
 	em.trackErrorCounts = shouldTrackErrorCounts
+	if em.trackErrorCounts {
+		funcLogger.Debug("Tracking Error Counts in ServiceEmailManager")
+	} else {
+		funcLogger.Debug("Not tracking Error counts in ServiceEmailManager")
+	}
 
 	em.adminNotificationChannel = em.AdminNotificationManager.registerNotificationSource(ctx)
 	runServiceNotificationHandler(ctx, em, ec)
