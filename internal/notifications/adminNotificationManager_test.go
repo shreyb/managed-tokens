@@ -20,8 +20,8 @@ import (
 )
 
 func TestRequestToCloseReceiveChanContextCancel(t *testing.T) {
-	a := new(AdminNotificationManager)
 	ctx, cancel := context.WithCancel(context.Background())
+	a := new(AdminNotificationManager)
 
 	a.notificationSourceWg.Add(1)
 	returned := make(chan struct{})
@@ -30,33 +30,28 @@ func TestRequestToCloseReceiveChanContextCancel(t *testing.T) {
 		close(returned)
 	}()
 	cancel()
-	for {
-		select {
-		case <-returned:
-			return
-		case <-a.receiveChan:
-			t.Fatal("context cancel should have caused RequestToCloseReceiveChan to return without closing a.ReceiveChan")
-		}
+	select {
+	case <-returned:
+		return
+	case <-a.receiveChan:
+		t.Fatal("context cancel should have caused RequestToCloseReceiveChan to return without closing a.ReceiveChan")
 	}
 }
 
 func TestRequestToCloseReceiveChan(t *testing.T) {
+	ctx := context.Background()
 	a := new(AdminNotificationManager)
-	ctx, cancel := context.WithCancel(context.Background())
+	a.receiveChan = make(chan Notification)
 
 	a.notificationSourceWg.Add(1)
-	returned := make(chan struct{})
-	go func() {
-		a.RequestToCloseReceiveChan(ctx)
-		close(returned)
-	}()
-	cancel()
-	for {
-		select {
-		case <-returned:
-			return
-		case <-a.receiveChan:
-			t.Fatal("context cancel should have caused RequestToCloseReceiveChan to return without closing a.ReceiveChan")
-		}
+	go a.RequestToCloseReceiveChan(ctx)
+	go a.notificationSourceWg.Done()
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be canceled and receiveChan should be closed")
+	case <-a.receiveChan:
+		return
 	}
 }
+
+// TODO Try to close receivechan more than once
