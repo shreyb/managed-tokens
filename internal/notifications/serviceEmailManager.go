@@ -66,6 +66,7 @@ type ServiceEmailManager struct {
 	NotificationMinimum      int
 	wg                       *sync.WaitGroup
 	trackErrorCounts         bool
+	errorCounts              *serviceErrorCounts
 }
 
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
@@ -103,8 +104,9 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		em.AdminNotificationManager = NewAdminNotificationManager(ctx, funcOpts...)
 	}
 
+	var err error
 	shouldTrackErrorCounts := true
-	ec, err := setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
+	em.errorCounts, err = setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
 	if err != nil {
 		funcLogger.Error("Error setting error counts.  Will not track errors.")
 		shouldTrackErrorCounts = false
@@ -117,14 +119,14 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	}
 
 	em.adminNotificationChannel = em.AdminNotificationManager.registerNotificationSource(ctx)
-	runServiceNotificationHandler(ctx, em, ec)
+	em.runServiceNotificationHandler(ctx)
 
 	return em
 }
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
-func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, ec *serviceErrorCounts) {
+func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context) {
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.runServiceNotificationHandler",
 		"service": em.Service,
@@ -149,7 +151,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				// Channel is closed --> save errors to database and send notifications
 				if !chanOpen {
 					if em.trackErrorCounts {
-						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
+						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, em.errorCounts); err != nil {
 							funcLogger.Error("Error saving new error counts in database.  Please investigate")
 						}
 					}
@@ -161,7 +163,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				funcLogger.WithField("message", n.GetMessage()).Debug("Received notification message")
 				shouldSend := true
 				if em.trackErrorCounts {
-					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, ec, em.NotificationMinimum)
+					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, em.errorCounts, em.NotificationMinimum)
 					if !shouldSend {
 						log.WithField("service", n.GetService()).Debug("Error count less than error limit.  Not sending notification")
 						continue
