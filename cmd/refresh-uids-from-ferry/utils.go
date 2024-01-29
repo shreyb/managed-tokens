@@ -79,7 +79,7 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 	return a, adminNotifications
 }
 
-func sendAdminNotifications(ctx context.Context, notificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+func sendAdminNotifications(ctx context.Context, notificationsChan chan<- notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
 	close(notificationsChan)
 	err := notifications.SendAdminNotifications(
 		ctx,
@@ -228,7 +228,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // authFunc.  It spins up a worker to get data from FERRY, and then puts that data into
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
-	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan notifications.Notification) {
+	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan<- notifications.Notification) {
 	var ferryRequestContext context.Context
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
 		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)

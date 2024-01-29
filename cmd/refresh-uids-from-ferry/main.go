@@ -314,9 +314,9 @@ func run(ctx context.Context) error {
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
 		admNotMgr, adminNotifications := setupAdminNotifications(ctx, nil)
-		admNotMgr.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 
-		if err2 := sendAdminNotifications(ctx, admNotMgr.ReceiveChan, &adminNotifications); err2 != nil {
+		if err2 := sendAdminNotifications(ctx, admNotMgr.GetReceiveChan(), &adminNotifications); err2 != nil {
 			exeLogger.Error("Error sending admin notifications")
 			err := fmt.Errorf("error sending admin notifications regarding %w: %w", err, err2)
 			return err
@@ -339,7 +339,7 @@ func run(ctx context.Context) error {
 			}
 		}
 		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-		sendAdminNotifications(ctx, admNotMgr.ReceiveChan, &adminNotifications)
+		sendAdminNotifications(ctx, admNotMgr.GetReceiveChan(), &adminNotifications)
 	}()
 
 	// Setup complete
@@ -377,7 +377,7 @@ func run(ctx context.Context) error {
 		sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 		if err != nil {
 			msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-			admNotMgr.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
+			admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 			exeLogger.Error(msg)
 			os.Exit(1)
 		}
@@ -409,7 +409,7 @@ func run(ctx context.Context) error {
 
 			go func(username string) {
 				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(ferryContext, username, authFunc, ferryDataChan, admNotMgr.ReceiveChan)
+				getAndAggregateFERRYData(ferryContext, username, authFunc, ferryDataChan, admNotMgr.GetReceiveChan())
 			}(username)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
@@ -421,7 +421,7 @@ func run(ctx context.Context) error {
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
 		msg := "no data collected from FERRY"
-		admNotMgr.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 		exeLogger.Error(msg + ". Exiting")
 		return errors.New(msg)
 	}
@@ -450,7 +450,7 @@ func run(ctx context.Context) error {
 	}
 	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
-		admNotMgr.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 		exeLogger.Error(msg)
 		return err
 	}
@@ -459,7 +459,7 @@ func run(ctx context.Context) error {
 	dbData, err := database.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
-		admNotMgr.ReceiveChan <- notifications.NewSetupError(msg, currentExecutable)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 		exeLogger.Error(msg)
 		return err
 	}
@@ -467,7 +467,7 @@ func run(ctx context.Context) error {
 	if !checkFerryDataInDB(ferryData, dbData) {
 		msg := "verification of INSERT failed.  Please check the logs"
 		exeLogger.Error(msg)
-		admNotMgr.ReceiveChan <- notifications.NewSetupError(
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
 			currentExecutable,
 		)

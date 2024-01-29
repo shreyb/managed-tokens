@@ -383,7 +383,7 @@ func run(ctx context.Context) error {
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
 	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
 	if databaseErr != nil {
-		admNotMgr.ReceiveChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
 	} else {
 		defer database.Close()
 	}
