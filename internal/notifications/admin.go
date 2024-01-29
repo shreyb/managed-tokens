@@ -92,11 +92,16 @@ func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManage
 				} else {
 					// Send notification to admin message aggregator
 					shouldSend := true
-					if a.TrackErrorCounts {
-						shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
-						if !shouldSend {
-							funcLogger.Debug("Error count less than error limit.  Not sending notification.")
-							continue
+					// If we got a SourceNotification, don't run any of the following checks.  Just forward it on the adminErrorChan
+					if val, ok := n.(SourceNotification); ok {
+						n = val.Notification
+					} else {
+						if a.TrackErrorCounts {
+							shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
+							if !shouldSend {
+								funcLogger.Debug("Error count less than error limit.  Not sending notification.")
+								continue
+							}
 						}
 					}
 					if shouldSend {

@@ -33,8 +33,9 @@ type AdminNotificationManager struct {
 	// NotificationMinimum is the minimum number of prior similar Notifications required for an AdminNotificationManager to determine that it should
 	// send a Notification to administrators
 	NotificationMinimum int
-	// TrackErrorCounts determines whether or not the AdminNotificationManager should consult the Database or not.  If set to false, all received
-	// Notifications will be sent to administrators
+	// TrackErrorCounts determines whether or not the AdminNotificationManager should consult the Database or not when deciding whether to send a
+	// Notification sent on its ReceiveChan.  If set to false, all received Notifications will be sent to administrators.
+	// This should only be set to true if there are no other possible decision-makers like callers that call registerNotificationSource
 	TrackErrorCounts bool
 	// DatabaseReadOnly determines whether the AdminNotificationManager should write its error counts to the db.ManagedTokensDatabase after finishing
 	// all processing.  This should only be set to false if there are no other possible database writers (like ServiceEmailManager), to avoid double-counting
@@ -69,7 +70,6 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 
 	a := &AdminNotificationManager{
 		ReceiveChan:      make(chan Notification), // Channel to send notifications to this Manager
-		TrackErrorCounts: true,
 		DatabaseReadOnly: true,
 	}
 	for _, opt := range opts {
@@ -129,6 +129,13 @@ func getAllErrorCountsFromDatabase(ctx context.Context, services []string, datab
 		allServiceCounts[service] = ec
 	}
 	return allServiceCounts, true
+}
+
+// SourceNotification is a type containing a Notification.  It should be used to send notifications from callers that are sending Notifications to the
+// AdminNotificationManager via a channel gotten via registerNotificationSource.  The notifications/admin package will send all of these types of
+// Notifications - that is, it will not run any checks to determine whether a SourceNotification should be sent.
+type SourceNotification struct {
+	Notification
 }
 
 // registerNotificationSource will return a channel on which callers can send Notifications.  It also spins up a listener goroutine that forwards
