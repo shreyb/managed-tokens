@@ -68,7 +68,8 @@ type AdminNotificationManagerOption func(*AdminNotificationManager) error
 
 // NewAdminNotificationManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
-// via email (or otherwise).  Functional options should be specified to set the fields (see AdminNotificationManagerOption documentation)
+// via email (or otherwise).  Functional options should be specified to set the fields (see AdminNotificationManagerOption documentation).
+// This function should never be called more than once concurrently.
 func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
 	funcLogger := log.WithField("caller", "notifications.NewAdminNotificationManager")
 
