@@ -27,11 +27,10 @@ var (
 	adminErrors packageErrors
 )
 
-// adminDataUnsync is an intermediate data structure between *adminData and AdminDataFinal that translates the adminData.PushErrors sync.Map
-// to a regular map[string]string
-type adminDataUnsync struct {
+// adminData stores the information needed to generate the admin message
+type adminData struct {
 	SetupErrors []string
-	PushErrors  map[string]string
+	PushErrors  sync.Map
 }
 
 // addErrorToAdminErrors takes the passed in Notification, type-checks it, and adds it to the appropriate field of adminErrors
@@ -93,6 +92,13 @@ func addErrorToAdminErrors(n Notification) {
 			}
 		}
 	}
+}
+
+// adminDataUnsync is an intermediate data structure between adminData and AdminDataFinal that translates the adminData.PushErrors sync.Map
+// to a regular map[string]string
+type adminDataUnsync struct {
+	SetupErrors []string
+	PushErrors  map[string]string
 }
 
 // adminErrorsToAdminDataUnsync translates the accumulated adminErrors.errorsMap into a map[string]adminDataUnsync so that

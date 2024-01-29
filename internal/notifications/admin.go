@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -60,57 +61,12 @@ func init() {
 
 // For Admin notifications, we expect caller to instantiate admin email object, admin slackMessage object, and pass them to SendAdminNotifications.
 
-// runAdminNotificationHandler handles the routing and counting of errors that result from a
-// Notification being sent on the AdminNotificationManager's ReceiveChan
-func runAdminNotificationHandler(ctx context.Context, a *AdminNotificationManager, allServiceCounts map[string]*serviceErrorCounts) {
-	funcLogger := log.WithField("caller", "runAdminNotificationHandler")
-
-	go func() {
-		defer close(a.adminErrorChan)
-		for {
-			select {
-			case <-ctx.Done():
-				if err := ctx.Err(); err == context.DeadlineExceeded {
-					funcLogger.Error("Timeout exceeded in notification Manager")
-				} else {
-					funcLogger.Error(err)
-				}
-				return
-
-			case n, chanOpen := <-a.ReceiveChan:
-				// Channel is closed --> send notifications
-				if !chanOpen {
-					// Only save error counts if we expect no other NotificationsManagers (like ServiceEmailManager) to write to the database
-					if a.TrackErrorCounts && !a.DatabaseReadOnly {
-						for service, ec := range allServiceCounts {
-							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
-								funcLogger.WithField("service", n.GetService()).Error("Error saving new error counts in database.  Please investigate")
-							}
-						}
-					}
-					return
-				} else {
-					// Send notification to admin message aggregator
-					shouldSend := true
-					// If we got a SourceNotification, don't run any of the following checks.  Just forward it on the adminErrorChan
-					if val, ok := n.(SourceNotification); ok {
-						n = val.Notification
-					} else {
-						if a.TrackErrorCounts {
-							shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, allServiceCounts[n.GetService()], a.NotificationMinimum)
-							if !shouldSend {
-								funcLogger.Debug("Error count less than error limit.  Not sending notification.")
-								continue
-							}
-						}
-					}
-					if shouldSend {
-						a.adminErrorChan <- n
-					}
-				}
-			}
-		}
-	}()
+// packageErrors is a concurrent-safe struct that holds information about all the errors encountered while running package funcs and methods
+// It also includes a sync.Mutex and a sync.WaitGroup to coordinate data access
+type packageErrors struct {
+	errorsMap   *sync.Map      // Holds all the errors accumulated for the current invocation.  Roughly a map[service string]*adminData
+	writerCount sync.WaitGroup // WaitGroup to be incremented anytime a function wants to write to a packageErrors
+	mu          sync.Mutex
 }
 
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file

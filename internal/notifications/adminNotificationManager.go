@@ -26,7 +26,9 @@ import (
 // AdminNotificationManager holds information needed to receive and handle notifications meant to be sent to the administrators of the managed
 // tokens utilities.
 type AdminNotificationManager struct {
-	ReceiveChan chan Notification // ReceiveChan is the channel on which callers should send Notifications to be forwarded to administrators
+	// receiveChan is the channel on which callers should send Notifications to be forwarded to administrators.  Callers should use GetReceiveChan() and RequestToCloseReceiveChan() to interact with this channel
+	receiveChan          chan Notification
+	closeReceiveChanOnce sync.Once // sync.Once to ensure that we only close ReceiveChan once through RequestToCloseReceiveChan
 	// Database is the underlying *db.ManagedTokensDatabase that will be queried by the AdminNotificationManager to determine whether
 	// or not to send a particular Notification received on the ReceiveChan to administrators
 	Database *db.ManagedTokensDatabase
@@ -45,6 +47,8 @@ type AdminNotificationManager struct {
 	notificationSourceWg sync.WaitGroup
 	// adminErrorChan is the channel on which all errors handled by this type should be forwarded to be added to the package's global var adminErrors
 	adminErrorChan chan Notification
+	// allServiceCounts holds the service error counts for all the services being managed during this run
+	allServiceCounts map[string]*serviceErrorCounts
 }
 
 // AdminNotificationManagerOption is a functional option that should be used as an argument to NewAdminNotificationManager to set various fields
@@ -69,7 +73,7 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	funcLogger := log.WithField("caller", "notifications.NewAdminNotificationManager")
 
 	a := &AdminNotificationManager{
-		ReceiveChan:      make(chan Notification), // Channel to send notifications to this Manager
+		receiveChan:      make(chan Notification), // Channel to send notifications to this Manager
 		DatabaseReadOnly: true,
 	}
 	for _, opt := range opts {
@@ -79,18 +83,18 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	}
 
 	// Get our previous error information for this service
-	var allServiceCounts map[string]*serviceErrorCounts
+	a.allServiceCounts = make(map[string]*serviceErrorCounts)
 	shouldTrackErrorCounts, servicesToTrackErrorCounts := determineIfShouldTrackErrorCounts(ctx, a)
 	if shouldTrackErrorCounts {
-		allServiceCounts, shouldTrackErrorCounts = getAllErrorCountsFromDatabase(ctx, servicesToTrackErrorCounts, a.Database)
+		a.allServiceCounts, shouldTrackErrorCounts = getAllErrorCountsFromDatabase(ctx, servicesToTrackErrorCounts, a.Database)
 	}
 	a.TrackErrorCounts = shouldTrackErrorCounts
 	funcLogger.Debugf("AdminNotificationManager.TrackErrorCounts: %t", a.TrackErrorCounts)
 	funcLogger.Debugf("AdminNotificationManager.DatabaseReadOnly: %t", a.DatabaseReadOnly)
 
-	a.adminErrorChan = make(chan Notification)            // Channel to send notifications to aggregator
-	startAdminErrorAdder(a.adminErrorChan)                // Start admin errors aggregator concurrently
-	runAdminNotificationHandler(ctx, a, allServiceCounts) // Start admin notification handler concurrently
+	a.adminErrorChan = make(chan Notification) // Channel to send notifications to aggregator
+	a.startAdminErrorAdder()                   // Start admin errors aggregator concurrently
+	a.runAdminNotificationHandler(ctx)         // Start admin notification handler concurrently
 
 	return a
 }
@@ -133,6 +137,64 @@ func getAllErrorCountsFromDatabase(ctx context.Context, services []string, datab
 	return allServiceCounts, true
 }
 
+// runAdminNotificationHandler handles the routing and counting of errors that result from a
+// Notification being sent on the AdminNotificationManager's ReceiveChan
+func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Context) {
+	funcLogger := log.WithField("caller", "runAdminNotificationHandler")
+
+	go func() {
+		defer close(a.adminErrorChan)
+		for {
+			select {
+			case <-ctx.Done():
+				if err := ctx.Err(); err == context.DeadlineExceeded {
+					funcLogger.Error("Timeout exceeded in notification Manager")
+				} else {
+					funcLogger.Error(err)
+				}
+				return
+
+			case n, chanOpen := <-a.receiveChan:
+				// Channel is closed --> send notifications
+				if !chanOpen {
+					// Only save error counts if we expect no other NotificationsManagers (like ServiceEmailManager) to write to the database
+					if a.TrackErrorCounts && !a.DatabaseReadOnly {
+						for service, ec := range a.allServiceCounts {
+							if err := saveErrorCountsInDatabase(ctx, service, a.Database, ec); err != nil {
+								funcLogger.WithField("service", n.GetService()).Error("Error saving new error counts in database.  Please investigate")
+							}
+						}
+					}
+					return
+				} else {
+					// Send notification to admin message aggregator
+					shouldSend := true
+					// If we got a SourceNotification, don't run any of the following checks.  Just forward it on the adminErrorChan
+					if val, ok := n.(SourceNotification); ok {
+						n = val.Notification
+					} else {
+						if a.TrackErrorCounts {
+							shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, a.allServiceCounts[n.GetService()], a.NotificationMinimum)
+							if !shouldSend {
+								funcLogger.Debug("Error count less than error limit.  Not sending notification.")
+								continue
+							}
+						}
+					}
+					if shouldSend {
+						a.adminErrorChan <- n
+					}
+				}
+			}
+		}
+	}()
+}
+
+// GetReceiveChan returns a chan<- Notification on which the AdminNotificationManager can receive Notifications
+func (a *AdminNotificationManager) GetReceiveChan() chan<- Notification {
+	return a.receiveChan
+}
+
 // SourceNotification is a type containing a Notification.  It should be used to send notifications from callers that are sending Notifications to the
 // AdminNotificationManager via a channel gotten via registerNotificationSource.  The notifications/admin package will send all of these types of
 // Notifications - that is, it will not run any checks to determine whether a SourceNotification should be sent.
@@ -152,7 +214,7 @@ func (a *AdminNotificationManager) registerNotificationSource(ctx context.Contex
 			case <-ctx.Done():
 				return
 			default:
-				a.ReceiveChan <- n
+				a.receiveChan <- n
 			}
 		}
 	}()
@@ -174,7 +236,7 @@ func (a *AdminNotificationManager) RequestToCloseReceiveChan(ctx context.Context
 		case <-ctx.Done():
 			return
 		case <-c:
-			close(a.ReceiveChan)
+			a.closeReceiveChanOnce.Do(func() { close(a.receiveChan) })
 			return
 		}
 	}
@@ -182,11 +244,11 @@ func (a *AdminNotificationManager) RequestToCloseReceiveChan(ctx context.Context
 
 // startAdminErrorAdder is the function that callers should use to send errors to be aggregated at the notifications package level.
 // It allows the caller to specify a channel, adminChan, to send Notifications on.  These errors are added to the global variable adminErrors
-func startAdminErrorAdder(adminChan <-chan Notification) {
+func (a *AdminNotificationManager) startAdminErrorAdder() {
 	adminErrors.writerCount.Add(1)
 	go func() {
 		defer adminErrors.writerCount.Done()
-		for n := range adminChan {
+		for n := range a.adminErrorChan {
 			addErrorToAdminErrors(n)
 		}
 	}()
