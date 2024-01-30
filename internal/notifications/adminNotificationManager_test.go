@@ -16,6 +16,7 @@ package notifications
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -28,121 +29,89 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRequestToCloseReceiveChanContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	a := new(AdminNotificationManager)
+// TODO Test Handler
+// TODO Test startAdminErrorAdder
 
-	a.notificationSourceWg.Add(1)
-	returned := make(chan struct{})
-	go func() {
-		a.RequestToCloseReceiveChan(ctx)
-		close(returned)
-	}()
-	cancel()
-	select {
-	case <-returned:
-		return
-	case <-a.receiveChan:
-		t.Fatal("context cancel should have caused RequestToCloseReceiveChan to return without closing a.ReceiveChan")
+func TestNewAdminNotificationManagerDefault(t *testing.T) {
+	a := NewAdminNotificationManager(context.Background())
+	newAdminNotificationManagerTests(t, a, func(t *testing.T, anm *AdminNotificationManager) {
+		assert.Equal(t, 0, a.NotificationMinimum)
+	})
+}
+
+func TestNewAdminNotificationManagerFuncOpt(t *testing.T) {
+	funcOpt := AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
+		anm.NotificationMinimum = 42
+		return nil
+	})
+	a := NewAdminNotificationManager(context.Background(), funcOpt)
+	newAdminNotificationManagerTests(t, a, func(t *testing.T, anm *AdminNotificationManager) {
+		assert.Equal(t, 0, a.NotificationMinimum)
+	})
+}
+
+func newAdminNotificationManagerTests(t *testing.T, a *AdminNotificationManager, extraTests ...func(*testing.T, *AdminNotificationManager)) {
+	t.Cleanup(func() {
+		close(a.receiveChan)
+	})
+
+	assert.Nil(t, a.Database)
+	assert.True(t, a.DatabaseReadOnly)
+	assert.False(t, a.TrackErrorCounts)
+	assert.Equal(t, map[string]*serviceErrorCounts{}, a.allServiceCounts)
+	assert.NotNil(t, a.receiveChan)
+	assert.NotNil(t, a.adminErrorChan)
+
+	for _, test := range extraTests {
+		test(t, a)
 	}
 }
 
-func TestRequestToCloseReceiveChan(t *testing.T) {
-	ctx := context.Background()
-	a := new(AdminNotificationManager)
-	a.receiveChan = make(chan Notification)
-
-	a.notificationSourceWg.Add(1)
-	go a.RequestToCloseReceiveChan(ctx)
-	go a.notificationSourceWg.Done()
-	select {
-	case <-ctx.Done():
-		t.Fatal("context should not be canceled and receiveChan should be closed")
-	case <-a.receiveChan:
-		return
-	}
+func TestBackupAdminNotificationManager(t *testing.T) {
+	a1 := new(AdminNotificationManager)
+	testBackupAdminNotificationManager(t, a1)
 }
 
-func TestRequestToCloseReceiveChanMultiple(t *testing.T) {
-	ctx := context.Background()
-	a := new(AdminNotificationManager)
-	a.receiveChan = make(chan Notification)
-
-	var wg sync.WaitGroup
-	defer wg.Wait()
-	a.notificationSourceWg.Add(1)
-	// We can request to close the channel 10 times, but we should only do it once.  We should not get any panics
-	defer func() {
-		v := recover()
-		if v != nil {
-			t.Fatalf("Recovered: %v.  FAIL:  We should not have tried to close the already-closed receiveChan", v)
-		}
-	}()
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			a.RequestToCloseReceiveChan(ctx)
-		}()
-	}
-	go a.notificationSourceWg.Done()
-	select {
-	case <-ctx.Done():
-		t.Fatal("context should not be canceled and receiveChan should be closed")
-	case <-a.receiveChan:
-		return
-	}
+func TestNewAdminNotificationManagerFuncOptWithError(t *testing.T) {
+	funcOpt := AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
+		anm.NotificationMinimum = 42
+		return errors.New("This is an error")
+	})
+	a := NewAdminNotificationManager(context.Background(), funcOpt)
+	newAdminNotificationManagerTests(t, a,
+		func(t *testing.T, anm *AdminNotificationManager) {
+			assert.Equal(t, 0, a.NotificationMinimum)
+		},
+		func(t *testing.T, anm *AdminNotificationManager) {
+			t.Run("check that we got a valid new AdminNotificationManager", func(t *testing.T) {
+				testBackupAdminNotificationManager(t, a)
+			})
+		},
+	)
 }
 
-// Check that if notificationSourceWg never gets to 0, we don't close receiveChan
-func TestRequestToCloseReceiveChanDeadlock(t *testing.T) {
-	ctx := context.Background()
-	a := new(AdminNotificationManager)
-	a.receiveChan = make(chan Notification)
+// copy a1 and make sure that we copy by value or initialize new fields appropriately
+func testBackupAdminNotificationManager(t *testing.T, a1 *AdminNotificationManager) {
+	a2 := backupAdminNotificationManager(a1)
 
-	a.notificationSourceWg.Add(1)
-	go a.RequestToCloseReceiveChan(ctx)
+	assert.Equal(t, a1.Database, a2.Database)
+	assert.Equal(t, a1.NotificationMinimum, a2.NotificationMinimum)
+	assert.Equal(t, a1.TrackErrorCounts, a2.TrackErrorCounts)
+	assert.Equal(t, a1.DatabaseReadOnly, a2.DatabaseReadOnly)
+	assert.Equal(t, a1.allServiceCounts, a2.allServiceCounts)
 
-	assert.Never(
-		t,
-		func() bool {
-			// This function should never return
-			select {
-			case <-ctx.Done():
-				t.Fatal("context should not be canceled and receiveChan should be closed")
-			case <-a.receiveChan:
-				return true // This is also a fatal condition, but we let the assert.Never call handle this case
-			}
-			return true
-		}, 2*time.Second, 10*time.Millisecond)
-}
+	assert.NotNil(t, a2.receiveChan)
+	assert.NotNil(t, a2.adminErrorChan)
 
-func TestRegisterNotificationSource(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	a := new(AdminNotificationManager)
-	a.receiveChan = make(chan Notification)
-
-	// Listener
-	receiveDone := make(chan struct{})
-	go func() {
-		<-a.receiveChan
-		close(receiveDone)
-	}()
-
-	// Sender
-	sendChan := a.registerNotificationSource(ctx)
-	go func() {
-		defer close(sendChan)
-		sendChan <- NewSetupError("message", "service")
-	}()
-
-	select {
-	case <-ctx.Done():
-		t.Fatal("Registration failed.  Did not receive from a.receiveChan within timeout")
-	case <-receiveDone:
-		return
-	}
+	// This is just a check to make sure that both of these fields are initialized and work properly
+	assert.Eventually(t, func() bool {
+		a2.closeReceiveChanOnce.Do(
+			func() {
+				a2.notificationSourceWg.Wait()
+			},
+		)
+		return true
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestDetermineIfShouldTrackErrorCounts(t *testing.T) {
@@ -308,4 +277,120 @@ func TestGetAllErrorCountsFromDatabaseFail(t *testing.T) {
 	errorCountsFromDb, ok := getAllErrorCountsFromDatabase(context.Background(), servicesToQuery, a.Database)
 	assert.False(t, ok)
 	assert.Nil(t, errorCountsFromDb)
+}
+func TestRegisterNotificationSource(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	a := new(AdminNotificationManager)
+	a.receiveChan = make(chan Notification)
+
+	// Listener
+	receiveDone := make(chan struct{})
+	go func() {
+		<-a.receiveChan
+		close(receiveDone)
+	}()
+
+	// Sender
+	sendChan := a.registerNotificationSource(ctx)
+	go func() {
+		defer close(sendChan)
+		sendChan <- NewSetupError("message", "service")
+	}()
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("Registration failed.  Did not receive from a.receiveChan within timeout")
+	case <-receiveDone:
+		return
+	}
+}
+
+func TestRequestToCloseReceiveChanContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	a := new(AdminNotificationManager)
+
+	a.notificationSourceWg.Add(1)
+	returned := make(chan struct{})
+	go func() {
+		a.RequestToCloseReceiveChan(ctx)
+		close(returned)
+	}()
+	cancel()
+	select {
+	case <-returned:
+		return
+	case <-a.receiveChan:
+		t.Fatal("context cancel should have caused RequestToCloseReceiveChan to return without closing a.ReceiveChan")
+	}
+}
+
+func TestRequestToCloseReceiveChan(t *testing.T) {
+	ctx := context.Background()
+	a := new(AdminNotificationManager)
+	a.receiveChan = make(chan Notification)
+
+	a.notificationSourceWg.Add(1)
+	go a.RequestToCloseReceiveChan(ctx)
+	go a.notificationSourceWg.Done()
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be canceled and receiveChan should be closed")
+	case <-a.receiveChan:
+		return
+	}
+}
+
+func TestRequestToCloseReceiveChanMultiple(t *testing.T) {
+	ctx := context.Background()
+	a := new(AdminNotificationManager)
+	a.receiveChan = make(chan Notification)
+
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	a.notificationSourceWg.Add(1)
+	// We can request to close the channel 10 times, but we should only do it once.  We should not get any panics
+	defer func() {
+		v := recover()
+		if v != nil {
+			t.Fatalf("Recovered: %v.  FAIL:  We should not have tried to close the already-closed receiveChan", v)
+		}
+	}()
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.RequestToCloseReceiveChan(ctx)
+		}()
+	}
+	go a.notificationSourceWg.Done()
+	select {
+	case <-ctx.Done():
+		t.Fatal("context should not be canceled and receiveChan should be closed")
+	case <-a.receiveChan:
+		return
+	}
+}
+
+// Check that if notificationSourceWg never gets to 0, we don't close receiveChan
+func TestRequestToCloseReceiveChanDeadlock(t *testing.T) {
+	ctx := context.Background()
+	a := new(AdminNotificationManager)
+	a.receiveChan = make(chan Notification)
+
+	a.notificationSourceWg.Add(1)
+	go a.RequestToCloseReceiveChan(ctx)
+
+	assert.Never(
+		t,
+		func() bool {
+			// This function should never return
+			select {
+			case <-ctx.Done():
+				t.Fatal("context should not be canceled and receiveChan should be closed")
+			case <-a.receiveChan:
+				return true // This is also a fatal condition, but we let the assert.Never call handle this case
+			}
+			return true
+		}, 2*time.Second, 10*time.Millisecond)
 }
