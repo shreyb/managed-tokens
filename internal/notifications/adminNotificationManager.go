@@ -196,6 +196,7 @@ func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Conte
 						n = val.Notification
 					} else {
 						if a.TrackErrorCounts {
+							a.verifyServiceErrorCounts(n.GetService())
 							shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, a.allServiceCounts[n.GetService()], a.NotificationMinimum)
 							if !shouldSend {
 								funcLogger.Debug("Error count less than error limit.  Not sending notification.")
@@ -274,4 +275,18 @@ func (a *AdminNotificationManager) startAdminErrorAdder() {
 			addErrorToAdminErrors(n)
 		}
 	}()
+}
+
+// verifyServiceErrorCounts checks allServiceCounts for the existence of a service key.  If it does exist, true is returned.
+// If it does not exist, a new entry in allServiceCounts is created with an initialized *serviceErrorCounts.pushErrors map, and false is returned
+func (a *AdminNotificationManager) verifyServiceErrorCounts(service string) bool {
+	var ec *serviceErrorCounts
+	if _, ok := a.allServiceCounts[service]; !ok {
+		ec = &serviceErrorCounts{
+			pushErrors: make(map[string]errorCount),
+		}
+		a.allServiceCounts[service] = ec
+		return false
+	}
+	return true
 }
