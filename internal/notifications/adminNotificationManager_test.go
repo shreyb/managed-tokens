@@ -220,25 +220,6 @@ func TestDetermineIfShouldTrackErrorCounts(t *testing.T) {
 	}
 }
 
-// // getAllErrorCountsFromDatabase gets all the current error counts in the *db.ManagedTokensDatabase for
-// // every element of services.  If there is an issue doing so, this returns as its second element false, which
-// // indicates to the caller not to use the returned map
-// func getAllErrorCountsFromDatabase(ctx context.Context, services []string, database *db.ManagedTokensDatabase) (allServiceCounts map[string]*serviceErrorCounts, valid bool) {
-// 	funcLogger := log.WithField("caller", "notifications.getAllErrorCountsFromDatabase")
-// 	allServiceCounts = make(map[string]*serviceErrorCounts)
-// 	for _, service := range services {
-// 		ec, err := setErrorCountsByService(ctx, service, database)
-// 		if err != nil {
-// 			funcLogger.WithField("service", service).Error("Error setting error count.  Will not use error counts")
-// 			return nil, false
-// 		}
-// 		allServiceCounts[service] = ec
-// 	}
-// 	return allServiceCounts, true
-// }
-
-// TODO Test case where we can't get the error count by service.  Maybe give a fake service?
-
 func TestGetAllErrorCountsFromDatabase(t *testing.T) {
 	priorSetupErrors := []db.SetupErrorCount{
 		&setupErrorCount{
@@ -318,4 +299,13 @@ func TestGetAllErrorCountsFromDatabase(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, expectedServiceCounts, errorCountsFromDb)
 
+}
+
+func TestGetAllErrorCountsFromDatabaseFail(t *testing.T) {
+	a := new(AdminNotificationManager)
+	a.Database, _ = db.OpenOrCreateDatabase(os.DevNull)
+	servicesToQuery := []string{"service1", "service2"}
+	errorCountsFromDb, ok := getAllErrorCountsFromDatabase(context.Background(), servicesToQuery, a.Database)
+	assert.False(t, ok)
+	assert.Nil(t, errorCountsFromDb)
 }
