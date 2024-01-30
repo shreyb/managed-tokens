@@ -78,9 +78,11 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 		DatabaseReadOnly: true,
 	}
 	for _, opt := range opts {
+		aBackup := backupAdminNotificationManager(a)
 		if err := opt(a); err != nil {
 			funcLogger.Errorf("Error running functional option")
 		}
+		a = aBackup
 	}
 
 	// Get our previous error information for this service
@@ -98,6 +100,25 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 	a.runAdminNotificationHandler(ctx)         // Start admin notification handler concurrently
 
 	return a
+}
+
+// backupAdminNotificationManager should ONLY be used to back up an AdminNotificationManager before it is being used (that is, during the initialization
+// of the AdminNotificationManager).  For example, it can be used while applying functional opts to mutate the AdminNotificationManager
+func backupAdminNotificationManager(a1 *AdminNotificationManager) *AdminNotificationManager {
+	a2 := new(AdminNotificationManager)
+
+	a2.receiveChan = make(chan Notification)
+	a2.closeReceiveChanOnce = sync.Once{}
+	a2.notificationSourceWg = sync.WaitGroup{}
+	a2.adminErrorChan = make(chan Notification)
+
+	a2.Database = a1.Database
+	a2.NotificationMinimum = a1.NotificationMinimum
+	a2.TrackErrorCounts = a1.TrackErrorCounts
+	a2.DatabaseReadOnly = a1.DatabaseReadOnly
+	a2.allServiceCounts = a1.allServiceCounts
+
+	return a2
 }
 
 func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotificationManager) (bool, []string) {
