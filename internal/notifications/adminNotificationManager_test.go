@@ -29,9 +29,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TODO Test Handler
-// TODO Test startAdminErrorAdder
-
 func TestNewAdminNotificationManagerDefault(t *testing.T) {
 	a := NewAdminNotificationManager(context.Background())
 	newAdminNotificationManagerTests(t, a, func(t *testing.T, anm *AdminNotificationManager) {
@@ -278,6 +275,138 @@ func TestGetAllErrorCountsFromDatabaseFail(t *testing.T) {
 	assert.False(t, ok)
 	assert.Nil(t, errorCountsFromDb)
 }
+
+func TestRunAdminNotificationHandlerContextExpired(t *testing.T) {
+	a := setupAdminNotificationManagerForHandlerTest()
+	t.Cleanup(func() { close(a.receiveChan) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	returned := make(chan struct{})
+
+	a.runAdminNotificationHandler(ctx)
+
+	// Cancel our context, and indicate when runAdminNotificationHandler has returned
+	go func() {
+		cancel()
+		<-a.adminErrorChan
+		close(returned)
+	}()
+
+	// receiveChan should be open, and return should be closed
+	assert.Eventually(t, func() bool {
+		select {
+		case <-returned:
+			return true
+		case <-a.receiveChan:
+			t.Fatal("Context was canceled - a.receiveChan should be open and no values sent on this channel")
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond)
+
+}
+
+func TestRunAdminNotificationHandler(t *testing.T) {
+	a := setupAdminNotificationManagerForHandlerTest()
+	a.TrackErrorCounts = true
+	a.allServiceCounts = map[string]*serviceErrorCounts{
+		"service1": {
+			setupErrors: errorCount{
+				0,
+				false,
+			},
+		},
+	}
+
+	// Give ourselves 10 seconds for this to work
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(func() { cancel() })
+	returned := make(chan struct{})
+
+	a.runAdminNotificationHandler(ctx)
+
+	t.Run(
+		"If we send SourceNotification to AdminNotificationHandler, it should get forwarded on adminErrorChan",
+		func(t *testing.T) {
+			sn := SourceNotification{&setupError{"message1", "service1"}}
+
+			// Sender
+			go func() {
+				a.receiveChan <- sn
+			}()
+
+			// Listener
+			n := <-a.adminErrorChan
+			assert.Equal(t, n, sn.Notification)
+		},
+	)
+
+	t.Run(
+		"If we send Notification, we get shouldSend = false and we don't send",
+		func(t *testing.T) {
+			n := &setupError{"message1", "service1"}
+
+			senderDone := make(chan struct{})
+			// Sender
+			go func() {
+				a.receiveChan <- n
+				close(senderDone)
+			}()
+
+			// Listener
+			select {
+			case <-a.adminErrorChan:
+				t.Fatal("We should not have sent this Notification on a.adminErrorChan")
+			case <-senderDone:
+				return
+			}
+		},
+	)
+
+	t.Run(
+		"If we send another Notification, we get shouldSend = true and we forward the Notification on adminErrorChan",
+		func(t *testing.T) {
+			n := &setupError{"message2", "service1"}
+
+			// Sender
+			go func() {
+				a.receiveChan <- n
+			}()
+
+			// Listener
+			nReceived := <-a.adminErrorChan
+			assert.Equal(t, n, nReceived)
+		},
+	)
+
+	t.Run(
+		"Now if we close receiveChan, we should return before the context expires",
+		func(t *testing.T) {
+			// close receiveChan, and indicate when runAdminNotificationHandler has returned
+			go func() {
+				close(a.receiveChan)
+				<-a.adminErrorChan
+				close(returned)
+			}()
+
+			select {
+			case <-returned:
+				return
+			case <-ctx.Done():
+				t.Fatal("Timeout for test.  We should have returned before the 10s timeout")
+			}
+		},
+	)
+}
+
+func setupAdminNotificationManagerForHandlerTest() *AdminNotificationManager {
+	a := &AdminNotificationManager{
+		NotificationMinimum: 2,
+		DatabaseReadOnly:    true,
+	}
+	a.receiveChan = make(chan Notification)
+	a.adminErrorChan = make(chan Notification)
+	return a
+}
 func TestRegisterNotificationSource(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -393,4 +522,88 @@ func TestRequestToCloseReceiveChanDeadlock(t *testing.T) {
 			}
 			return true
 		}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestStartAdminErrorAdder(t *testing.T) {
+	a := new(AdminNotificationManager)
+	a.adminErrorChan = make(chan Notification)
+	a.startAdminErrorAdder()
+
+	a.adminErrorChan <- &setupError{"message", "service1"}
+	a.adminErrorChan <- &pushError{"message", "service1", "node1"}
+	close(a.adminErrorChan)
+	adminErrors.writerCount.Wait()
+
+	unSyncedAdminData := adminErrorsToAdminDataUnsync()
+	service1Data, ok := unSyncedAdminData["service1"]
+	if !ok {
+		t.Fatal("service1 data not stored")
+	}
+
+	expectedSetupErrors := []string{"message"}
+	expectedPushErrors := map[string]string{"node1": "message"}
+
+	assert.Equal(t, expectedSetupErrors, service1Data.SetupErrors)
+	assert.Equal(t, expectedPushErrors, service1Data.PushErrors)
+
+}
+
+func TestVerifyServiceErrorCounts(t *testing.T) {
+	type testCase struct {
+		description string
+		*AdminNotificationManager
+		expectedServiceErrorCounts *serviceErrorCounts
+		expectedReturnVal          bool
+	}
+
+	testCases := []testCase{
+		{
+			"pre-populated struct",
+			&AdminNotificationManager{
+				allServiceCounts: map[string]*serviceErrorCounts{
+					"service1": {
+						setupErrors: errorCount{
+							4,
+							false,
+						},
+					},
+				},
+			},
+			&serviceErrorCounts{
+				setupErrors: errorCount{
+					4,
+					false,
+				},
+			},
+			true,
+		},
+		{
+			"service missing for struct",
+			&AdminNotificationManager{
+				allServiceCounts: map[string]*serviceErrorCounts{
+					"service2": {
+						setupErrors: errorCount{
+							0,
+							false,
+						},
+					},
+				},
+			},
+			&serviceErrorCounts{
+				pushErrors: make(map[string]errorCount),
+			},
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				retVal := test.AdminNotificationManager.verifyServiceErrorCounts("service1")
+				assert.Equal(t, test.expectedReturnVal, retVal)
+				assert.Equal(t, test.expectedServiceErrorCounts, test.AdminNotificationManager.allServiceCounts["service1"])
+			},
+		)
+	}
 }
