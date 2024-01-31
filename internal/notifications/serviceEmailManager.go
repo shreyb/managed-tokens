@@ -62,7 +62,7 @@ type ServiceEmailManager struct {
 	// that the ServiceEmailManager should read from and write to
 	*AdminNotificationManager
 	// adminNotificationChannel  is a channel on which messages can be sent to the type's AdminNotificationManager
-	adminNotificationChannel chan<- Notification
+	adminNotificationChannel chan<- SourceNotification
 	NotificationMinimum      int
 	wg                       *sync.WaitGroup
 	trackErrorCounts         bool

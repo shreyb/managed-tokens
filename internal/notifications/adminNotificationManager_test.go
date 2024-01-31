@@ -426,7 +426,7 @@ func TestRegisterNotificationSource(t *testing.T) {
 	sendChan := a.registerNotificationSource(ctx)
 	go func() {
 		defer close(sendChan)
-		sendChan <- NewSetupError("message", "service")
+		sendChan <- SourceNotification{NewSetupError("message", "service")}
 	}()
 
 	select {

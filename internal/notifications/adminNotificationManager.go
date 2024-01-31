@@ -225,10 +225,10 @@ type SourceNotification struct {
 	Notification
 }
 
-// registerNotificationSource will return a channel on which callers can send Notifications.  It also spins up a listener goroutine that forwards
+// registerNotificationSource will return a channel on which callers can send SourceNotifications.  It also spins up a listener goroutine that forwards
 // these Notifications to the AdminNotificationManager's ReceiveChan as long as the context is alive
-func (a *AdminNotificationManager) registerNotificationSource(ctx context.Context) chan<- Notification {
-	c := make(chan Notification)
+func (a *AdminNotificationManager) registerNotificationSource(ctx context.Context) chan<- SourceNotification {
+	c := make(chan SourceNotification)
 	a.notificationSourceWg.Add(1)
 	go func() {
 		defer a.notificationSourceWg.Done()
