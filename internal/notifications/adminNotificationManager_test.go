@@ -43,10 +43,30 @@ func TestNewAdminNotificationManagerFuncOpt(t *testing.T) {
 	})
 	a := NewAdminNotificationManager(context.Background(), funcOpt)
 	newAdminNotificationManagerTests(t, a, func(t *testing.T, anm *AdminNotificationManager) {
-		assert.Equal(t, 0, a.NotificationMinimum)
+		assert.Equal(t, 42, a.NotificationMinimum)
 	})
 }
 
+func TestNewAdminNotificationManagerFuncOptWithError(t *testing.T) {
+	funcOpt := AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
+		anm.NotificationMinimum = 42
+		return errors.New("This is an error")
+	})
+	a := NewAdminNotificationManager(context.Background(), funcOpt)
+	newAdminNotificationManagerTests(t, a,
+		func(t *testing.T, anm *AdminNotificationManager) {
+			t.Run(
+				"Check that the value we tried changing, but got an error, was reset to the old value",
+				func(t *testing.T) { assert.Equal(t, 0, a.NotificationMinimum) },
+			)
+		},
+		func(t *testing.T, anm *AdminNotificationManager) {
+			t.Run("check that we got a valid new AdminNotificationManager", func(t *testing.T) {
+				testBackupAdminNotificationManager(t, a)
+			})
+		},
+	)
+}
 func newAdminNotificationManagerTests(t *testing.T, a *AdminNotificationManager, extraTests ...func(*testing.T, *AdminNotificationManager)) {
 	t.Cleanup(func() {
 		close(a.receiveChan)
@@ -67,24 +87,6 @@ func newAdminNotificationManagerTests(t *testing.T, a *AdminNotificationManager,
 func TestBackupAdminNotificationManager(t *testing.T) {
 	a1 := new(AdminNotificationManager)
 	testBackupAdminNotificationManager(t, a1)
-}
-
-func TestNewAdminNotificationManagerFuncOptWithError(t *testing.T) {
-	funcOpt := AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
-		anm.NotificationMinimum = 42
-		return errors.New("This is an error")
-	})
-	a := NewAdminNotificationManager(context.Background(), funcOpt)
-	newAdminNotificationManagerTests(t, a,
-		func(t *testing.T, anm *AdminNotificationManager) {
-			assert.Equal(t, 0, a.NotificationMinimum)
-		},
-		func(t *testing.T, anm *AdminNotificationManager) {
-			t.Run("check that we got a valid new AdminNotificationManager", func(t *testing.T) {
-				testBackupAdminNotificationManager(t, a)
-			})
-		},
-	)
 }
 
 // copy a1 and make sure that we copy by value or initialize new fields appropriately

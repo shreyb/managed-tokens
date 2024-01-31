@@ -81,8 +81,8 @@ func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationM
 		aBackup := backupAdminNotificationManager(a)
 		if err := opt(a); err != nil {
 			funcLogger.Errorf("Error running functional option")
+			a = aBackup
 		}
-		a = aBackup
 	}
 
 	// Get our previous error information for this service
