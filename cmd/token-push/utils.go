@@ -57,6 +57,7 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 	// Functional options for AdminNotificationManager
 	funcOpts := make([]notifications.AdminNotificationManagerOption, 0)
 	setNotificationMinimum := func(a *notifications.AdminNotificationManager) error {
+		exeLogger.Debug("Setting AdminNotificationManager NotificationMinimum")
 		a.NotificationMinimum = viper.GetInt("errorCountToSendMessage")
 		return nil
 	}
@@ -64,6 +65,7 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 
 	if database != nil {
 		setDB := func(a *notifications.AdminNotificationManager) error {
+			exeLogger.Debug("Setting AdminNotificationManager Database")
 			a.Database = database
 			return nil
 		}
