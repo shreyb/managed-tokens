@@ -130,10 +130,3 @@ func mapToTableData(v reflect.Value, curData [][]string, curRow []string) [][]st
 	}
 	return curData
 }
-
-// aggregateServicePushErrors takes a map[string]string of pushErrors sorted by service and creates a table from them
-func aggregateServicePushErrors(servicePushErrors map[string]string) string {
-	helpText := "The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:"
-	header := []string{"Node", "Error"}
-	return PrepareTableStringFromMap(servicePushErrors, helpText, header)
-}

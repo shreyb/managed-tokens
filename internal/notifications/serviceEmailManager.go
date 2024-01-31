@@ -25,7 +25,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 )
 
@@ -56,12 +55,18 @@ func init() {
 // ServiceEmailManager contains all the information needed to receive Notifications for services and ensure they get sent in the
 // correct email
 type ServiceEmailManager struct {
-	ReceiveChan         chan Notification
-	Service             string
-	Email               *email
-	Database            *db.ManagedTokensDatabase
-	NotificationMinimum int
-	wg                  *sync.WaitGroup
+	ReceiveChan chan Notification
+	Service     string
+	Email       *email
+	// AdminNotificationsManager is a pointer to an AdminNotificationManager that carries with it, among other things, the db.ManagedTokensDatabase
+	// that the ServiceEmailManager should read from and write to
+	*AdminNotificationManager
+	// adminNotificationChannel  is a channel on which messages can be sent to the type's AdminNotificationManager
+	adminNotificationChannel chan<- SourceNotification
+	NotificationMinimum      int
+	wg                       *sync.WaitGroup
+	trackErrorCounts         bool
+	errorCounts              *serviceErrorCounts
 }
 
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
@@ -87,23 +92,33 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		}
 	}
 
+	if em.AdminNotificationManager == nil {
+		em.AdminNotificationManager = NewAdminNotificationManager(ctx)
+	}
+
+	var err error
 	shouldTrackErrorCounts := true
-	ec, err := setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
+	em.errorCounts, err = setErrorCountsByService(ctx, em.Service, em.AdminNotificationManager.Database) // Get our previous error information for this service
 	if err != nil {
 		funcLogger.Error("Error setting error counts.  Will not track errors.")
 		shouldTrackErrorCounts = false
 	}
+	em.trackErrorCounts = shouldTrackErrorCounts
+	if em.trackErrorCounts {
+		funcLogger.Debug("Tracking Error Counts in ServiceEmailManager")
+	} else {
+		funcLogger.Debug("Not tracking Error counts in ServiceEmailManager")
+	}
 
-	adminChan := make(chan Notification)
-	startAdminErrorAdder(adminChan)
-	runServiceNotificationHandler(ctx, em, adminChan, ec, shouldTrackErrorCounts)
+	em.adminNotificationChannel = em.AdminNotificationManager.registerNotificationSource(ctx)
+	em.runServiceNotificationHandler(ctx)
 
 	return em
 }
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
-func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager, adminChan chan<- Notification, ec *serviceErrorCounts, shouldTrackErrorCounts bool) {
+func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context) {
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.runServiceNotificationHandler",
 		"service": em.Service,
@@ -113,7 +128,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 	go func() {
 		serviceErrorsTable := make(map[string]string, 0)
 		defer em.wg.Done()
-		defer close(adminChan)
+		defer close(em.adminNotificationChannel)
 		for {
 			select {
 			case <-ctx.Done():
@@ -127,8 +142,8 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 			case n, chanOpen := <-em.ReceiveChan:
 				// Channel is closed --> save errors to database and send notifications
 				if !chanOpen {
-					if shouldTrackErrorCounts {
-						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, ec); err != nil {
+					if em.trackErrorCounts {
+						if err := saveErrorCountsInDatabase(ctx, em.Service, em.Database, em.errorCounts); err != nil {
 							funcLogger.Error("Error saving new error counts in database.  Please investigate")
 						}
 					}
@@ -139,8 +154,8 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				// Channel is open: direct the message as needed
 				funcLogger.WithField("message", n.GetMessage()).Debug("Received notification message")
 				shouldSend := true
-				if shouldTrackErrorCounts {
-					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, ec, em.NotificationMinimum)
+				if em.trackErrorCounts {
+					shouldSend = adjustErrorCountsByServiceAndDirectNotification(n, em.errorCounts, em.NotificationMinimum)
 					if !shouldSend {
 						log.WithField("service", n.GetService()).Debug("Error count less than error limit.  Not sending notification")
 						continue
@@ -148,7 +163,7 @@ func runServiceNotificationHandler(ctx context.Context, em *ServiceEmailManager,
 				}
 				if shouldSend {
 					addPushErrorNotificationToServiceErrorsTable(n, serviceErrorsTable)
-					adminChan <- n
+					em.adminNotificationChannel <- SourceNotification{n}
 				}
 			}
 		}
@@ -182,7 +197,11 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 		return
 	}
 
-	tableString := aggregateServicePushErrors(serviceErrorsTable)
+	tableString := PrepareTableStringFromMap(
+		serviceErrorsTable,
+		"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
+		[]string{"Node", "Error"},
+	)
 	msg, err := prepareServiceEmail(ctx, tableString, em.Email)
 	if err != nil {
 		funcLogger.Error("Error preparing service email for sending")

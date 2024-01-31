@@ -376,38 +376,17 @@ func run(ctx context.Context) error {
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
-	var setupWg sync.WaitGroup                  // WaitGroup to keep track of concurrent setup actions
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
-
-	sendAdminNotifications := func(adminNotificationsChan chan notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
-		handleNotificationsFinalization()
-		close(adminNotificationsChan)
-		err := notifications.SendAdminNotifications(
-			ctx,
-			currentExecutable,
-			viper.GetString("templates.adminerrors"),
-			viper.GetBool("test"),
-			(*adminNotificationsPtr)...,
-		)
-		if err != nil {
-			// We don't want to halt execution at this point
-			exeLogger.Error("Error sending admin notifications")
-		}
-		return err
-	}
 
 	database, databaseErr := openDatabaseAndLoadServices()
 
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
-	adminNotifications, adminNotificationsChan := setupAdminNotifications(ctx, database)
+	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
 	if databaseErr != nil {
-		adminNotificationsChan <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
 	} else {
 		defer database.Close()
 	}
-
-	// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-	defer sendAdminNotifications(adminNotificationsChan, &adminNotifications)
 
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
@@ -424,6 +403,8 @@ func run(ctx context.Context) error {
 				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
+		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+		sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
@@ -443,30 +424,25 @@ func run(ctx context.Context) error {
 		}()
 	}
 
-	// For all services, initialize success value to false
-	initializeSuccessfulServices := make(chan string, len(services))
-	setupWg.Add(1)
-	go func() {
-		defer setupWg.Done()
-		for service := range initializeSuccessfulServices {
-			successfulServices[service] = false
-		}
-	}()
-
-	// Set up our service config collector
+	// This block launches a goroutine that listens for successfully-setup service configs (*worker.Config) objects
+	// and then populates a map of those Config objects and a map to store the overall success status of each
+	// service's token-push operations.
+	//
+	// It is synchronized by the collectServiceConfigs and serviceInitDone chans and execution of the program
+	// is blocked until the serviceInitDone chan is closed.
 	collectServiceConfigs := make(chan *worker.Config, len(services))
-	setupWg.Add(1)
+	serviceInitDone := make(chan struct{})
 	go func() {
-		defer setupWg.Done()
-		defer close(initializeSuccessfulServices)
+		defer close(serviceInitDone)
 		for serviceConfig := range collectServiceConfigs {
 			serviceName := cmdUtils.GetServiceName(serviceConfig.Service)
 			serviceConfigs[serviceName] = serviceConfig
-			initializeSuccessfulServices <- serviceName
+			successfulServices[serviceName] = false
 		}
 	}()
 
 	// Set up our serviceConfigs and load them into various collection channels
+	// Execution of this program is blocked until the serviceConfigSetupWg waitgroup reaches zero.
 	var serviceConfigSetupWg sync.WaitGroup
 	for _, s := range services {
 		serviceConfigSetupWg.Add(1)
@@ -537,12 +513,12 @@ func run(ctx context.Context) error {
 				return
 			}
 			collectServiceConfigs <- c
-			registerServiceNotificationsChan(ctx, s, database)
+			registerServiceNotificationsChan(ctx, s, admNotMgr)
 		}(s)
 	}
 	serviceConfigSetupWg.Wait()
 	close(collectServiceConfigs)
-	setupWg.Wait() // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
+	<-serviceInitDone // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
 	// Add our configured nodes to managed tokens database
 	nodesToAddToDatabase := make([]string, 0)

@@ -8,6 +8,11 @@ buildTarPath = $(ROOTDIR)/$(buildTarName).tar.gz
 SOURCEDIR = $(ROOTDIR)/$(buildTarName)
 executables = refresh-uids-from-ferry run-onboarding-managed-tokens token-push
 specfile := $(ROOTDIR)/packaging/$(NAME).spec
+ifdef RACE
+raceflag := -race
+else
+raceflag :=
+endif
 
 all: build tarball spec rpm
 .PHONY: all clean clean-all build tarball spec rpm
@@ -41,7 +46,7 @@ build:
 	for exe in $(executables); do \
 		echo "Building $$exe"; \
 		cd cmd/$$exe;\
-		go build -ldflags="-X main.buildTimestamp=$(BUILD) -X main.version=$(VERSION)";  \
+		go build $(raceflag) -ldflags="-X main.buildTimestamp=$(BUILD) -X main.version=$(VERSION)";  \
 		echo "Built $$exe"; \
 		cd $(ROOTDIR); \
 	done
