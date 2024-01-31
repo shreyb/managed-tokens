@@ -93,20 +93,12 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 	}
 
 	if em.AdminNotificationManager == nil {
-		funcOpts := make([]AdminNotificationManagerOption, 0)
-		if em.Database != nil {
-			setDB := func(a *AdminNotificationManager) error {
-				a.Database = em.Database
-				return nil
-			}
-			funcOpts = append(funcOpts, setDB)
-		}
-		em.AdminNotificationManager = NewAdminNotificationManager(ctx, funcOpts...)
+		em.AdminNotificationManager = NewAdminNotificationManager(ctx)
 	}
 
 	var err error
 	shouldTrackErrorCounts := true
-	em.errorCounts, err = setErrorCountsByService(ctx, em.Service, em.Database) // Get our previous error information for this service
+	em.errorCounts, err = setErrorCountsByService(ctx, em.Service, em.AdminNotificationManager.Database) // Get our previous error information for this service
 	if err != nil {
 		funcLogger.Error("Error setting error counts.  Will not track errors.")
 		shouldTrackErrorCounts = false
