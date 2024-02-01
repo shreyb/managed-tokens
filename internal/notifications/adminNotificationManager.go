@@ -189,6 +189,10 @@ func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Conte
 					}
 					return
 				} else {
+					funcLogger.WithFields(log.Fields{
+						"service": n.GetService(),
+						"message": n.GetMessage(),
+					}).Debug("Received notification message")
 					// Send notification to admin message aggregator
 					shouldSend := true
 					// If we got a SourceNotification, don't run any of the following checks.  Just forward it on the adminErrorChan
@@ -232,11 +236,14 @@ func (a *AdminNotificationManager) registerNotificationSource(ctx context.Contex
 	a.notificationSourceWg.Add(1)
 	go func() {
 		defer a.notificationSourceWg.Done()
-		for n := range c {
+		for {
 			select {
 			case <-ctx.Done():
 				return
-			default:
+			case n, chanOpen := <-c:
+				if !chanOpen {
+					return
+				}
 				a.receiveChan <- n
 			}
 		}
