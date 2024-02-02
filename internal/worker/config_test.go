@@ -89,6 +89,19 @@ func TestNewConfig(t *testing.T) {
 	}
 }
 
+func TestBadFunctionalOptPreserveOldState(t *testing.T) {
+	badFunctionalOpt := func(c *Config) error {
+		c.Account = "badaccount"
+		return badFunctionalOptError{"This is an error"}
+	}
+
+	s := service.NewService("test_service")
+	c, err := NewConfig(s, badFunctionalOpt)
+
+	assert.ErrorIs(t, err, badFunctionalOptError{"This is an error"})
+	assert.Equal(t, c.Account, "")
+}
+
 func TestRegisterUnpingableNode(t *testing.T) {
 	type testCase struct {
 		helptext       string

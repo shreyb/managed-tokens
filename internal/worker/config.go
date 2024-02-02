@@ -89,9 +89,11 @@ func NewConfig(service service.Service, options ...func(*Config) error) (*Config
 	c.Extras = make(map[supportedExtrasKey]any)
 
 	for _, option := range options {
+		cBackup := backupConfig(c)
 		err := option(c)
 		if err != nil {
 			log.Error(err)
+			c = cBackup
 			return c, err
 		}
 	}
