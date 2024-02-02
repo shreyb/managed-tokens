@@ -69,6 +69,8 @@ func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
 
 func TestNewServiceEmailManagerDefault(t *testing.T) {
 	var wg sync.WaitGroup
+	wg.Add(1)
+
 	service := "my_service"
 	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,6 +83,8 @@ func TestNewServiceEmailManagerDefault(t *testing.T) {
 
 func TestNewServiceEmailManagerFuncOpt(t *testing.T) {
 	var wg sync.WaitGroup
+	wg.Add(1)
+
 	service := "my_service"
 	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -97,6 +101,8 @@ func TestNewServiceEmailManagerFuncOpt(t *testing.T) {
 
 func TestNewServiceEmailManagerFuncOptError(t *testing.T) {
 	var wg sync.WaitGroup
+	wg.Add(1)
+
 	service := "my_service"
 	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
 	ctx, cancel := context.WithCancel(context.Background())
