@@ -62,11 +62,11 @@ type ServiceEmailManager struct {
 	// that the ServiceEmailManager should read from and write to
 	*AdminNotificationManager
 	// adminNotificationChannel  is a channel on which messages can be sent to the type's AdminNotificationManager
-	adminNotificationChannel chan<- SourceNotification
-	NotificationMinimum      int
-	wg                       *sync.WaitGroup
-	trackErrorCounts         bool
-	errorCounts              *serviceErrorCounts
+	adminNotificationChan chan<- SourceNotification
+	NotificationMinimum   int
+	wg                    *sync.WaitGroup
+	trackErrorCounts      bool
+	errorCounts           *serviceErrorCounts
 }
 
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
@@ -110,10 +110,27 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		funcLogger.Debug("Not tracking Error counts in ServiceEmailManager")
 	}
 
-	em.adminNotificationChannel = em.AdminNotificationManager.registerNotificationSource(ctx)
+	em.adminNotificationChan = em.AdminNotificationManager.registerNotificationSource(ctx)
 	em.runServiceNotificationHandler(ctx)
 
 	return em
+}
+
+func backupServiceEmailManager(s1 *ServiceEmailManager) *ServiceEmailManager {
+	s2 := new(ServiceEmailManager)
+
+	s2.ReceiveChan = make(chan Notification)
+	s2.adminNotificationChan = make(chan<- SourceNotification)
+
+	s2.Service = s1.Service
+	s2.Email = s1.Email
+	s2.AdminNotificationManager = s1.AdminNotificationManager
+	s2.NotificationMinimum = s1.NotificationMinimum
+	s2.wg = s1.wg
+	s2.trackErrorCounts = s1.trackErrorCounts
+	s2.errorCounts = s1.errorCounts
+
+	return s2
 }
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
@@ -128,7 +145,7 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 	go func() {
 		serviceErrorsTable := make(map[string]string, 0)
 		defer em.wg.Done()
-		defer close(em.adminNotificationChannel)
+		defer close(em.adminNotificationChan)
 		for {
 			select {
 			case <-ctx.Done():
@@ -163,7 +180,7 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 				}
 				if shouldSend {
 					addPushErrorNotificationToServiceErrorsTable(n, serviceErrorsTable)
-					em.adminNotificationChannel <- SourceNotification{n}
+					em.adminNotificationChan <- SourceNotification{n}
 				}
 			}
 		}
