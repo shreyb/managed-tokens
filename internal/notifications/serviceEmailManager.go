@@ -83,6 +83,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 
 	em := &ServiceEmailManager{
 		Service:     service,
+		Email:       e,
 		ReceiveChan: make(chan Notification),
 		wg:          wg,
 	}
