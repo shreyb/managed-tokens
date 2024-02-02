@@ -85,14 +85,14 @@ type Config struct {
 // If you then pass in foo(3), like NewConfig("my_expt", foo(3)), then Config.spam will be set to 6
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
 func NewConfig(service service.Service, options ...func(*Config) error) (*Config, error) {
-	c := Config{Service: service}
+	c := &Config{Service: service}
 	c.Extras = make(map[supportedExtrasKey]any)
 
 	for _, option := range options {
-		err := option(&c)
+		err := option(c)
 		if err != nil {
 			log.Error(err)
-			return &c, err
+			return c, err
 		}
 	}
 
@@ -103,7 +103,25 @@ func NewConfig(service service.Service, options ...func(*Config) error) (*Config
 		"experiment": c.Service.Experiment(),
 		"role":       c.Service.Role(),
 	}).Debug("Set up service worker config")
-	return &c, nil
+	return c, nil
+}
+
+func backupConfig(c1 *Config) *Config {
+	c2 := &Config{
+		Service:                        c1.Service,
+		UserPrincipal:                  c1.UserPrincipal,
+		Nodes:                          c1.Nodes,
+		Account:                        c1.Account,
+		KeytabPath:                     c1.KeytabPath,
+		ServiceCreddVaultTokenPathRoot: c1.ServiceCreddVaultTokenPathRoot,
+		DesiredUID:                     c1.DesiredUID,
+		Schedds:                        c1.Schedds,
+		VaultServer:                    c1.VaultServer,
+		Extras:                         c1.Extras,
+		CommandEnvironment:             c1.CommandEnvironment,
+		unPingableNodes:                c1.unPingableNodes,
+	}
+	return c2
 }
 
 // ServiceNameFromExperimentAndRole returns a reconstructed service name by concatenating the underlying Service.Experiment() value, "_", and
