@@ -88,8 +88,10 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		wg:          wg,
 	}
 	for _, opt := range opts {
+		emBackup := backupServiceEmailManager(em)
 		if err := opt(em); err != nil {
 			funcLogger.Errorf("Error running functional option")
+			em = emBackup
 		}
 	}
 

@@ -16,6 +16,8 @@
 package notifications
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -65,8 +67,77 @@ func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
-/* Tests:
-1. NewServiceEmailManager actually works (default, funcOpt, and bad funcOpt. The latter is where we have to implement the backup behavior)
+func TestNewServiceEmailManagerDefault(t *testing.T) {
+	var wg sync.WaitGroup
+	service := "my_service"
+	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	s := NewServiceEmailManager(ctx, &wg, service, e)
+	newServiceEmailManagerTests(t, s)
+
+}
+
+func TestNewServiceEmailManagerFuncOpt(t *testing.T) {
+	var wg sync.WaitGroup
+	service := "my_service"
+	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	s := NewServiceEmailManager(ctx, &wg, service, e,
+		ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
+			sem.NotificationMinimum = 42
+			return nil
+		},
+		))
+	newServiceEmailManagerTests(t, s, func(t *testing.T, sem *ServiceEmailManager) { assert.Equal(t, 42, sem.NotificationMinimum) })
+}
+
+func TestNewServiceEmailManagerFuncOptError(t *testing.T) {
+	var wg sync.WaitGroup
+	service := "my_service"
+	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	s := NewServiceEmailManager(ctx, &wg, service, e,
+		ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
+			sem.NotificationMinimum = 42
+			return errors.New("This is an error")
+		},
+		))
+	newServiceEmailManagerTests(t, s,
+		func(t *testing.T, sem *ServiceEmailManager) {
+			t.Run("Test that the effect of our funcOpt got rolled back", func(t *testing.T) {
+				assert.Equal(t, 0, sem.NotificationMinimum)
+			})
+		},
+		func(t *testing.T, sem *ServiceEmailManager) {
+			t.Run("Test that our backed up ServiceEmailManager is valid", func(t *testing.T) {
+				newServiceEmailManagerTests(t, sem)
+			})
+		},
+	)
+}
+
+func newServiceEmailManagerTests(t *testing.T, s *ServiceEmailManager, extraTests ...func(*testing.T, *ServiceEmailManager)) {
+	assert.Equal(t, "my_service", s.Service)
+	assert.NotNil(t, s.ReceiveChan)
+	assert.NotNil(t, s.Email)
+	assert.NotNil(t, s.AdminNotificationManager)
+	assert.NotNil(t, s.adminNotificationChan)
+	assert.NotNil(t, s.wg)
+	assert.False(t, s.trackErrorCounts)
+	assert.Nil(t, s.errorCounts)
+
+	for _, extraTest := range extraTests {
+		extraTest(t, s)
+	}
+}
+
+/* Tests needed:
 2. runServiceNotificationHandler
 3.addPushErrorNotificationToServiceErrorsTable
 4. sendServiceEmailIfErrors with mocked email?
