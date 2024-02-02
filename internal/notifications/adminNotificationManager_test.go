@@ -30,29 +30,35 @@ import (
 )
 
 func TestNewAdminNotificationManagerDefault(t *testing.T) {
-	a := NewAdminNotificationManager(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+	a := NewAdminNotificationManager(ctx)
 	newAdminNotificationManagerTests(t, a, func(t *testing.T, anm *AdminNotificationManager) {
 		assert.Equal(t, 0, a.NotificationMinimum)
 	})
 }
 
 func TestNewAdminNotificationManagerFuncOpt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
 	funcOpt := AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
 		anm.NotificationMinimum = 42
 		return nil
 	})
-	a := NewAdminNotificationManager(context.Background(), funcOpt)
+	a := NewAdminNotificationManager(ctx, funcOpt)
 	newAdminNotificationManagerTests(t, a, func(t *testing.T, anm *AdminNotificationManager) {
 		assert.Equal(t, 42, a.NotificationMinimum)
 	})
 }
 
 func TestNewAdminNotificationManagerFuncOptWithError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
 	funcOpt := AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
 		anm.NotificationMinimum = 42
 		return errors.New("This is an error")
 	})
-	a := NewAdminNotificationManager(context.Background(), funcOpt)
+	a := NewAdminNotificationManager(ctx, funcOpt)
 	newAdminNotificationManagerTests(t, a,
 		func(t *testing.T, anm *AdminNotificationManager) {
 			t.Run(
@@ -62,16 +68,12 @@ func TestNewAdminNotificationManagerFuncOptWithError(t *testing.T) {
 		},
 		func(t *testing.T, anm *AdminNotificationManager) {
 			t.Run("check that we got a valid new AdminNotificationManager", func(t *testing.T) {
-				testBackupAdminNotificationManager(t, a)
+				newAdminNotificationManagerTests(t, a)
 			})
 		},
 	)
 }
 func newAdminNotificationManagerTests(t *testing.T, a *AdminNotificationManager, extraTests ...func(*testing.T, *AdminNotificationManager)) {
-	t.Cleanup(func() {
-		close(a.receiveChan)
-	})
-
 	assert.Nil(t, a.Database)
 	assert.True(t, a.DatabaseReadOnly)
 	assert.False(t, a.TrackErrorCounts)
