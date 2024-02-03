@@ -19,30 +19,33 @@ package notifications
 // of the ServiceEmailManager
 // For example:
 //
-//	 f := func(a *ServiceEmailManager) error {
-//		  a.NotificationMinimum = 42
-//	   return nil
-//	 }
-//	 manager := NewServiceEmailManager(context.Background, f)
+// var wg sync.WaitGroup
+//
+//	f := func(a *ServiceEmailManager) error {
+//		 a.NotificationMinimum = 42
+//		 return nil
+//	}
+//
+// manager := NewServiceEmailManager(context.Background(), &wg, e, f)
 type ServiceEmailManagerOption func(*ServiceEmailManager) error
 
 // Note that we don't provide a helper func for setting Service and Email, as those should be passed as arguments directly to NewServiceEmailManager
 
-func SetReceiveChan(s *ServiceEmailManager, c chan Notification) ServiceEmailManagerOption {
+func SetReceiveChan(c chan Notification) ServiceEmailManagerOption {
 	return ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
 		sem.ReceiveChan = c
 		return nil
 	})
 }
 
-func SetAdminNotificationManager(s *ServiceEmailManager, a *AdminNotificationManager) ServiceEmailManagerOption {
+func SetAdminNotificationManager(a *AdminNotificationManager) ServiceEmailManagerOption {
 	return ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
 		sem.AdminNotificationManager = a
 		return nil
 	})
 }
 
-func SetServiceEmailManagerNotificationMinimum(s *ServiceEmailManager, notificationMinimum int) ServiceEmailManagerOption {
+func SetServiceEmailManagerNotificationMinimum(notificationMinimum int) ServiceEmailManagerOption {
 	return ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
 		sem.NotificationMinimum = notificationMinimum
 		return nil

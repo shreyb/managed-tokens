@@ -33,7 +33,7 @@ func TestSetDatabaseOption(t *testing.T) {
 	if err != nil {
 		t.Fatal("Could not create database for testing")
 	}
-	funcOpt := SetAdminNotificationManagerDatabase(a, database)
+	funcOpt := SetAdminNotificationManagerDatabase(database)
 	funcOpt(a)
 	assert.Equal(t, database, a.Database)
 }
@@ -41,21 +41,21 @@ func TestSetDatabaseOption(t *testing.T) {
 func TestSetAdminNotificationManagerNotificationMinimum(t *testing.T) {
 	a := new(AdminNotificationManager)
 	notificationMinimum := 42
-	funcOpt := SetAdminNotificationManagerNotificationMinimum(a, notificationMinimum)
+	funcOpt := SetAdminNotificationManagerNotificationMinimum(notificationMinimum)
 	funcOpt(a)
 	assert.Equal(t, notificationMinimum, a.NotificationMinimum)
 }
 
 func TestSetTrackErrorCountsToTrue(t *testing.T) {
 	a := new(AdminNotificationManager)
-	funcOpt := SetTrackErrorCountsToTrue(a)
+	funcOpt := SetTrackErrorCountsToTrue()
 	funcOpt(a)
 	assert.True(t, a.TrackErrorCounts)
 }
 
 func TestSetDatabaseReadOnlyToTrue(t *testing.T) {
 	a := new(AdminNotificationManager)
-	funcOpt := SetDatabaseReadOnlyToTrue(a)
+	funcOpt := SetDatabaseReadOnlyToTrue()
 	funcOpt(a)
 	assert.True(t, a.DatabaseReadOnly)
 }

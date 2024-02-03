@@ -24,7 +24,7 @@ import (
 func TestSetReceiveChan(t *testing.T) {
 	s := new(ServiceEmailManager)
 	c := make(chan Notification)
-	funcOpt := SetReceiveChan(s, c)
+	funcOpt := SetReceiveChan(c)
 	funcOpt(s)
 	assert.Equal(t, c, s.ReceiveChan)
 }
@@ -32,7 +32,7 @@ func TestSetReceiveChan(t *testing.T) {
 func TestSetAdminNotificationManager(t *testing.T) {
 	s := new(ServiceEmailManager)
 	a := new(AdminNotificationManager)
-	funcOpt := SetAdminNotificationManager(s, a)
+	funcOpt := SetAdminNotificationManager(a)
 	funcOpt(s)
 	assert.Equal(t, a, s.AdminNotificationManager)
 
@@ -41,7 +41,7 @@ func TestSetAdminNotificationManager(t *testing.T) {
 func TestSetServiceEmailManagerNotificationMinimum(t *testing.T) {
 	s := new(ServiceEmailManager)
 	n := 42
-	funcOpt := SetServiceEmailManagerNotificationMinimum(s, n)
+	funcOpt := SetServiceEmailManagerNotificationMinimum(n)
 	funcOpt(s)
 	assert.Equal(t, n, s.NotificationMinimum)
 }

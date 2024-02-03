@@ -28,35 +28,35 @@ import "github.com/fermitools/managed-tokens/internal/db"
 //		  a.DatabaseReadOnly = false
 //	   return nil
 //	 }
-//	 manager := NewAdminNotificationManager(context.Background, f, g)
+//	 manager := NewAdminNotificationManager(context.Background(), f, g)
 type AdminNotificationManagerOption func(*AdminNotificationManager) error
 
 // These are the defined AdminNotificationManagerOptions that should be used as the arguments to NewAdminNotificationManager
 
-func SetAdminNotificationManagerDatabase(a *AdminNotificationManager, database *db.ManagedTokensDatabase) AdminNotificationManagerOption {
+func SetAdminNotificationManagerDatabase(database *db.ManagedTokensDatabase) AdminNotificationManagerOption {
 	return AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
-		a.Database = database
+		anm.Database = database
 		return nil
 	})
 }
 
-func SetAdminNotificationManagerNotificationMinimum(a *AdminNotificationManager, notificationMinimum int) AdminNotificationManagerOption {
+func SetAdminNotificationManagerNotificationMinimum(notificationMinimum int) AdminNotificationManagerOption {
 	return AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
-		a.NotificationMinimum = notificationMinimum
+		anm.NotificationMinimum = notificationMinimum
 		return nil
 	})
 }
 
-func SetTrackErrorCountsToTrue(a *AdminNotificationManager) AdminNotificationManagerOption {
+func SetTrackErrorCountsToTrue() AdminNotificationManagerOption {
 	return AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
-		a.TrackErrorCounts = true
+		anm.TrackErrorCounts = true
 		return nil
 	})
 }
 
-func SetDatabaseReadOnlyToTrue(a *AdminNotificationManager) AdminNotificationManagerOption {
+func SetDatabaseReadOnlyToTrue() AdminNotificationManagerOption {
 	return AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
-		a.DatabaseReadOnly = true
+		anm.DatabaseReadOnly = true
 		return nil
 	})
 }
