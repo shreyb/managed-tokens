@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSetDatabaseOption(t *testing.T) {
+func TestAllAdminNotificationManagerOptions(t *testing.T) {
 	a := new(AdminNotificationManager)
 	tempDir := t.TempDir()
 	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
@@ -33,29 +33,58 @@ func TestSetDatabaseOption(t *testing.T) {
 	if err != nil {
 		t.Fatal("Could not create database for testing")
 	}
-	funcOpt := SetAdminNotificationManagerDatabase(database)
-	funcOpt(a)
-	assert.Equal(t, database, a.Database)
-}
 
-func TestSetAdminNotificationManagerNotificationMinimum(t *testing.T) {
-	a := new(AdminNotificationManager)
-	notificationMinimum := 42
-	funcOpt := SetAdminNotificationManagerNotificationMinimum(notificationMinimum)
-	funcOpt(a)
-	assert.Equal(t, notificationMinimum, a.NotificationMinimum)
-}
+	type testCase struct {
+		description   string
+		funcOptSetup  func() AdminNotificationManagerOption // Get us our test AdminNotificationManagerOption to apply to a
+		expectedValue any
+		testValueFunc func() any // The return value of this func is the value we're testing
+	}
 
-func TestSetTrackErrorCountsToTrue(t *testing.T) {
-	a := new(AdminNotificationManager)
-	funcOpt := SetTrackErrorCountsToTrue()
-	funcOpt(a)
-	assert.True(t, a.TrackErrorCounts)
-}
+	testCases := []testCase{
+		{
+			"SetDatabaseOption",
+			func() AdminNotificationManagerOption {
+				return SetAdminNotificationManagerDatabase(database)
+			},
+			database,
+			func() any { return a.Database },
+		},
+		{
+			"TestSetAdminNotificationManagerNotificationMinimum",
+			func() AdminNotificationManagerOption {
+				notificationMinimum := 42
+				return SetAdminNotificationManagerNotificationMinimum(notificationMinimum)
+			},
+			42,
+			func() any { return a.NotificationMinimum },
+		},
+		{
+			"TestSetTrackErrorCountsToTrue",
+			func() AdminNotificationManagerOption {
+				return SetTrackErrorCountsToTrue()
+			},
+			true,
+			func() any { return a.TrackErrorCounts },
+		},
+		{
+			"TestSetDatabaseReadOnlyToTrue",
+			func() AdminNotificationManagerOption {
+				return SetDatabaseReadOnlyToTrue()
+			},
+			true,
+			func() any { return a.DatabaseReadOnly },
+		},
+	}
 
-func TestSetDatabaseReadOnlyToTrue(t *testing.T) {
-	a := new(AdminNotificationManager)
-	funcOpt := SetDatabaseReadOnlyToTrue()
-	funcOpt(a)
-	assert.True(t, a.DatabaseReadOnly)
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				funcOpt := test.funcOptSetup()
+				funcOpt(a)
+				assert.Equal(t, test.expectedValue, test.testValueFunc())
+			},
+		)
+	}
 }
