@@ -21,27 +21,54 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSetReceiveChan(t *testing.T) {
+func TestAllServiceEmailManagerOptions(t *testing.T) {
 	s := new(ServiceEmailManager)
 	c := make(chan Notification)
-	funcOpt := SetReceiveChan(c)
-	funcOpt(s)
-	assert.Equal(t, c, s.ReceiveChan)
-}
-
-func TestSetAdminNotificationManager(t *testing.T) {
-	s := new(ServiceEmailManager)
 	a := new(AdminNotificationManager)
-	funcOpt := SetAdminNotificationManager(a)
-	funcOpt(s)
-	assert.Equal(t, a, s.AdminNotificationManager)
 
-}
+	type testCase struct {
+		description   string
+		funcOptSetup  func() ServiceEmailManagerOption // Get us our test ServiceEmailManagerOption to apply to s
+		expectedValue any
+		testValueFunc func() any // The return value of this func is the value we're testing
+	}
 
-func TestSetServiceEmailManagerNotificationMinimum(t *testing.T) {
-	s := new(ServiceEmailManager)
-	n := 42
-	funcOpt := SetServiceEmailManagerNotificationMinimum(n)
-	funcOpt(s)
-	assert.Equal(t, n, s.NotificationMinimum)
+	testCases := []testCase{
+		{
+			"TestSetReceiveChan",
+			func() ServiceEmailManagerOption {
+				return SetReceiveChan(c)
+			},
+			c,
+			func() any { return s.ReceiveChan },
+		},
+		{
+			"TestSetAdminNotificationManager",
+			func() ServiceEmailManagerOption {
+				return SetAdminNotificationManager(a)
+			},
+			a,
+			func() any { return s.AdminNotificationManager },
+		},
+		{
+			"TestSetServiceEmailManagerNotificationMinimum",
+			func() ServiceEmailManagerOption {
+				n := 42
+				return SetServiceEmailManagerNotificationMinimum(n)
+			},
+			42,
+			func() any { return s.NotificationMinimum },
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				funcOpt := test.funcOptSetup()
+				funcOpt(s)
+				assert.Equal(t, test.expectedValue, test.testValueFunc())
+			},
+		)
+	}
 }
