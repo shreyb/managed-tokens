@@ -46,13 +46,13 @@ func functionalOptBad(*Config) error {
 func TestNewConfig(t *testing.T) {
 	type testCase struct {
 		description    string
-		functionalOpts []func(*Config) error
+		functionalOpts []ConfigOption
 		expectedError  error
 	}
 	testCases := []testCase{
 		{
 			description: "New service.Config with only good functional opts",
-			functionalOpts: []func(*Config) error{
+			functionalOpts: []ConfigOption{
 				functionalOptGood,
 				functionalOptGood,
 			},
@@ -60,7 +60,7 @@ func TestNewConfig(t *testing.T) {
 		},
 		{
 			description: "New service.Config with only bad functional opts",
-			functionalOpts: []func(*Config) error{
+			functionalOpts: []ConfigOption{
 				functionalOptBad,
 				functionalOptBad,
 			},
@@ -68,7 +68,7 @@ func TestNewConfig(t *testing.T) {
 		},
 		{
 			description: "New service.Config with a mix of good and bad functional opts",
-			functionalOpts: []func(*Config) error{
+			functionalOpts: []ConfigOption{
 				functionalOptGood,
 				functionalOptBad,
 			},

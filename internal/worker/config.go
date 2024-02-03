@@ -84,7 +84,7 @@ type Config struct {
 //
 // If you then pass in foo(3), like NewConfig("my_expt", foo(3)), then Config.spam will be set to 6
 // Borrowed heavily from https://cdcvs.fnal.gov/redmine/projects/discompsupp/repository/ken_proxy_push/revisions/master/entry/utils/experimentConfig.go
-func NewConfig(service service.Service, options ...func(*Config) error) (*Config, error) {
+func NewConfig(service service.Service, options ...ConfigOption) (*Config, error) {
 	c := &Config{Service: service}
 	c.Extras = make(map[supportedExtrasKey]any)
 
