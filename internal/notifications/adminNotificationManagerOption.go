@@ -40,7 +40,7 @@ func SetAdminNotificationManagerDatabase(a *AdminNotificationManager, database *
 	})
 }
 
-func SetNotificationMinimum(a *AdminNotificationManager, notificationMinimum int) AdminNotificationManagerOption {
+func SetAdminNotificationManagerNotificationMinimum(a *AdminNotificationManager, notificationMinimum int) AdminNotificationManagerOption {
 	return AdminNotificationManagerOption(func(anm *AdminNotificationManager) error {
 		a.NotificationMinimum = notificationMinimum
 		return nil

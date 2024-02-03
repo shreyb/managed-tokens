@@ -69,8 +69,6 @@ type ServiceEmailManager struct {
 	errorCounts           *serviceErrorCounts
 }
 
-type ServiceEmailManagerOption func(*ServiceEmailManager) error
-
 // NewServiceEmailManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification, and when EmailManager is closed, will send emails.  Set up the ManagedTokensDatabase and
 // the NotificationMinimum via EmailManagerOptions passed in.  If a ManagedTokensDatabase is not passed in via an EmailManagerOption,

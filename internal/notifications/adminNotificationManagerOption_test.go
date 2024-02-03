@@ -38,10 +38,10 @@ func TestSetDatabaseOption(t *testing.T) {
 	assert.Equal(t, database, a.Database)
 }
 
-func TestSetNotificationMinimum(t *testing.T) {
+func TestSetAdminNotificationManagerNotificationMinimum(t *testing.T) {
 	a := new(AdminNotificationManager)
 	notificationMinimum := 42
-	funcOpt := SetNotificationMinimum(a, notificationMinimum)
+	funcOpt := SetAdminNotificationManagerNotificationMinimum(a, notificationMinimum)
 	funcOpt(a)
 	assert.Equal(t, notificationMinimum, a.NotificationMinimum)
 }
@@ -59,25 +59,3 @@ func TestSetDatabaseReadOnlyToTrue(t *testing.T) {
 	funcOpt(a)
 	assert.True(t, a.DatabaseReadOnly)
 }
-
-// type AdminNotificationManager struct {
-// 	DatabaseReadOnly bool
-// 	notificationSourceWg sync.WaitGroup
-// 	adminErrorChan chan Notification
-// 	allServiceCounts map[string]*serviceErrorCounts
-// }
-
-// AdminNotificationManagerOption is a functional option that should be used as an argument to NewAdminNotificationManager to set various fields
-// of the AdminNotificationManager
-// For example:
-//
-//	 f := func(a *AdminNotificationManager) error {
-//		  a.NotificationMinimum = 42
-//	   return nil
-//	 }
-//	 g := func(a *AdminNotificationManager) error {
-//		  a.DatabaseReadOnly = false
-//	   return nil
-//	 }
-//	 manager := NewAdminNotificationManager(context.Background, f, g)
-// type AdminNotificationManagerOption func(*AdminNotificationManager) error
