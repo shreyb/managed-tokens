@@ -1,12 +1,14 @@
 Name:           managed-tokens
 Version:        0.11.1
-Release:        1
+Release:        1%{?dist}
 Summary:        Utility to obtain Hashicorp vault (service) tokens from service kerberos principals and distribute them to experiment nodes
 
 Group:          Applications/System
 License:        Fermitools Software Legal Information (Modified BSD License)
 URL:            TODO
 Source0:        %{name}-%{version}.tar.gz
+
+%global debug_package %{nil}
 
 BuildRoot:      %(mktemp -ud %{_tmppath}/%{name}-%{version}-XXXXXX)
 BuildArch:      x86_64
@@ -84,18 +86,21 @@ install -d %{_sharedstatedir}/%{name}/service-credd-vault-tokens -m 0774 -o rexb
 }
 
 %changelog
+* Thu Oct 26 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.12
+- Added debug_package nil directive
+- Added dist macro to RPM release definition
+
 * Thu Oct 26 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.11
-Added directory for service-credd vault tokens at /var/lib/managed-tokens/service-credd-vault-tokens
+- Added directory for service-credd vault tokens at /var/lib/managed-tokens/service-credd-vault-tokens
 
 * Mon Aug 14 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.8
-Added condor_credmon_vault as dependency
+- Added condor_credmon_vault as dependency
 
 * Thu Jun 08 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.8
-Remove templates from spec file - they are now being embedded
-in the binaries
+- Remove templates from spec file - they are now being embedded in the binaries
 
 * Wed Sep 07 2022 Shreyas Bhat <sbhat@fnal.gov> - 0.2.1
-Change owner of /etc/managed-tokens dir
+- Change owner of /etc/managed-tokens dir
 
 * Mon Aug 29 2022 Shreyas Bhat <sbhat@fnal.gov> - 0.1.0
-First version of the managed tokens RPM
+- First version of the managed tokens RPM
