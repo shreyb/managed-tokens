@@ -57,7 +57,7 @@ func init() {
 type ServiceEmailManager struct {
 	ReceiveChan chan Notification
 	Service     string
-	Email       *email
+	Email       SendMessager
 	// AdminNotificationsManager is a pointer to an AdminNotificationManager that carries with it, among other things, the db.ManagedTokensDatabase
 	// that the ServiceEmailManager should read from and write to
 	*AdminNotificationManager
@@ -220,7 +220,7 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 		"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
 		[]string{"Node", "Error"},
 	)
-	msg, err := prepareServiceEmail(ctx, tableString, em.Email)
+	msg, err := prepareServiceEmail(ctx, tableString)
 	if err != nil {
 		funcLogger.Error("Error preparing service email for sending")
 	}
@@ -240,7 +240,7 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 
 // prepareServiceEmail sets a passed-in email object's templateStruct field to the passed in errorTable, and returns a string that contains
 // email text according to the passed in errorTable and the email object's templatePath
-func prepareServiceEmail(ctx context.Context, errorTable string, e *email) (string, error) {
+func prepareServiceEmail(ctx context.Context, errorTable string) (string, error) {
 	timestamp := time.Now().Format(time.RFC822)
 	templateStruct := struct {
 		Timestamp  string

@@ -25,12 +25,67 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-/* Tests needed:
-2. runServiceNotificationHandler
+/*  TODO Tests needed:
+2. runServiceNotificationHandler -
+2c. Normal operation, errors
 3.addPushErrorNotificationToServiceErrorsTable
 4. sendServiceEmailIfErrors with mocked email?
 5. prepareServiceEmail
 */
+
+func TestRunServiceNotificationHandlerContextExpired(t *testing.T) {
+	s := setupServiceEmailManagerForHandlerTest()
+	t.Cleanup(func() { close(s.ReceiveChan) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	returned := make(chan struct{})
+
+	s.wg.Add(1)
+	s.runServiceNotificationHandler(ctx)
+
+	// Cancel our context, and indicate when runAdminNotificationHandler has returned
+	go func() {
+		cancel()
+		s.wg.Wait()
+		close(returned)
+	}()
+
+	// receiveChan should be open, and return should be closed
+	assert.Eventually(t, func() bool {
+		select {
+		case <-returned:
+			return true
+		case <-s.ReceiveChan:
+			t.Fatal("Context was canceled - s.ReceiveChan should be open and no values sent on this channel")
+		}
+		return false
+	}, 10*time.Second, 10*time.Millisecond)
+
+}
+
+func TestRunServiceNotificationHandlerNoErrors(t *testing.T) {
+	s := setupServiceEmailManagerForHandlerTest()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(func() { cancel() })
+	returned := make(chan struct{})
+
+	go func() {
+		close(s.ReceiveChan)
+		s.wg.Wait()
+		close(returned)
+	}()
+
+	s.wg.Add(1)
+	s.runServiceNotificationHandler(ctx)
+
+	// Since there were no errors, we should just exit cleanly without sending emails
+	select {
+	case <-returned:
+	case <-ctx.Done():
+		t.Fatal("Context timed out.  The function should have returned normally")
+	}
+}
 
 func TestNewServiceEmailManagerDefault(t *testing.T) {
 	var wg sync.WaitGroup
@@ -147,4 +202,23 @@ func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
 		chanVal := <-s2.ReceiveChan
 		return assert.Equal(t, "this is a test message", chanVal.GetMessage())
 	}, 10*time.Second, 10*time.Millisecond)
+}
+
+type fakeEmail struct{}
+
+func (f *fakeEmail) sendMessage(ctx context.Context, message string) error {
+	return nil
+}
+
+func setupServiceEmailManagerForHandlerTest() *ServiceEmailManager {
+	s := &ServiceEmailManager{
+		NotificationMinimum: 2,
+		Service:             "myservice",
+		Email:               &fakeEmail{},
+	}
+	s.ReceiveChan = make(chan Notification)
+	s.wg = new(sync.WaitGroup)
+	s.errorCounts = &serviceErrorCounts{pushErrors: make(map[string]errorCount)}
+	s.adminNotificationChan = make(chan<- SourceNotification)
+	return s
 }
