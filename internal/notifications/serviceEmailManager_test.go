@@ -26,15 +26,13 @@ import (
 )
 
 /*  TODO Tests needed:
-2. runServiceNotificationHandler -
-2c. Normal operation, errors
 3.addPushErrorNotificationToServiceErrorsTable
 4. sendServiceEmailIfErrors with mocked email?
 5. prepareServiceEmail
 */
 
 func TestRunServiceNotificationHandlerContextExpired(t *testing.T) {
-	s := setupServiceEmailManagerForHandlerTest()
+	s, _ := setupServiceEmailManagerForHandlerTest()
 	t.Cleanup(func() { close(s.ReceiveChan) })
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -64,9 +62,9 @@ func TestRunServiceNotificationHandlerContextExpired(t *testing.T) {
 }
 
 func TestRunServiceNotificationHandlerNoErrors(t *testing.T) {
-	s := setupServiceEmailManagerForHandlerTest()
+	s, _ := setupServiceEmailManagerForHandlerTest()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(func() { cancel() })
 	returned := make(chan struct{})
 
@@ -79,11 +77,134 @@ func TestRunServiceNotificationHandlerNoErrors(t *testing.T) {
 	s.wg.Add(1)
 	s.runServiceNotificationHandler(ctx)
 
+	f, ok := s.Email.(*fakeEmail)
+	if !ok {
+		t.Fatal("Used wrong type for fake SendMessager object")
+	}
+
 	// Since there were no errors, we should just exit cleanly without sending emails
 	select {
 	case <-returned:
 	case <-ctx.Done():
 		t.Fatal("Context timed out.  The function should have returned normally")
+	case <-f.sentMessage:
+		t.Fatal("Should not have sent any email here")
+	}
+}
+
+func TestRunServiceNotificationHandlerWithSetupError(t *testing.T) {
+	s, c := setupServiceEmailManagerForHandlerTest()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(func() { cancel() })
+	returned := make(chan struct{})
+
+	// Drain the fake adminNotificationChan c
+	go func() {
+		for range c {
+		}
+	}()
+
+	go func() {
+		s.wg.Wait()
+		close(returned)
+	}()
+
+	s.wg.Add(1)
+	s.runServiceNotificationHandler(ctx)
+
+	go func() {
+		s.ReceiveChan <- NewSetupError("This is a setup error", "myservice")
+		close(s.ReceiveChan)
+	}()
+
+	f, ok := s.Email.(*fakeEmail)
+	if !ok {
+		t.Fatal("Used wrong type for fake SendMessager object")
+	}
+
+	// Since there were no push errors, we should just exit cleanly without sending emails
+	select {
+	case <-returned:
+	case <-ctx.Done():
+		t.Fatal("Context timed out.  The function should have returned normally")
+	case <-f.sentMessage:
+		t.Fatal("Should not have sent any email here - we only sent a SetupError")
+	}
+}
+
+func TestRunServiceNotificationHandlerWithPushError(t *testing.T) {
+	s, c := setupServiceEmailManagerForHandlerTest()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(func() { cancel() })
+
+	// Drain the fake adminNotificationChan c
+	go func() {
+		for range c {
+		}
+	}()
+
+	s.wg.Add(1)
+	s.runServiceNotificationHandler(ctx)
+
+	go func() {
+		s.ReceiveChan <- NewPushError("This is a push error", "myservice", "mynode")
+		close(s.ReceiveChan)
+	}()
+
+	f, ok := s.Email.(*fakeEmail)
+	if !ok {
+		t.Fatal("Used wrong type for fake SendMessager object")
+	}
+
+	// Since there were no push errors, we should just exit cleanly without sending emails
+	select {
+	case <-ctx.Done():
+		t.Fatal("Context timed out.  The function should have returned normally")
+	case <-f.sentMessage:
+		assert.Eventually(t, func() bool {
+			s.wg.Wait()
+			return true
+		}, 10*time.Second, 10*time.Millisecond)
+	}
+}
+
+func TestRunServiceNotificationHandlerWithBothErrors(t *testing.T) {
+	s, c := setupServiceEmailManagerForHandlerTest()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(func() { cancel() })
+
+	// Drain the fake adminNotificationChan c
+	go func() {
+		for range c {
+		}
+	}()
+
+	s.wg.Add(1)
+	s.runServiceNotificationHandler(ctx)
+
+	go func() {
+		s.ReceiveChan <- NewSetupError("This is a setup error", "myservice")
+		s.ReceiveChan <- NewPushError("This is a setup error", "myservice", "mynode")
+		close(s.ReceiveChan)
+	}()
+
+	f, ok := s.Email.(*fakeEmail)
+	if !ok {
+		t.Fatal("Used wrong type for fake SendMessager object")
+	}
+
+	// Since there were no push errors, we should just exit cleanly without sending emails
+	select {
+	case <-ctx.Done():
+		t.Fatal("Context timed out.  The function should have returned normally")
+	case <-f.sentMessage:
+		assert.Eventually(t, func() bool {
+			s.wg.Wait()
+			return true
+		}, 10*time.Second, 10*time.Millisecond)
 	}
 }
 
@@ -204,21 +325,39 @@ func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
-type fakeEmail struct{}
+type fakeEmail struct {
+	sentMessage chan struct{}
+}
 
 func (f *fakeEmail) sendMessage(ctx context.Context, message string) error {
+	close(f.sentMessage)
 	return nil
 }
 
-func setupServiceEmailManagerForHandlerTest() *ServiceEmailManager {
-	s := &ServiceEmailManager{
+// This function returns a *ServiceEmailManager that is ready for testing (s), along with a chan SourceNotification (fakeAdminNotificationChan)
+// In most cases during testing, the caller will need to drain or otherwise start up a goroutine that listens on fakeAdminNotificationChan,
+// otherwise the serviceNotificationHandler will be blocked on trying to send on fakeAdminNotificationHandler.  This can be accomplished
+// by doing the following before the handler is started:
+//
+//	s, c := setupServiceEmailManagerForHandlerTest()
+//	// Drain the fake adminNotificationChan c
+//	go func() {
+//		for range c {
+//		}
+//	}()
+//	go sendValuesOnSReceiveChan()
+//	s.runServiceNotificationHandler(ctx)
+func setupServiceEmailManagerForHandlerTest() (s *ServiceEmailManager, fakeAdminNotificationChan chan SourceNotification) {
+	s = &ServiceEmailManager{
 		NotificationMinimum: 2,
 		Service:             "myservice",
-		Email:               &fakeEmail{},
+		Email:               &fakeEmail{make(chan struct{})},
 	}
 	s.ReceiveChan = make(chan Notification)
 	s.wg = new(sync.WaitGroup)
 	s.errorCounts = &serviceErrorCounts{pushErrors: make(map[string]errorCount)}
-	s.adminNotificationChan = make(chan<- SourceNotification)
-	return s
+
+	c := make(chan SourceNotification)
+	s.adminNotificationChan = c
+	return s, c
 }
