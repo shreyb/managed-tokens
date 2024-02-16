@@ -25,12 +25,134 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-/*  TODO Tests needed:
-3.addPushErrorNotificationToServiceErrorsTable
-4. sendServiceEmailIfErrors with mocked email?
-5. prepareServiceEmail
-*/
+// ServiceEmailManager tests
+func TestNewServiceEmailManagerDefault(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
 
+	service := "my_service"
+	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	s := NewServiceEmailManager(ctx, &wg, service, e)
+	newServiceEmailManagerTests(t, s)
+
+}
+
+func TestNewServiceEmailManagerFuncOpt(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	service := "my_service"
+	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	s := NewServiceEmailManager(ctx, &wg, service, e,
+		ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
+			sem.NotificationMinimum = 42
+			return nil
+		},
+		))
+	newServiceEmailManagerTests(t, s, func(t *testing.T, sem *ServiceEmailManager) { assert.Equal(t, 42, sem.NotificationMinimum) })
+}
+
+func TestNewServiceEmailManagerFuncOptError(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	service := "my_service"
+	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel() })
+
+	s := NewServiceEmailManager(ctx, &wg, service, e,
+		ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
+			sem.NotificationMinimum = 42
+			return errors.New("This is an error")
+		},
+		))
+	newServiceEmailManagerTests(t, s,
+		func(t *testing.T, sem *ServiceEmailManager) {
+			t.Run("Test that the effect of our funcOpt got rolled back", func(t *testing.T) {
+				assert.Equal(t, 0, sem.NotificationMinimum)
+			})
+		},
+		func(t *testing.T, sem *ServiceEmailManager) {
+			t.Run("Test that our backed up ServiceEmailManager is valid", func(t *testing.T) {
+				newServiceEmailManagerTests(t, sem)
+			})
+		},
+	)
+}
+
+func newServiceEmailManagerTests(t *testing.T, s *ServiceEmailManager, extraTests ...func(*testing.T, *ServiceEmailManager)) {
+	assert.Equal(t, "my_service", s.Service)
+	assert.NotNil(t, s.ReceiveChan)
+	assert.NotNil(t, s.Email)
+	assert.NotNil(t, s.AdminNotificationManager)
+	assert.NotNil(t, s.adminNotificationChan)
+	assert.NotNil(t, s.wg)
+	assert.False(t, s.trackErrorCounts)
+	assert.Nil(t, s.errorCounts)
+
+	for _, extraTest := range extraTests {
+		extraTest(t, s)
+	}
+}
+func TestBackupServiceEmailManager(t *testing.T) {
+	s := new(ServiceEmailManager)
+	s.Service = "test_service"
+	s.Email = NewEmail("from_test", []string{"to1", "to2"}, "test_subject", "smtpHost", 12345)
+	s.AdminNotificationManager = new(AdminNotificationManager)
+	s.AdminNotificationManager.TrackErrorCounts = true // Note that this is a misconfiguration, but it's just there to make sure we carry the value in the backup copy
+	s.NotificationMinimum = 42
+	s.wg = &sync.WaitGroup{}
+	s.trackErrorCounts = true
+	s.errorCounts = &serviceErrorCounts{setupErrors: errorCount{4, true}}
+	testBackupServiceEmailManager(t, s)
+}
+
+func TestBackupServiceEmailManagerNilPointers(t *testing.T) {
+	s := new(ServiceEmailManager)
+	testBackupServiceEmailManager(t, s)
+}
+
+func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
+	s2 := backupServiceEmailManager(s1)
+
+	assert.Equal(t, s1.Service, s2.Service)
+	assert.Equal(t, s1.Email, s2.Email)
+	assert.Equal(t, s1.AdminNotificationManager, s2.AdminNotificationManager)
+	assert.Equal(t, s1.NotificationMinimum, s2.NotificationMinimum)
+	assert.Equal(t, s1.wg, s2.wg)
+	assert.Equal(t, s1.trackErrorCounts, s2.trackErrorCounts)
+	assert.Equal(t, s1.errorCounts, s2.errorCounts)
+
+	assert.NotNil(t, s2.adminNotificationChan)
+
+	// Check that we get a valid new ReceiveChan that can actually receive
+	go func() {
+		s2.ReceiveChan <- &setupError{"this is a test message", "test_service"}
+		close(s2.ReceiveChan)
+	}()
+	assert.Eventually(t, func() bool {
+		chanVal := <-s2.ReceiveChan
+		return assert.Equal(t, "this is a test message", chanVal.GetMessage())
+	}, 10*time.Second, 10*time.Millisecond)
+}
+
+type fakeEmail struct {
+	sentMessage chan struct{}
+}
+
+func (f *fakeEmail) sendMessage(ctx context.Context, message string) error {
+	close(f.sentMessage)
+	return nil
+}
+
+// runServiceNotificationHandler tests
 func TestRunServiceNotificationHandlerContextExpired(t *testing.T) {
 	s, _ := setupServiceEmailManagerForHandlerTest()
 	t.Cleanup(func() { close(s.ReceiveChan) })
@@ -200,132 +322,6 @@ func TestRunServiceNotificationHandlerMessagesSent(t *testing.T) {
 	}
 }
 
-func TestNewServiceEmailManagerDefault(t *testing.T) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	service := "my_service"
-	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() { cancel() })
-
-	s := NewServiceEmailManager(ctx, &wg, service, e)
-	newServiceEmailManagerTests(t, s)
-
-}
-
-func TestNewServiceEmailManagerFuncOpt(t *testing.T) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	service := "my_service"
-	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() { cancel() })
-
-	s := NewServiceEmailManager(ctx, &wg, service, e,
-		ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
-			sem.NotificationMinimum = 42
-			return nil
-		},
-		))
-	newServiceEmailManagerTests(t, s, func(t *testing.T, sem *ServiceEmailManager) { assert.Equal(t, 42, sem.NotificationMinimum) })
-}
-
-func TestNewServiceEmailManagerFuncOptError(t *testing.T) {
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	service := "my_service"
-	e := NewEmail("from_address", []string{"to_address"}, "test_subject", "smtp.host", 12345)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() { cancel() })
-
-	s := NewServiceEmailManager(ctx, &wg, service, e,
-		ServiceEmailManagerOption(func(sem *ServiceEmailManager) error {
-			sem.NotificationMinimum = 42
-			return errors.New("This is an error")
-		},
-		))
-	newServiceEmailManagerTests(t, s,
-		func(t *testing.T, sem *ServiceEmailManager) {
-			t.Run("Test that the effect of our funcOpt got rolled back", func(t *testing.T) {
-				assert.Equal(t, 0, sem.NotificationMinimum)
-			})
-		},
-		func(t *testing.T, sem *ServiceEmailManager) {
-			t.Run("Test that our backed up ServiceEmailManager is valid", func(t *testing.T) {
-				newServiceEmailManagerTests(t, sem)
-			})
-		},
-	)
-}
-
-func newServiceEmailManagerTests(t *testing.T, s *ServiceEmailManager, extraTests ...func(*testing.T, *ServiceEmailManager)) {
-	assert.Equal(t, "my_service", s.Service)
-	assert.NotNil(t, s.ReceiveChan)
-	assert.NotNil(t, s.Email)
-	assert.NotNil(t, s.AdminNotificationManager)
-	assert.NotNil(t, s.adminNotificationChan)
-	assert.NotNil(t, s.wg)
-	assert.False(t, s.trackErrorCounts)
-	assert.Nil(t, s.errorCounts)
-
-	for _, extraTest := range extraTests {
-		extraTest(t, s)
-	}
-}
-func TestBackupServiceEmailManager(t *testing.T) {
-	s := new(ServiceEmailManager)
-	s.Service = "test_service"
-	s.Email = NewEmail("from_test", []string{"to1", "to2"}, "test_subject", "smtpHost", 12345)
-	s.AdminNotificationManager = new(AdminNotificationManager)
-	s.AdminNotificationManager.TrackErrorCounts = true // Note that this is a misconfiguration, but it's just there to make sure we carry the value in the backup copy
-	s.NotificationMinimum = 42
-	s.wg = &sync.WaitGroup{}
-	s.trackErrorCounts = true
-	s.errorCounts = &serviceErrorCounts{setupErrors: errorCount{4, true}}
-	testBackupServiceEmailManager(t, s)
-}
-
-func TestBackupServiceEmailManagerNilPointers(t *testing.T) {
-	s := new(ServiceEmailManager)
-	testBackupServiceEmailManager(t, s)
-}
-
-func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
-	s2 := backupServiceEmailManager(s1)
-
-	assert.Equal(t, s1.Service, s2.Service)
-	assert.Equal(t, s1.Email, s2.Email)
-	assert.Equal(t, s1.AdminNotificationManager, s2.AdminNotificationManager)
-	assert.Equal(t, s1.NotificationMinimum, s2.NotificationMinimum)
-	assert.Equal(t, s1.wg, s2.wg)
-	assert.Equal(t, s1.trackErrorCounts, s2.trackErrorCounts)
-	assert.Equal(t, s1.errorCounts, s2.errorCounts)
-
-	assert.NotNil(t, s2.adminNotificationChan)
-
-	// Check that we get a valid new ReceiveChan that can actually receive
-	go func() {
-		s2.ReceiveChan <- &setupError{"this is a test message", "test_service"}
-		close(s2.ReceiveChan)
-	}()
-	assert.Eventually(t, func() bool {
-		chanVal := <-s2.ReceiveChan
-		return assert.Equal(t, "this is a test message", chanVal.GetMessage())
-	}, 10*time.Second, 10*time.Millisecond)
-}
-
-type fakeEmail struct {
-	sentMessage chan struct{}
-}
-
-func (f *fakeEmail) sendMessage(ctx context.Context, message string) error {
-	close(f.sentMessage)
-	return nil
-}
-
 // This function returns a *ServiceEmailManager that is ready for testing (s), along with a chan SourceNotification (fakeAdminNotificationChan)
 // In most cases during testing, the caller will need to drain or otherwise start up a goroutine that listens on fakeAdminNotificationChan,
 // otherwise the serviceNotificationHandler will be blocked on trying to send on fakeAdminNotificationHandler.  This can be accomplished
@@ -352,4 +348,73 @@ func setupServiceEmailManagerForHandlerTest() (s *ServiceEmailManager, fakeAdmin
 	c := make(chan SourceNotification)
 	s.adminNotificationChan = c
 	return s, c
+}
+
+/*  TODO Tests needed:
+3.addPushErrorNotificationToServiceErrorsTable
+4. sendServiceEmailIfErrors with mocked email?
+5. prepareServiceEmail
+*/
+
+// fakeNotification is a Notification that we use to make sure that type checking code works properly
+type fakeNotification struct{}
+
+func (f *fakeNotification) GetMessage() string { return "" }
+func (f *fakeNotification) GetService() string { return "" }
+
+func TestAddPushErrorNotificationToServiceErrorsTable(t *testing.T) {
+	type testCase struct {
+		description   string
+		previousTable map[string]string
+		nToAdd        Notification
+		expectedTable map[string]string
+	}
+
+	testCases := []testCase{
+		{
+			"No previous errors, add setup error",
+			make(map[string]string),
+			NewSetupError("This is a setup error", "myservice"),
+			map[string]string{},
+		},
+		{
+			"No previous errors, add push error",
+			make(map[string]string),
+			NewPushError("This is a push error", "myservice", "mynode"),
+			map[string]string{"mynode": "This is a push error"},
+		},
+		{
+			"Previous errors, add setup error",
+			map[string]string{"mynode1": "This is a push error"},
+			NewSetupError("This is a setup error", "myservice"),
+			map[string]string{"mynode1": "This is a push error"},
+		},
+		{
+			"Previous errors, add push error",
+			map[string]string{"mynode1": "This is a push error"},
+			NewPushError("This is a push error as well", "myservice", "mynode2"),
+			map[string]string{
+				"mynode1": "This is a push error",
+				"mynode2": "This is a push error as well",
+			},
+		},
+		{
+			"Previous errors, add fake notification",
+			map[string]string{"mynode1": "This is a push error"},
+			&fakeNotification{},
+			map[string]string{
+				"mynode1": "This is a push error",
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				addPushErrorNotificationToServiceErrorsTable(test.nToAdd, test.previousTable)
+				assert.Equal(t, test.expectedTable, test.previousTable)
+			},
+		)
+	}
 }
