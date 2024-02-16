@@ -143,15 +143,6 @@ func testBackupServiceEmailManager(t *testing.T, s1 *ServiceEmailManager) {
 	}, 10*time.Second, 10*time.Millisecond)
 }
 
-type fakeEmail struct {
-	sentMessage chan struct{}
-}
-
-func (f *fakeEmail) sendMessage(ctx context.Context, message string) error {
-	close(f.sentMessage)
-	return nil
-}
-
 // runServiceNotificationHandler tests
 func TestRunServiceNotificationHandlerContextExpired(t *testing.T) {
 	s, _ := setupServiceEmailManagerForHandlerTest()
@@ -266,7 +257,7 @@ func TestRunServiceNotificationHandlerMessagesSent(t *testing.T) {
 				s, c := setupServiceEmailManagerForHandlerTest()
 
 				// We need to type check here so we have access to the sentEmail channel of s.Email
-				f, ok := s.Email.(*fakeEmail)
+				f, ok := s.Email.(*goodEmail)
 				if !ok {
 					t.Fatal("Used wrong type for fake SendMessager object")
 				}
@@ -339,7 +330,7 @@ func setupServiceEmailManagerForHandlerTest() (s *ServiceEmailManager, fakeAdmin
 	s = &ServiceEmailManager{
 		NotificationMinimum: 2,
 		Service:             "myservice",
-		Email:               &fakeEmail{make(chan struct{})},
+		Email:               &goodEmail{make(chan struct{})},
 	}
 	s.ReceiveChan = make(chan Notification)
 	s.wg = new(sync.WaitGroup)
@@ -349,12 +340,6 @@ func setupServiceEmailManagerForHandlerTest() (s *ServiceEmailManager, fakeAdmin
 	s.adminNotificationChan = c
 	return s, c
 }
-
-/*  TODO Tests needed:
-3.addPushErrorNotificationToServiceErrorsTable
-4. sendServiceEmailIfErrors with mocked email?
-5. prepareServiceEmail
-*/
 
 // fakeNotification is a Notification that we use to make sure that type checking code works properly
 type fakeNotification struct{}
@@ -417,4 +402,98 @@ func TestAddPushErrorNotificationToServiceErrorsTable(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestSendServiceEmailIfErrors(t *testing.T) {
+	type testCase struct {
+		description string
+		tableToSend map[string]string
+		em          *ServiceEmailManager
+		doIfSent    func(*testing.T)
+		doIfNotSent func(*testing.T)
+	}
+
+	testCases := []testCase{
+		{
+			"Empty serviceErrorsTable",
+			make(map[string]string),
+			&ServiceEmailManager{Email: &goodEmail{make(chan struct{})}},
+			func(t *testing.T) { t.Fatal("No message should have been sent") },
+			func(*testing.T) {},
+		},
+		{
+			"Email gets sent successfully",
+			map[string]string{"node1": "error1"},
+			&ServiceEmailManager{Email: &goodEmail{make(chan struct{})}},
+			func(*testing.T) {},
+			func(t *testing.T) { t.Fatal("Message should have been sent") },
+		},
+		{
+			"Problem sending email",
+			map[string]string{"node1": "error1"},
+			&ServiceEmailManager{Email: &badEmail{make(chan struct{})}},
+			func(t *testing.T) { t.Fatal("No message should have been sent") },
+			func(*testing.T) {},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				t.Cleanup(func() { cancel() })
+
+				sendServiceEmailIfErrors(ctx, test.tableToSend, test.em)
+
+				// Need to do this to gain access to sentEmail chan of underlying type of SendMessager
+				var emailSentChan chan struct{}
+				switch v := test.em.Email.(type) {
+				case *goodEmail:
+					emailSentChan = v.sentMessage
+				case *badEmail:
+					emailSentChan = v.sentMessage
+				default:
+					t.Fatal("Unsupported underlying SendMessager type for this set of tests.  Please use *goodEmail or *badEmail")
+				}
+
+				t.Cleanup(func() {
+					select {
+					case <-emailSentChan:
+					default:
+						close(emailSentChan)
+					}
+				})
+
+				select {
+				case <-ctx.Done():
+					t.Fatal("Timeout")
+				case <-emailSentChan:
+					test.doIfSent(t)
+				default:
+					test.doIfNotSent(t)
+				}
+			},
+		)
+	}
+}
+
+// Note: No test exists for prepareServiceEmail, since that just sets a couple of values and then calls prepareMessageFromTemplate, a tested function,
+// to handle any further logic
+
+type goodEmail struct {
+	sentMessage chan struct{}
+}
+
+func (g *goodEmail) sendMessage(ctx context.Context, message string) error {
+	close(g.sentMessage)
+	return nil
+}
+
+type badEmail struct {
+	sentMessage chan struct{}
+}
+
+func (b badEmail) sendMessage(ctx context.Context, message string) error {
+	return errors.New("Failed to send message")
 }

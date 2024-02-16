@@ -238,8 +238,7 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 	serviceErrorNotificationAttemptTimestamp.WithLabelValues(em.Service, strconv.FormatBool(success)).SetToCurrentTime()
 }
 
-// prepareServiceEmail sets a passed-in email object's templateStruct field to the passed in errorTable, and returns a string that contains
-// email text according to the passed in errorTable and the email object's templatePath
+// prepareServiceEmail returns a string that contains email text according to the passed in errorTable
 func prepareServiceEmail(ctx context.Context, errorTable string) (string, error) {
 	timestamp := time.Now().Format(time.RFC822)
 	templateStruct := struct {
