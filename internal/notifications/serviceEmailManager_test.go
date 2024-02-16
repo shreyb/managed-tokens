@@ -60,151 +60,143 @@ func TestRunServiceNotificationHandlerContextExpired(t *testing.T) {
 	}, 10*time.Second, 10*time.Millisecond)
 
 }
-
-func TestRunServiceNotificationHandlerNoErrors(t *testing.T) {
-	s, _ := setupServiceEmailManagerForHandlerTest()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(func() { cancel() })
-	returned := make(chan struct{})
-
-	go func() {
-		close(s.ReceiveChan)
-		s.wg.Wait()
-		close(returned)
-	}()
-
-	s.wg.Add(1)
-	s.runServiceNotificationHandler(ctx)
-
-	f, ok := s.Email.(*fakeEmail)
-	if !ok {
-		t.Fatal("Used wrong type for fake SendMessager object")
+func TestRunServiceNotificationHandlerMessagesSent(t *testing.T) {
+	// Note:  right now there are no cases for which doIfReturned actually does anything.  But I've added it here in case we need to populate
+	// that in the future
+	type testCase struct {
+		description        string
+		notificationSender func() chan Notification
+		doIfReturned       func(*testing.T, *ServiceEmailManager)
+		doIfContextDone    func(*testing.T)
+		doIfSentMessage    func(*testing.T, *ServiceEmailManager)
 	}
 
-	// Since there were no errors, we should just exit cleanly without sending emails
-	select {
-	case <-returned:
-	case <-ctx.Done():
-		t.Fatal("Context timed out.  The function should have returned normally")
-	case <-f.sentMessage:
-		t.Fatal("Should not have sent any email here")
-	}
-}
-
-func TestRunServiceNotificationHandlerWithSetupError(t *testing.T) {
-	s, c := setupServiceEmailManagerForHandlerTest()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(func() { cancel() })
-	returned := make(chan struct{})
-
-	// Drain the fake adminNotificationChan c
-	go func() {
-		for range c {
+	// A quick wrapper that returns a func that makes a channel, does f to it concurrently, and returns a func that returns the channel
+	senderWrapper := func(f func(chan Notification)) func() chan Notification {
+		return func() chan Notification {
+			c := make(chan Notification)
+			go f(c)
+			return c
 		}
-	}()
-
-	go func() {
-		s.wg.Wait()
-		close(returned)
-	}()
-
-	s.wg.Add(1)
-	s.runServiceNotificationHandler(ctx)
-
-	go func() {
-		s.ReceiveChan <- NewSetupError("This is a setup error", "myservice")
-		close(s.ReceiveChan)
-	}()
-
-	f, ok := s.Email.(*fakeEmail)
-	if !ok {
-		t.Fatal("Used wrong type for fake SendMessager object")
 	}
 
-	// Since there were no push errors, we should just exit cleanly without sending emails
-	select {
-	case <-returned:
-	case <-ctx.Done():
-		t.Fatal("Context timed out.  The function should have returned normally")
-	case <-f.sentMessage:
-		t.Fatal("Should not have sent any email here - we only sent a SetupError")
-	}
-}
-
-func TestRunServiceNotificationHandlerWithPushError(t *testing.T) {
-	s, c := setupServiceEmailManagerForHandlerTest()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(func() { cancel() })
-
-	// Drain the fake adminNotificationChan c
-	go func() {
-		for range c {
-		}
-	}()
-
-	s.wg.Add(1)
-	s.runServiceNotificationHandler(ctx)
-
-	go func() {
-		s.ReceiveChan <- NewPushError("This is a push error", "myservice", "mynode")
-		close(s.ReceiveChan)
-	}()
-
-	f, ok := s.Email.(*fakeEmail)
-	if !ok {
-		t.Fatal("Used wrong type for fake SendMessager object")
-	}
-
-	// Since there were no push errors, we should just exit cleanly without sending emails
-	select {
-	case <-ctx.Done():
-		t.Fatal("Context timed out.  The function should have returned normally")
-	case <-f.sentMessage:
-		assert.Eventually(t, func() bool {
-			s.wg.Wait()
-			return true
-		}, 10*time.Second, 10*time.Millisecond)
-	}
-}
-
-func TestRunServiceNotificationHandlerWithBothErrors(t *testing.T) {
-	s, c := setupServiceEmailManagerForHandlerTest()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	t.Cleanup(func() { cancel() })
-
-	// Drain the fake adminNotificationChan c
-	go func() {
-		for range c {
-		}
-	}()
-
-	s.wg.Add(1)
-	s.runServiceNotificationHandler(ctx)
-
-	go func() {
-		s.ReceiveChan <- NewSetupError("This is a setup error", "myservice")
-		s.ReceiveChan <- NewPushError("This is a setup error", "myservice", "mynode")
-		close(s.ReceiveChan)
-	}()
-
-	f, ok := s.Email.(*fakeEmail)
-	if !ok {
-		t.Fatal("Used wrong type for fake SendMessager object")
+	testCases := []testCase{
+		{
+			"No errors",
+			senderWrapper(func(c chan Notification) {
+				close(c)
+			}),
+			func(*testing.T, *ServiceEmailManager) {},
+			func(t *testing.T) { t.Fatal("Context timed out.  The function should have returned normally") },
+			func(t *testing.T, s *ServiceEmailManager) {
+				t.Fatal("Should not have sent any email here - there were no errors")
+			},
+		},
+		{
+			"Only a setup error",
+			senderWrapper(func(c chan Notification) {
+				c <- NewSetupError("This is a setup error", "myservice")
+				close(c)
+			}),
+			func(*testing.T, *ServiceEmailManager) {},
+			func(t *testing.T) { t.Fatal("Context timed out.  The function should have returned normally") },
+			func(t *testing.T, s *ServiceEmailManager) {
+				t.Fatal("Should not have sent any email here - we only sent a SetupError")
+			},
+		},
+		{
+			"Only a push error",
+			senderWrapper(func(c chan Notification) {
+				c <- NewPushError("This is a push error", "myservice", "mynode")
+				close(c)
+			}),
+			func(*testing.T, *ServiceEmailManager) {},
+			func(t *testing.T) { t.Fatal("Context timed out.  The function should have returned normally") },
+			func(t *testing.T, s *ServiceEmailManager) {
+				assert.Eventually(t, func() bool {
+					s.wg.Wait()
+					return true
+				}, 10*time.Second, 10*time.Millisecond)
+			},
+		},
+		{
+			"Both Setup and Push Errors",
+			senderWrapper(func(c chan Notification) {
+				c <- NewSetupError("This is a setup error", "myservice")
+				c <- NewPushError("This is a setup error", "myservice", "mynode")
+				close(c)
+			}),
+			func(*testing.T, *ServiceEmailManager) {},
+			func(t *testing.T) { t.Fatal("Context timed out.  The function should have returned normally") },
+			func(t *testing.T, s *ServiceEmailManager) {
+				assert.Eventually(t, func() bool {
+					s.wg.Wait()
+					return true
+				}, 10*time.Second, 10*time.Millisecond)
+			},
+		},
 	}
 
-	// Since there were no push errors, we should just exit cleanly without sending emails
-	select {
-	case <-ctx.Done():
-		t.Fatal("Context timed out.  The function should have returned normally")
-	case <-f.sentMessage:
-		assert.Eventually(t, func() bool {
-			s.wg.Wait()
-			return true
-		}, 10*time.Second, 10*time.Millisecond)
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				s, c := setupServiceEmailManagerForHandlerTest()
+
+				// We need to type check here so we have access to the sentEmail channel of s.Email
+				f, ok := s.Email.(*fakeEmail)
+				if !ok {
+					t.Fatal("Used wrong type for fake SendMessager object")
+				}
+
+				// Drain the fake adminNotificationChan c
+				go func() {
+					for range c {
+					}
+				}()
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				t.Cleanup(func() { cancel() })
+
+				// This chan gets closed when runServiceNotificationHandler returns
+				returned := make(chan struct{})
+				go func() {
+					s.wg.Wait()
+					close(returned)
+				}()
+
+				// Run our handler
+				s.wg.Add(1)
+				s.runServiceNotificationHandler(ctx)
+
+				// Send whatever the notificationSender func specifies
+				go func() {
+					c := test.notificationSender()
+					for n := range c {
+						s.ReceiveChan <- n
+					}
+					close(s.ReceiveChan)
+				}()
+
+				select {
+				case <-returned:
+					// The reason why we check test.doIfSentMessage is because
+					// 1.  If the message should have sent, this check will ensure that if this branch is selected over the <-f.sentMessage branch,
+					//     the message was actually sent
+					// 2.  If the message should NOT have sent, the test.doIfSentMessage check should be calling a t.Fatal(), failing the test
+					select {
+					case <-f.sentMessage:
+						test.doIfSentMessage(t, s)
+					default:
+						test.doIfReturned(t, s)
+					}
+				case <-ctx.Done():
+					test.doIfContextDone(t)
+				case <-f.sentMessage:
+					test.doIfSentMessage(t, s)
+				}
+			},
+		)
 	}
 }
 
