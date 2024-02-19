@@ -20,8 +20,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/service"
 	testUtils "github.com/fermitools/managed-tokens/internal/testUtils"
+	"github.com/stretchr/testify/assert"
 )
 
 type badFunctionalOptError struct {
@@ -44,13 +46,13 @@ func functionalOptBad(*Config) error {
 func TestNewConfig(t *testing.T) {
 	type testCase struct {
 		description    string
-		functionalOpts []func(*Config) error
+		functionalOpts []ConfigOption
 		expectedError  error
 	}
 	testCases := []testCase{
 		{
 			description: "New service.Config with only good functional opts",
-			functionalOpts: []func(*Config) error{
+			functionalOpts: []ConfigOption{
 				functionalOptGood,
 				functionalOptGood,
 			},
@@ -58,7 +60,7 @@ func TestNewConfig(t *testing.T) {
 		},
 		{
 			description: "New service.Config with only bad functional opts",
-			functionalOpts: []func(*Config) error{
+			functionalOpts: []ConfigOption{
 				functionalOptBad,
 				functionalOptBad,
 			},
@@ -66,7 +68,7 @@ func TestNewConfig(t *testing.T) {
 		},
 		{
 			description: "New service.Config with a mix of good and bad functional opts",
-			functionalOpts: []func(*Config) error{
+			functionalOpts: []ConfigOption{
 				functionalOptGood,
 				functionalOptBad,
 			},
@@ -85,6 +87,19 @@ func TestNewConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBadFunctionalOptPreserveOldState(t *testing.T) {
+	badFunctionalOpt := func(c *Config) error {
+		c.Account = "badaccount"
+		return badFunctionalOptError{"This is an error"}
+	}
+
+	s := service.NewService("test_service")
+	c, err := NewConfig(s, badFunctionalOpt)
+
+	assert.ErrorIs(t, err, badFunctionalOptError{"This is an error"})
+	assert.Equal(t, c.Account, "")
 }
 
 func TestRegisterUnpingableNode(t *testing.T) {
@@ -171,4 +186,42 @@ func TestIsNodeUnpingable(t *testing.T) {
 			t.Errorf("Got wrong result for registration check.  Expected %t, got %t", test.expectedResult, result)
 		}
 	}
+}
+
+func TestBackupConfig(t *testing.T) {
+	s := service.NewService("my_service")
+	e := environment.CommandEnvironment{}
+
+	c1 := &Config{
+		Service:                        s,
+		UserPrincipal:                  "user_principal",
+		Nodes:                          []string{"node1", "node2"},
+		Account:                        "myaccount",
+		KeytabPath:                     "/path/to/keytab",
+		ServiceCreddVaultTokenPathRoot: "/path/to/service/credd/vaulttoken/path/root",
+		DesiredUID:                     12345,
+		Schedds:                        []string{"schedd1", "schedd2"},
+		VaultServer:                    "vault.server.host",
+		CommandEnvironment:             e,
+
+		Extras: map[supportedExtrasKey]any{DefaultRoleFileDestinationTemplate: "/path/to/template"},
+	}
+	c1.unPingableNodes = &unPingableNodes{sync.Map{}}
+	c1.unPingableNodes.Store("foo", struct{}{})
+
+	c2 := backupConfig(c1)
+
+	assert.Equal(t, c1.Service, c2.Service)
+	assert.Equal(t, c1.UserPrincipal, c2.UserPrincipal)
+	assert.Equal(t, c1.Nodes, c2.Nodes)
+	assert.Equal(t, c1.Account, c2.Account)
+	assert.Equal(t, c1.KeytabPath, c2.KeytabPath)
+	assert.Equal(t, c1.ServiceCreddVaultTokenPathRoot, c2.ServiceCreddVaultTokenPathRoot)
+	assert.Equal(t, c1.DesiredUID, c2.DesiredUID)
+	assert.Equal(t, c1.Schedds, c2.Schedds)
+	assert.Equal(t, c1.VaultServer, c2.VaultServer)
+	assert.Equal(t, c1.CommandEnvironment, c2.CommandEnvironment)
+
+	assert.Equal(t, c1.Extras, c2.Extras)
+	assert.Equal(t, c1.unPingableNodes, c2.unPingableNodes)
 }

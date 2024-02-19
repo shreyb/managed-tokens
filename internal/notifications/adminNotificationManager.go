@@ -51,21 +51,6 @@ type AdminNotificationManager struct {
 	allServiceCounts map[string]*serviceErrorCounts
 }
 
-// AdminNotificationManagerOption is a functional option that should be used as an argument to NewAdminNotificationManager to set various fields
-// of the AdminNotificationManager
-// For example:
-//
-//	 f := func(a *AdminNotificationManager) error {
-//		  a.NotificationMinimum = 42
-//	   return nil
-//	 }
-//	 g := func(a *AdminNotificationManager) error {
-//		  a.DatabaseReadOnly = false
-//	   return nil
-//	 }
-//	 manager := NewAdminNotificationManager(context.Background, f, g)
-type AdminNotificationManagerOption func(*AdminNotificationManager) error
-
 // NewAdminNotificationManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification.  Calling code is expected to run SendAdminNotifications separately to send the accumulated data
 // via email (or otherwise).  Functional options should be specified to set the fields (see AdminNotificationManagerOption documentation).

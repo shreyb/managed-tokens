@@ -57,19 +57,17 @@ func init() {
 type ServiceEmailManager struct {
 	ReceiveChan chan Notification
 	Service     string
-	Email       *email
+	Email       SendMessager
 	// AdminNotificationsManager is a pointer to an AdminNotificationManager that carries with it, among other things, the db.ManagedTokensDatabase
 	// that the ServiceEmailManager should read from and write to
 	*AdminNotificationManager
 	// adminNotificationChannel  is a channel on which messages can be sent to the type's AdminNotificationManager
-	adminNotificationChannel chan<- SourceNotification
-	NotificationMinimum      int
-	wg                       *sync.WaitGroup
-	trackErrorCounts         bool
-	errorCounts              *serviceErrorCounts
+	adminNotificationChan chan<- SourceNotification
+	NotificationMinimum   int
+	wg                    *sync.WaitGroup
+	trackErrorCounts      bool
+	errorCounts           *serviceErrorCounts
 }
-
-type ServiceEmailManagerOption func(*ServiceEmailManager) error
 
 // NewServiceEmailManager returns an EmailManager channel for callers to send Notifications on.  It will collect messages and sort them according
 // to the underlying type of the Notification, and when EmailManager is closed, will send emails.  Set up the ManagedTokensDatabase and
@@ -83,12 +81,15 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 
 	em := &ServiceEmailManager{
 		Service:     service,
+		Email:       e,
 		ReceiveChan: make(chan Notification),
 		wg:          wg,
 	}
 	for _, opt := range opts {
+		emBackup := backupServiceEmailManager(em)
 		if err := opt(em); err != nil {
 			funcLogger.Errorf("Error running functional option")
+			em = emBackup
 		}
 	}
 
@@ -110,10 +111,27 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		funcLogger.Debug("Not tracking Error counts in ServiceEmailManager")
 	}
 
-	em.adminNotificationChannel = em.AdminNotificationManager.registerNotificationSource(ctx)
+	em.adminNotificationChan = em.AdminNotificationManager.registerNotificationSource(ctx)
 	em.runServiceNotificationHandler(ctx)
 
 	return em
+}
+
+func backupServiceEmailManager(s1 *ServiceEmailManager) *ServiceEmailManager {
+	s2 := new(ServiceEmailManager)
+
+	s2.ReceiveChan = make(chan Notification)
+	s2.adminNotificationChan = make(chan<- SourceNotification)
+
+	s2.Service = s1.Service
+	s2.Email = s1.Email
+	s2.AdminNotificationManager = s1.AdminNotificationManager
+	s2.NotificationMinimum = s1.NotificationMinimum
+	s2.wg = s1.wg
+	s2.trackErrorCounts = s1.trackErrorCounts
+	s2.errorCounts = s1.errorCounts
+
+	return s2
 }
 
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
@@ -128,7 +146,7 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 	go func() {
 		serviceErrorsTable := make(map[string]string, 0)
 		defer em.wg.Done()
-		defer close(em.adminNotificationChannel)
+		defer close(em.adminNotificationChan)
 		for {
 			select {
 			case <-ctx.Done():
@@ -163,7 +181,7 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 				}
 				if shouldSend {
 					addPushErrorNotificationToServiceErrorsTable(n, serviceErrorsTable)
-					em.adminNotificationChannel <- SourceNotification{n}
+					em.adminNotificationChan <- SourceNotification{n}
 				}
 			}
 		}
@@ -202,7 +220,7 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 		"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
 		[]string{"Node", "Error"},
 	)
-	msg, err := prepareServiceEmail(ctx, tableString, em.Email)
+	msg, err := prepareServiceEmail(ctx, tableString)
 	if err != nil {
 		funcLogger.Error("Error preparing service email for sending")
 	}
@@ -220,9 +238,8 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 	serviceErrorNotificationAttemptTimestamp.WithLabelValues(em.Service, strconv.FormatBool(success)).SetToCurrentTime()
 }
 
-// prepareServiceEmail sets a passed-in email object's templateStruct field to the passed in errorTable, and returns a string that contains
-// email text according to the passed in errorTable and the email object's templatePath
-func prepareServiceEmail(ctx context.Context, errorTable string, e *email) (string, error) {
+// prepareServiceEmail returns a string that contains email text according to the passed in errorTable
+func prepareServiceEmail(ctx context.Context, errorTable string) (string, error) {
 	timestamp := time.Now().Format(time.RFC822)
 	templateStruct := struct {
 		Timestamp  string
