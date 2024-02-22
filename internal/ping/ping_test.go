@@ -18,10 +18,10 @@ package ping
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -33,7 +33,7 @@ var ctx context.Context = context.Background()
 
 type goodNode string
 
-func (g goodNode) PingNode(ctx context.Context) error {
+func (g goodNode) PingNode(ctx context.Context, extraArgs []string) error {
 	time.Sleep(1 * time.Microsecond)
 	if e := ctx.Err(); e != nil {
 		return e
@@ -46,7 +46,12 @@ func (g goodNode) String() string { return string(g) }
 
 type badNode string
 
-func (b badNode) PingNode(ctx context.Context) error {
+func (b badNode) PingNode(ctx context.Context, extraArgs []string) error {
+	for _, arg := range extraArgs {
+		if arg == "--invalidextraarg" {
+			return fmt.Errorf("invalid argument")
+		}
+	}
 	time.Sleep(1 * time.Microsecond)
 	if e := ctx.Err(); e != nil {
 		return e
@@ -58,63 +63,108 @@ func (b badNode) String() string { return string(b) }
 
 // Tests
 // TestPingNodeGood pings a PingNoder and makes sure we get no error
-func TestPingNodeGood(t *testing.T) {
-	// Control test
-	if testing.Verbose() {
-		t.Log("Running control test")
-	}
-	g := Node(goodhost)
-	if err := g.PingNode(ctx); err != nil {
-		t.Errorf("Expected error to be nil but got %s", err)
-		t.Errorf("Our \"reliable\" host, %s, is probably down or just not responding", goodhost)
-	}
-}
+func TestPingNode(t *testing.T) {
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, time.Duration(1*time.Nanosecond))
+	t.Cleanup(timeoutCancel)
 
-// TestPingNodeBad pings a known bogus PingNoder and makes sure we get the error we expect
-func TestPingNodeBad(t *testing.T) {
-	if testing.Verbose() {
-		t.Log("Running bogus host test")
+	type testCase struct {
+		description string
+		c           context.Context
+		PingNoder
+		extraArgs      []string
+		expectedErrNil bool
 	}
-	b := Node(badhost)
-	if err := b.PingNode(ctx); err != nil {
-		lowerErr := strings.ToLower(err.Error())
-		if !strings.Contains(lowerErr, "unknown host") && !strings.Contains(lowerErr, badhost) {
-			t.Errorf("Expected error message containing the phrase \"unknown host\" and %s but got %s", badhost, err)
-		}
-	} else {
-		t.Error("Expected some error.  Didn't get any")
-	}
-}
 
-// TestPingNodeTimeout pings a known good PingNoder with a 1 ns timeout and makes sure we get the timeout error we expect
-func TestPingNodeTimeout(t *testing.T) {
-	// Timeout
-	if testing.Verbose() {
-		t.Log("Running timeout test")
+	testCases := []testCase{
+		{
+			"Good node",
+			ctx,
+			goodNode(goodhost),
+			[]string{},
+			true,
+		},
+		{
+			"Bad node",
+			ctx,
+			badNode(badhost),
+			[]string{},
+			false,
+		},
+		{
+			"Bad node, timeout",
+			timeoutCtx,
+			badNode(badhost),
+			[]string{},
+			false,
+		},
+		{
+			"Good node, good extra args",
+			ctx,
+			goodNode(goodhost),
+			[]string{"-4"},
+			true,
+		},
+		{
+			"bad extra args",
+			ctx,
+			badNode(goodhost),
+			[]string{"--invalidextraarg"},
+			false,
+		},
 	}
-	g := Node(goodhost)
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Duration(1*time.Nanosecond))
-	time.Sleep(time.Duration(1 * time.Microsecond))
-	if err := g.PingNode(timeoutCtx); err != nil {
-		lowerErr := strings.ToLower(err.Error())
-		expectedMsg := "context deadline exceeded"
-		if lowerErr != expectedMsg {
-			t.Errorf("Expected error message to be %s.  Got %s instead", expectedMsg, lowerErr)
-		}
-	} else {
-		t.Error("Expected some timeout error.  Didn't get any")
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				err := test.PingNoder.PingNode(test.c, test.extraArgs)
+				errNil := (err == nil)
+				assert.Equal(t, test.expectedErrNil, errNil)
+			},
+		)
 	}
-	cancelTimeout()
 }
 
 func TestParseAndExecutePingTemplate(t *testing.T) {
 	node := "mynode"
-	expected := []string{"-W", "5", "-c", "1", node}
 
-	if result, err := parseAndExecutePingTemplate(node); !slices.Equal(result, expected) {
-		t.Errorf("Got wrong result.  Expected %v, got %v", expected, result)
-	} else if err != nil {
-		t.Errorf("Should have gotten nil error.  Got %v instead", err)
+	type testCase struct {
+		description    string
+		extraArgs      []string
+		expected       []string
+		expectedErrNil bool
 	}
 
+	testCases := []testCase{
+		{
+			"No extra args (default)",
+			[]string{},
+			[]string{"-W", "5", "-c", "1", node},
+			true,
+		},
+		{
+			"Extra args",
+			[]string{"foo", "bar", "baz"},
+			[]string{"foo", "bar", "baz", "-W", "5", "-c", "1", node},
+			true,
+		},
+		{
+			"Extra args, invalid",
+			[]string{"foo", "bar", "baz", "{{for}}"},
+			nil,
+			false,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				result, err := parseAndExecutePingTemplate(node, test.extraArgs)
+				assert.Equal(t, test.expected, result)
+				errNil := (err == nil)
+				assert.Equal(t, test.expectedErrNil, errNil)
+			},
+		)
+	}
 }

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
@@ -36,7 +37,7 @@ var (
 
 // PingNoder is an interface that wraps the PingNode method. It is meant to be used where pinging a node is necessary.  PingNoders also implement the Stringer interface.
 type PingNoder interface {
-	PingNode(context.Context) error
+	PingNode(context.Context, []string) error
 	String() string
 }
 
@@ -47,10 +48,10 @@ type Node string
 func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
-func (n Node) PingNode(ctx context.Context) error {
+func (n Node) PingNode(ctx context.Context, extraPingArgs []string) error {
 	funcLogger := log.WithField("node", string(n))
 
-	args, err := parseAndExecutePingTemplate(string(n))
+	args, err := parseAndExecutePingTemplate(string(n), extraPingArgs)
 	if err != nil {
 		funcLogger.Error("Could not parse and execute ping template")
 		return err
@@ -86,10 +87,12 @@ func init() {
 	}
 }
 
-func parseAndExecutePingTemplate(node string) ([]string, error) {
-	pingTemplate, err := template.New("ping").Parse("-W 5 -c 1 {{.Node}}")
+func parseAndExecutePingTemplate(node string, extraPingArgs []string) ([]string, error) {
+	defaultPingArgs := "-W 5 -c 1"
+	finalPingArgs := fmt.Sprintf("%s %s", strings.Join(extraPingArgs, " "), defaultPingArgs)
+	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingArgs))
 	if err != nil {
-		log.Error("could not parse kinit template")
+		log.Error("could not parse ping template")
 		return nil, err
 	}
 
