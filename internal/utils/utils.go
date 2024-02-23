@@ -175,7 +175,6 @@ func MergeCmdArgs(fs *pflag.FlagSet, extraArgs []string) ([]string, error) {
 		flags = append(flags, flagName)
 		flags = append(flags, f.Value.String())
 	})
-	fmt.Println(fs.GetUnknownFlags())
 	flags = append(flags, fs.GetUnknownFlags()...)
 
 	return flags, nil

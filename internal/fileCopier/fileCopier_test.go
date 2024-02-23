@@ -18,9 +18,11 @@ package fileCopier
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestNewSSHFileCopier asserts that the type of the returned object from NewSSHFileCopier
@@ -89,6 +91,105 @@ func TestCopyToDestination(t *testing.T) {
 						)
 					}
 				}
+			},
+		)
+	}
+}
+
+func TestMergeSshArgs(t *testing.T) {
+	defaultArgs := []string{"-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1"}
+
+	type testCase struct {
+		description  string
+		extraArgs    []string
+		expectedArgs []string
+		expectedErr  error
+	}
+
+	testCases := []testCase{
+		{
+			"default",
+			[]string{},
+			defaultArgs,
+			nil,
+		},
+		{
+			"override default",
+			[]string{"ConnectTimeout=40"},
+			[]string{"-o", "ConnectTimeout=40", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1"},
+			nil,
+		},
+		{
+			"default + extras",
+			[]string{"MyArg=value"},
+			append(defaultArgs, "-o", "MyArg=value"),
+			nil,
+		},
+		{
+			"override default + extras",
+			[]string{"ConnectTimeout=40", "MyArg=value"},
+			[]string{"-o", "ConnectTimeout=40", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1", "-o", "MyArg=value"},
+			nil,
+		},
+		{
+			"Test user passing in '-o'",
+			[]string{"ConnectTimeout=40", "-o", "MyArg=value"},
+			[]string{"-o", "ConnectTimeout=40", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1", "-o", "MyArg=value"},
+			nil,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				args, err := mergeSshOpts(test.extraArgs)
+				fmt.Println(args)
+				assert.ElementsMatch(t, test.expectedArgs, args)
+				assert.Condition(t, func() (success bool) {
+					for i := 0; i < len(args); i += 2 {
+						assert.Equal(t, args[i], "-o")
+					}
+					return true
+				})
+				assert.Equal(t, test.expectedErr, err)
+			},
+		)
+	}
+
+}
+
+func TestPreProcessSshOpts(t *testing.T) {
+	type testCase struct {
+		description  string
+		args         []string
+		expectedArgs []string
+	}
+
+	testCases := []testCase{
+		{
+			"No values passed in",
+			[]string{},
+			[]string{},
+		},
+		{
+			"values passed without '--'",
+			[]string{"foo=bar", "baz=go"},
+			[]string{"--foo=bar", "--baz=go"},
+		},
+		{
+			"with -o specified",
+			[]string{"-o", "foo=bar", "baz=go"},
+			[]string{"--foo=bar", "--baz=go"},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				args := preProcessSshOpts(test.args)
+				assert.Equal(t, test.expectedArgs, args)
 			},
 		)
 	}

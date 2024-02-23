@@ -20,9 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"text/template"
 
+	"github.com/cornfeedhobo/pflag"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
@@ -153,4 +155,73 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 		"destPath": dest,
 	}).Debug("rsync successful")
 	return nil
+}
+
+// mergeSshOpts expects args to be passed in the ssh option format, without the -o specification.
+// For example, if a user wants to pass "-o ConnectTimeout=30", they should pass []string{"ConnectTimeout=30"}
+// All options passed here will be returned with the "-o" prepended, for use in ssh commands, so the only options that
+// should be passed are those supported by the ssh utility
+func mergeSshOpts(extraArgs []string) ([]string, error) {
+	defaultArgs := []string{"-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1"}
+	fs := pflag.NewFlagSet("ssh args", pflag.ContinueOnError)
+	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
+
+	// Defaults for ssh options
+	fs.String("ConnectTimeout", "30", "")
+	fs.String("ServerAliveInterval", "30", "")
+	fs.String("ServerAliveCountMax", "1", "")
+
+	_preprocessedArgs := preProcessSshOpts(extraArgs)
+
+	_mergedArgs, err := utils.MergeCmdArgs(fs, _preprocessedArgs)
+	if err != nil {
+		log.WithField("args", extraArgs).Error("Could not merge ssh args. Using default")
+		return defaultArgs, nil
+	}
+
+	mergedArgs := correctMergedSshOpts(_mergedArgs)
+
+	return mergedArgs, nil
+
+}
+
+func preProcessSshOpts(args []string) []string {
+	// Preprocessing - add "--" to the extra args
+	_preprocessedArgs := make([]string, 0)
+	for _, arg := range args {
+		if arg == "-o" {
+			continue
+		}
+		var _arg string
+		if strings.Contains(arg, "=") {
+			_arg = "--" + arg // ArgName=argValue --> --ArgName=argValue
+			_preprocessedArgs = append(_preprocessedArgs, _arg)
+		}
+	}
+	return _preprocessedArgs
+}
+
+func correctMergedSshOpts(args []string) []string {
+	// We have to do a little extra processing here to convert something that looks like
+	// []string{--Arg1, val1, --Arg2, val2, Arg3=val3}
+	// to become:
+	// []string{-o Arg1=val1 -o Arg2=val2 -o Arg3=val3}
+	correctedArgs := make([]string, 0)
+
+	for i := 0; i < len(args); i++ {
+		_arg := args[i]
+		if strings.HasPrefix(_arg, "--") {
+			_arg = strings.TrimPrefix(_arg, "--")
+			var equalArg string
+			if strings.Contains(_arg, "=") {
+				// Argument=value --> keep as is
+				equalArg = _arg
+			} else {
+				// Argument value --> Argument=value
+				equalArg = _arg + "=" + args[i+1]
+			}
+			correctedArgs = append(correctedArgs, "-o", equalArg)
+		}
+	}
+	return correctedArgs
 }
