@@ -25,6 +25,7 @@ const (
 	FileCopierOptions
 	VaultTokenStoreHoldoff
 	PingOptions
+	SSHOptions
 )
 
 func (s supportedExtrasKey) String() string {
@@ -37,6 +38,8 @@ func (s supportedExtrasKey) String() string {
 		return "VaultTokenStoreHoldoff"
 	case PingOptions:
 		return "PingOptions"
+	case SSHOptions:
+		return "SSHOptions"
 	default:
 		return "unsupported extras key"
 	}
@@ -107,4 +110,17 @@ func GetPingOptionsFromExtras(c *Config) ([]string, bool) {
 	}
 	pingOpts, ok := _pingOpts.([]string)
 	return pingOpts, ok
+}
+
+// GetSSHOptionsFromExtras retrieves the SSH options slice from the worker.Config, and asserts
+// that it is a []string.  Callers should check the bool return value to make sure that the
+// type assertion passes.
+func GetSSHOptionsFromExtras(c *Config) ([]string, bool) {
+	emptyOpts := make([]string, 0)
+	_sshOpts, ok := c.Extras[SSHOptions]
+	if !ok {
+		return emptyOpts, true
+	}
+	SSHOpts, ok := _sshOpts.([]string)
+	return SSHOpts, ok
 }

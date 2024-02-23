@@ -166,3 +166,57 @@ func TestGetFileCopierOptionsFromExtras(t *testing.T) {
 		)
 	}
 }
+
+func TestGetSSHOptionsFromExtras(t *testing.T) {
+
+	type testCase struct {
+		description  string
+		setupFunc    func() *Config
+		expectedOpts []string
+		expectedOk   bool
+	}
+
+	testCases := []testCase{
+		{
+			"No options stored",
+			func() *Config { return &Config{} },
+			[]string{},
+			true,
+		},
+		{
+			"Valid opts",
+			func() *Config {
+				c := new(Config)
+				c.Extras = make(map[supportedExtrasKey]any)
+				c.Extras[SSHOptions] = []string{"foo", "bar"}
+				return c
+			},
+			[]string{"foo", "bar"},
+			true,
+		},
+		{
+			"Invalid opts",
+			func() *Config {
+				c := new(Config)
+				c.Extras = make(map[supportedExtrasKey]any)
+				c.Extras[SSHOptions] = "thisisastring.  Oops"
+				return c
+			},
+			nil,
+			false,
+		},
+	}
+
+	// Wrong type
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				c := test.setupFunc()
+				opts, ok := GetSSHOptionsFromExtras(c)
+				assert.Equal(t, test.expectedOpts, opts)
+				assert.Equal(t, test.expectedOk, ok)
+			},
+		)
+	}
+}
