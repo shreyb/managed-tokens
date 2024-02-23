@@ -224,4 +224,5 @@ func TestBackupConfig(t *testing.T) {
 
 	assert.Equal(t, c1.Extras, c2.Extras)
 	assert.Equal(t, c1.unPingableNodes, c2.unPingableNodes)
+	assert.Equal(t, c1.extraPingArgs, c2.extraPingArgs)
 }

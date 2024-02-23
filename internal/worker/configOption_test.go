@@ -113,6 +113,15 @@ func TestAllConfigOptions(t *testing.T) {
 			"/path/to/vault/token/root",
 			func() any { return c.ServiceCreddVaultTokenPathRoot },
 		},
+		{
+			"TestSetExtraPingArgs",
+			func() ConfigOption {
+				extraArgs := []string{"--foo", "val", "--bar"}
+				return SetExtraPingArgs(extraArgs)
+			},
+			[]string{"--foo", "val", "--bar"},
+			func() any { return c.extraPingArgs },
+		},
 	}
 
 	for _, test := range testCases {

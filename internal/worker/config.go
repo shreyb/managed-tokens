@@ -66,7 +66,8 @@ type Config struct {
 	// Then the caller should check ok to make sure it's true before using the value
 	Extras map[supportedExtrasKey]any
 	environment.CommandEnvironment
-	*unPingableNodes // Pointer to an unPingableNodes object that indicates which configured nodes in Nodes do not respond to a ping request
+	*unPingableNodes          // Pointer to an unPingableNodes object that indicates which configured nodes in Nodes do not respond to a ping request
+	extraPingArgs    []string // Extra args to pass to the ping command
 }
 
 // NewConfig takes the config information from the global file and creates an *Config object
