@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
@@ -734,6 +735,44 @@ func TestCheckScheddsOverride(t *testing.T) {
 				if found != test.expectedFound {
 					t.Errorf("Got wrong result for found.  Expected %t, got %t", test.expectedFound, found)
 				}
+			},
+		)
+	}
+}
+
+func TestGetExtraPingArgsFromConfig(t *testing.T) {
+	configPath := "pingArgs"
+	emptyStringSlice := make([]string, 0)
+	type testCase struct {
+		description      string
+		viperSetupFunc   func()
+		expectedPingArgs []string
+	}
+
+	testCases := []testCase{
+		{
+			"Config key exists",
+			func() {
+				viper.Set(configPath, "-foo --bar value")
+			},
+			[]string{"-foo", "--bar", "value"},
+		},
+		{
+			"Config key does not exist",
+			func() {
+			},
+			emptyStringSlice,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				test.viperSetupFunc()
+				defer viper.Reset()
+				pingArgs := GetPingArgsFromConfig(configPath)
+				assert.Equal(t, test.expectedPingArgs, pingArgs)
 			},
 		)
 	}

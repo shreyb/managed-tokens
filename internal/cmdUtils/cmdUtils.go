@@ -328,12 +328,22 @@ func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
 	return *vaultServerPtr, nil
 }
 
-// GetKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the directory
+// GetServiceCreddVaultTokenPathRoot checks the configuration at the checkServiceConfigPath for an override for the path to the directory
 // where the condorVaultStorer worker should look for and store service/credd-specific vault tokens.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
 func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
 	serviceCreddVaultTokenPathRootPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "serviceCreddVaultTokenPathRoot")
 	return viper.GetString(serviceCreddVaultTokenPathRootPath)
+}
+
+// GetExtraPingArgs checks the configuration at the checkServiceConfigPath for an override for
+// extra args to pass to the ping worker.  If the override does not exist,
+// it uses the configuration to calculate the default path to the relevant directory
+func GetPingArgsFromConfig(checkServiceConfigPath string) []string {
+	pingArgsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingArgs")
+	pingArgsString := viper.GetString(pingArgsPath)
+	pingArgs, _ := shlex.Split(pingArgsString)
+	return pingArgs
 }
 
 // Functions to set environment.CommandEnvironment inside worker.Config
