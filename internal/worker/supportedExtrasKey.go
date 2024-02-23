@@ -96,6 +96,9 @@ func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
 	return fileCopierOpts, ok
 }
 
+// GetPingOptionsFromExtras retrieves the ping options slice from the worker.Config, and asserts
+// that it is a []string.  Callers should check the bool return value to make sure that the
+// type assertion passes.
 func GetPingOptionsFromExtras(c *Config) ([]string, bool) {
 	emptyOpts := make([]string, 0)
 	_pingOpts, ok := c.Extras[PingOptions]
