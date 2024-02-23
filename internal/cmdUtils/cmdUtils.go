@@ -336,14 +336,14 @@ func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
 	return viper.GetString(serviceCreddVaultTokenPathRootPath)
 }
 
-// GetExtraPingArgs checks the configuration at the checkServiceConfigPath for an override for
+// GetExtraPingOpts checks the configuration at the checkServiceConfigPath for an override for
 // extra args to pass to the ping worker.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
-func GetPingArgsFromConfig(checkServiceConfigPath string) []string {
-	pingArgsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingArgs")
-	pingArgsString := viper.GetString(pingArgsPath)
-	pingArgs, _ := shlex.Split(pingArgsString)
-	return pingArgs
+func GetPingOptsFromConfig(checkServiceConfigPath string) []string {
+	pingOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingOpts")
+	pingOptsString := viper.GetString(pingOptsPath)
+	pingOpts, _ := shlex.Split(pingOptsString)
+	return pingOpts
 }
 
 // Functions to set environment.CommandEnvironment inside worker.Config

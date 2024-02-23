@@ -111,15 +111,15 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				nodes = append(nodes, ping.NewNode(node))
 			}
 
-			var extraPingArgs []string
-			extraPingArgs, ok := GetPingOptionsFromExtras(sc)
+			var extraPingOpts []string
+			extraPingOpts, ok := GetPingOptionsFromExtras(sc)
 			if !ok {
-				extraPingArgs = make([]string, 0)
+				extraPingOpts = make([]string, 0)
 			}
 
 			pingContext, pingCancel := context.WithTimeout(ctx, pingTimeout)
 			defer pingCancel()
-			pingStatus := pingAllNodes(pingContext, extraPingArgs, nodes...)
+			pingStatus := pingAllNodes(pingContext, extraPingOpts, nodes...)
 
 			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
@@ -159,7 +159,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 // pingAllNodes will launch goroutines, which each ping a ping.PingNoder from the nodes variadic.  It returns a channel,
 // on which it reports the ping.pingNodeStatuses signifying success or error
-func pingAllNodes(ctx context.Context, extraPingArgs []string, nodes ...ping.PingNoder) <-chan ping.PingNodeStatus {
+func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...ping.PingNoder) <-chan ping.PingNodeStatus {
 	// Buffered Channel to report on
 	c := make(chan ping.PingNodeStatus, len(nodes))
 	var wg sync.WaitGroup
@@ -170,7 +170,7 @@ func pingAllNodes(ctx context.Context, extraPingArgs []string, nodes ...ping.Pin
 			start := time.Now()
 			p := ping.PingNodeStatus{
 				PingNoder: n,
-				Err:       n.PingNode(ctx, extraPingArgs),
+				Err:       n.PingNode(ctx, extraPingOpts),
 			}
 			if p.Err != nil {
 				pingFailureCount.WithLabelValues(n.String()).Inc()

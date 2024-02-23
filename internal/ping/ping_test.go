@@ -164,7 +164,7 @@ func TestParseAndExecutePingTemplate(t *testing.T) {
 	}
 }
 
-func TestMergePingArgs(t *testing.T) {
+func TestMergePingOpts(t *testing.T) {
 	defaultArgs := []string{"-W", "5", "-c", "1"}
 
 	type testCase struct {
@@ -205,7 +205,7 @@ func TestMergePingArgs(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				sanitizedArgs, err := mergePingArgs(test.extraArgs)
+				sanitizedArgs, err := mergePingOpts(test.extraArgs)
 				assert.Equal(t, test.expectedArgs, sanitizedArgs)
 				if test.err == nil {
 					assert.Nil(t, err)

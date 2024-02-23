@@ -49,10 +49,10 @@ type Node string
 func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
-func (n Node) PingNode(ctx context.Context, extraPingArgs []string) error {
+func (n Node) PingNode(ctx context.Context, extraPingOpts []string) error {
 	funcLogger := log.WithField("node", string(n))
 
-	args, err := parseAndExecutePingTemplate(string(n), extraPingArgs)
+	args, err := parseAndExecutePingTemplate(string(n), extraPingOpts)
 	if err != nil {
 		funcLogger.Error("Could not parse and execute ping template")
 		return err
@@ -88,18 +88,18 @@ func init() {
 	}
 }
 
-func parseAndExecutePingTemplate(node string, extraPingArgs []string) ([]string, error) {
-	mergedPingArgs, err := mergePingArgs(extraPingArgs)
+func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string, error) {
+	mergedPingOpts, err := mergePingOpts(extraPingOpts)
 	if err != nil {
 		msg := "could not merge ping args"
 		log.WithFields(log.Fields{
-			"extraPingArgs": extraPingArgs,
+			"extraPingOpts": extraPingOpts,
 			"node":          node,
 		}).Errorf(msg)
 		return nil, errors.New("msg")
 	}
-	finalPingArgs := strings.Join(mergedPingArgs, " ")
-	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingArgs))
+	finalPingOpts := strings.Join(mergedPingOpts, " ")
+	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingOpts))
 	if err != nil {
 		log.Error("could not parse ping template")
 		return nil, err
@@ -125,8 +125,8 @@ func parseAndExecutePingTemplate(node string, extraPingArgs []string) ([]string,
 	return args, nil
 }
 
-// mergePingArgs will evaluate the extra args and return a slice of args containing the merged arguments
-func mergePingArgs(extraArgs []string) ([]string, error) {
+// mergePingOpts will evaluate the extra args and return a slice of args containing the merged arguments
+func mergePingOpts(extraArgs []string) ([]string, error) {
 	fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
 
 	// Load our default set.  Note that I'm using these names as a workaround as pflag doesn't provide support for shorthand flags only, which is a bummer

@@ -32,7 +32,7 @@ var ctx context.Context = context.Background()
 
 type goodNode string
 
-func (g goodNode) PingNode(ctx context.Context, extraPingArgs []string) error {
+func (g goodNode) PingNode(ctx context.Context, extraPingOpts []string) error {
 	time.Sleep(1 * time.Microsecond)
 	if e := ctx.Err(); e != nil {
 		return e
@@ -45,7 +45,7 @@ func (g goodNode) String() string { return string(g) }
 
 type badNode string
 
-func (b badNode) PingNode(ctx context.Context, extraPingArgs []string) error {
+func (b badNode) PingNode(ctx context.Context, extraPingOpts []string) error {
 	time.Sleep(1 * time.Microsecond)
 	if e := ctx.Err(); e != nil {
 		return e
@@ -65,8 +65,8 @@ func TestPingAllNodes(t *testing.T) {
 	if testing.Verbose() {
 		t.Logf("Ping all nodes - %d good, %d bad", numGood, numBad)
 	}
-	extraPingArgs := make([]string, 0)
-	pingChannel := pingAllNodes(ctx, extraPingArgs, goodNode(""), badNode(badhost), goodNode(""))
+	extraPingOpts := make([]string, 0)
+	pingChannel := pingAllNodes(ctx, extraPingOpts, goodNode(""), badNode(badhost), goodNode(""))
 	for n := range pingChannel {
 		if n.Err != nil {
 			failureCount++

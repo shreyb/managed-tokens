@@ -740,13 +740,13 @@ func TestCheckScheddsOverride(t *testing.T) {
 	}
 }
 
-func TestGetExtraPingArgsFromConfig(t *testing.T) {
-	configPath := "pingArgs"
+func TestGetExtraPingOptsFromConfig(t *testing.T) {
+	configPath := "pingOpts"
 	emptyStringSlice := make([]string, 0)
 	type testCase struct {
 		description      string
 		viperSetupFunc   func()
-		expectedPingArgs []string
+		expectedPingOpts []string
 	}
 
 	testCases := []testCase{
@@ -771,8 +771,8 @@ func TestGetExtraPingArgsFromConfig(t *testing.T) {
 			func(t *testing.T) {
 				test.viperSetupFunc()
 				defer viper.Reset()
-				pingArgs := GetPingArgsFromConfig(configPath)
-				assert.Equal(t, test.expectedPingArgs, pingArgs)
+				pingOpts := GetPingOptsFromConfig(configPath)
+				assert.Equal(t, test.expectedPingOpts, pingOpts)
 			},
 		)
 	}
