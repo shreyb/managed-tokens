@@ -19,6 +19,9 @@ import (
 	"errors"
 	"testing"
 	"text/template"
+
+	"github.com/cornfeedhobo/pflag"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestCheckForExecutables checks that CheckForExecutables properly returns and populates the map for standard linux executables
@@ -253,5 +256,64 @@ func TestIsSliceSubslice(t *testing.T) {
 			},
 		)
 	}
+}
 
+func TestMergeCmdArgs(t *testing.T) {
+	newTestFlagSet := func() *pflag.FlagSet {
+		fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
+
+		// Load our default set.  Note that I'm using these names as a workaround as pflag doesn't provide support for shorthand flags only, which is a bummer
+		fs.StringS("pingFlagW", "W", "5", "")
+		fs.StringS("pingFlagc", "c", "1", "")
+
+		return fs
+	}
+	defaultArgs := []string{"-W", "5", "-c", "1"}
+
+	type testCase struct {
+		description  string
+		extraArgs    []string
+		expectedArgs []string
+		err          error
+	}
+
+	testCases := []testCase{
+		{
+			"Default case",
+			[]string{},
+			defaultArgs,
+			nil,
+		},
+		{
+			"Override a default case",
+			[]string{"-W", "6"},
+			[]string{"-W", "6", "-c", "1"},
+			nil,
+		},
+		{
+			"Provide new flags",
+			[]string{"-4"},
+			[]string{"-W", "5", "-c", "1", "-4"},
+			nil,
+		},
+		{
+			"Provide new flags and overwrite defaults",
+			[]string{"-4", "-W", "6"},
+			[]string{"-W", "6", "-c", "1", "-4"},
+			nil,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				sanitizedArgs, err := MergeCmdArgs(newTestFlagSet(), test.extraArgs)
+				assert.Equal(t, test.expectedArgs, sanitizedArgs)
+				if test.err == nil {
+					assert.Nil(t, err)
+				}
+			},
+		)
+	}
 }

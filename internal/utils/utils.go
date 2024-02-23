@@ -28,6 +28,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/cornfeedhobo/pflag"
 	"github.com/google/shlex"
 	log "github.com/sirupsen/logrus"
 )
@@ -139,3 +140,43 @@ func (t *TemplateExecuteError) Error() string { return t.msg }
 type TemplateArgsError struct{ msg string }
 
 func (t *TemplateArgsError) Error() string { return t.msg }
+
+// MergeCmdArgs is meant to take a FlagSet that defines defaults and flags for a particular command,
+// for example ping, and merges the extraArgs with the defaults.  So for example:
+//
+//	fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
+//
+//	fs.StringP("pingFlagW", "W", "5", "")
+//	fs.StringP("pingFlagc", "c", "1", "")
+//
+//	mergedArgs := MergeCmdArgs(fs, []string{}) // returns ([]string{"-W, "5", "-c", "1"}, nil)
+//	mergedArgs := MergeCmdArgs(fs, []string{"-4"}) // returns ([]string{"-W, "5", "-c", "1", "-4"}, nil)
+//	mergedArgs := MergeCmdArgs(fs, []string{"-W", "6"}) // returns ([]string{"-W, "6", "-c", "1"}, nil)
+//	mergedArgs := MergeCmdArgs(fs, []string{"-W", "6", "-4"}) // returns ([]string{"-W, "6", "-c", "1", "-4"}, nil)
+//
+// Notice in this example that dummy longhand names are given for the flags, because the pflag library
+// does not yet support using shorthand flags without longhand flags.
+func MergeCmdArgs(fs *pflag.FlagSet, extraArgs []string) ([]string, error) {
+	// The passed-in
+	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
+
+	// See if we override any of our args by parsing the extraArgs
+	fs.Parse(extraArgs)
+
+	flags := make([]string, 0)
+	fs.VisitAll(func(f *pflag.Flag) {
+		var flagName string
+		if f.Shorthand == "" {
+			flagName = "--" + f.Name
+		} else {
+			flagName = "-" + f.Shorthand
+		}
+
+		flags = append(flags, flagName)
+		flags = append(flags, f.Value.String())
+	})
+	fmt.Println(fs.GetUnknownFlags())
+	flags = append(flags, fs.GetUnknownFlags()...)
+
+	return flags, nil
+}

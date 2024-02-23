@@ -213,5 +213,4 @@ func TestMergePingArgs(t *testing.T) {
 			},
 		)
 	}
-
 }
