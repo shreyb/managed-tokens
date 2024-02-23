@@ -24,6 +24,7 @@ const (
 	DefaultRoleFileDestinationTemplate supportedExtrasKey = iota
 	FileCopierOptions
 	VaultTokenStoreHoldoff
+	PingOptions
 )
 
 func (s supportedExtrasKey) String() string {
@@ -34,6 +35,8 @@ func (s supportedExtrasKey) String() string {
 		return "FileCopierOptions"
 	case VaultTokenStoreHoldoff:
 		return "VaultTokenStoreHoldoff"
+	case PingOptions:
+		return "PingOptions"
 	default:
 		return "unsupported extras key"
 	}
@@ -91,4 +94,14 @@ func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
 	}
 	fileCopierOpts, ok := _fileCopierOpts.(string)
 	return fileCopierOpts, ok
+}
+
+func GetPingOptionsFromExtras(c *Config) ([]string, bool) {
+	emptyOpts := make([]string, 0)
+	_pingOpts, ok := c.Extras[PingOptions]
+	if !ok {
+		return emptyOpts, true
+	}
+	pingOpts, ok := _pingOpts.([]string)
+	return pingOpts, ok
 }

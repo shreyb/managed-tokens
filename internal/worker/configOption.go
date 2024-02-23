@@ -107,10 +107,3 @@ func SetServiceCreddVaultTokenPathRoot(value string) ConfigOption {
 		return nil
 	})
 }
-
-func SetExtraPingArgs(value []string) ConfigOption {
-	return ConfigOption(func(c *Config) error {
-		c.extraPingArgs = value
-		return nil
-	})
-}

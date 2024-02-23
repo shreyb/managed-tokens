@@ -111,9 +111,15 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				nodes = append(nodes, ping.NewNode(node))
 			}
 
+			var extraPingArgs []string
+			extraPingArgs, ok := GetPingOptionsFromExtras(sc)
+			if !ok {
+				extraPingArgs = make([]string, 0)
+			}
+
 			pingContext, pingCancel := context.WithTimeout(ctx, pingTimeout)
 			defer pingCancel()
-			pingStatus := pingAllNodes(pingContext, sc.extraPingArgs, nodes...)
+			pingStatus := pingAllNodes(pingContext, extraPingArgs, nodes...)
 
 			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
 			for status := range pingStatus {
