@@ -129,10 +129,9 @@ func TestParseAndExecutePingTemplate(t *testing.T) {
 	node := "mynode"
 
 	type testCase struct {
-		description    string
-		extraArgs      []string
-		expected       []string
-		expectedErrNil bool
+		description string
+		extraArgs   []string
+		expected    []string
 	}
 
 	testCases := []testCase{
@@ -140,19 +139,16 @@ func TestParseAndExecutePingTemplate(t *testing.T) {
 			"No extra args (default)",
 			[]string{},
 			[]string{"-W", "5", "-c", "1", node},
-			true,
 		},
 		{
 			"Extra args",
-			[]string{"foo", "bar", "baz"},
-			[]string{"foo", "bar", "baz", "-W", "5", "-c", "1", node},
-			true,
+			[]string{"--foo", "--bar", "--baz"},
+			[]string{"-W", "5", "-c", "1", "--foo", "--bar", "--baz", node},
 		},
 		{
-			"Extra args, invalid",
+			"Extra args, invalid arg form (gets sanitized to default)",
 			[]string{"foo", "bar", "baz", "{{for}}"},
-			nil,
-			false,
+			[]string{"-W", "5", "-c", "1", node},
 		},
 	}
 
@@ -162,8 +158,7 @@ func TestParseAndExecutePingTemplate(t *testing.T) {
 			func(t *testing.T) {
 				result, err := parseAndExecutePingTemplate(node, test.extraArgs)
 				assert.Equal(t, test.expected, result)
-				errNil := (err == nil)
-				assert.Equal(t, test.expectedErrNil, errNil)
+				assert.Nil(t, err)
 			},
 		)
 	}

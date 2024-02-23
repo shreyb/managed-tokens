@@ -89,8 +89,16 @@ func init() {
 }
 
 func parseAndExecutePingTemplate(node string, extraPingArgs []string) ([]string, error) {
-	defaultPingArgs := "-W 5 -c 1"
-	finalPingArgs := fmt.Sprintf("%s %s", strings.Join(extraPingArgs, " "), defaultPingArgs)
+	mergedPingArgs, err := mergePingArgs(extraPingArgs)
+	if err != nil {
+		msg := "could not merge ping args"
+		log.WithFields(log.Fields{
+			"extraPingArgs": extraPingArgs,
+			"node":          node,
+		}).Errorf(msg)
+		return nil, errors.New("msg")
+	}
+	finalPingArgs := strings.Join(mergedPingArgs, " ")
 	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingArgs))
 	if err != nil {
 		log.Error("could not parse ping template")
@@ -117,7 +125,7 @@ func parseAndExecutePingTemplate(node string, extraPingArgs []string) ([]string,
 	return args, nil
 }
 
-// validatePingArgs will evaluate the extra args and return a slice of args containing the merged arguments
+// mergePingArgs will evaluate the extra args and return a slice of args containing the merged arguments
 func mergePingArgs(extraArgs []string) ([]string, error) {
 	fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
 	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
