@@ -741,7 +741,7 @@ func TestCheckScheddsOverride(t *testing.T) {
 }
 
 func TestGetExtraPingOptsFromConfig(t *testing.T) {
-	configPath := "pingOpts"
+	configPath := "pingOptions"
 	emptyStringSlice := make([]string, 0)
 	type testCase struct {
 		description      string
@@ -773,6 +773,44 @@ func TestGetExtraPingOptsFromConfig(t *testing.T) {
 				defer viper.Reset()
 				pingOpts := GetPingOptsFromConfig(configPath)
 				assert.Equal(t, test.expectedPingOpts, pingOpts)
+			},
+		)
+	}
+}
+
+func TestGetExtraSSHOptsFromConfig(t *testing.T) {
+	configPath := "sshOptions"
+	emptyStringSlice := make([]string, 0)
+	type testCase struct {
+		description     string
+		viperSetupFunc  func()
+		expectedSSHOpts []string
+	}
+
+	testCases := []testCase{
+		{
+			"Config key exists",
+			func() {
+				viper.Set(configPath, "-foo --bar value")
+			},
+			[]string{"-foo", "--bar", "value"},
+		},
+		{
+			"Config key does not exist",
+			func() {
+			},
+			emptyStringSlice,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				test.viperSetupFunc()
+				defer viper.Reset()
+				sshOpts := GetSSHOptsFromConfig(configPath)
+				assert.Equal(t, test.expectedSSHOpts, sshOpts)
 			},
 		)
 	}

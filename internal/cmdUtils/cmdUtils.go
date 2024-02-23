@@ -336,11 +336,11 @@ func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
 	return viper.GetString(serviceCreddVaultTokenPathRootPath)
 }
 
-// GetExtraPingOpts checks the configuration at the checkServiceConfigPath for an override for
+// GetPingOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
 // extra args to pass to the ping worker.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
 func GetPingOptsFromConfig(checkServiceConfigPath string) []string {
-	pingOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingOpts")
+	pingOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingOptions")
 	pingOptsString := viper.GetString(pingOptsPath)
 	pingOpts, _ := shlex.Split(pingOptsString)
 	return pingOpts
