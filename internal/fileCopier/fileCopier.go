@@ -180,9 +180,7 @@ func mergeSshOpts(extraArgs []string) ([]string, error) {
 	}
 
 	mergedArgs := correctMergedSshOpts(_mergedArgs)
-
 	return mergedArgs, nil
-
 }
 
 func preProcessSshOpts(args []string) []string {
@@ -203,7 +201,7 @@ func preProcessSshOpts(args []string) []string {
 
 func correctMergedSshOpts(args []string) []string {
 	// We have to do a little extra processing here to convert something that looks like
-	// []string{--Arg1, val1, --Arg2, val2, Arg3=val3}
+	// []string{--Arg1, val1, --Arg2, val2, --Arg3=val3}
 	// to become:
 	// []string{-o Arg1=val1 -o Arg2=val2 -o Arg3=val3}
 	correctedArgs := make([]string, 0)
@@ -211,15 +209,22 @@ func correctMergedSshOpts(args []string) []string {
 	for i := 0; i < len(args); i++ {
 		_arg := args[i]
 		if strings.HasPrefix(_arg, "--") {
-			_arg = strings.TrimPrefix(_arg, "--")
 			var equalArg string
-			if strings.Contains(_arg, "=") {
+			switch {
+			case strings.Contains(_arg, "="):
 				// Argument=value --> keep as is
 				equalArg = _arg
-			} else {
-				// Argument value --> Argument=value
+			case i+1 == len(args):
+				// On the last argument - assume that this is a single --flag argument
+				equalArg = _arg
+			case strings.HasPrefix(args[i+1], "--"):
+				// --arg1 --arg2.  So just take --arg1 and move on
+				equalArg = _arg
+			default:
+				// --Argument value --> Argument=value
 				equalArg = _arg + "=" + args[i+1]
 			}
+			equalArg = strings.TrimPrefix(equalArg, "--")
 			correctedArgs = append(correctedArgs, "-o", equalArg)
 		}
 	}

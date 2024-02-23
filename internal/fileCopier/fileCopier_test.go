@@ -195,6 +195,57 @@ func TestPreProcessSshOpts(t *testing.T) {
 	}
 }
 
+func TestCorrectMergedSshOpts(t *testing.T) {
+	// We have to do a little extra processing here to convert something that looks like
+	// []string{--Arg1, val1, --Arg2, val2, Arg3=val3}
+	// to become:
+	// []string{-o Arg1=val1 -o Arg2=val2 -o Arg3=val3}
+
+	type testCase struct {
+		description  string
+		args         []string
+		expectedArgs []string
+	}
+
+	testCases := []testCase{
+		{
+			"No args",
+			[]string{},
+			[]string{},
+		},
+		{
+			"dashed args w values",
+			[]string{"--Arg1", "val1", "--Arg2", "val2"},
+			[]string{"-o", "Arg1=val1", "-o", "Arg2=val2"},
+		},
+		{
+			"equal-sign args",
+			[]string{"--Arg1=val1", "--Arg2=val2"},
+			[]string{"-o", "Arg1=val1", "-o", "Arg2=val2"},
+		},
+		{
+			"mixed args",
+			[]string{"--Arg1=val1", "--Arg2=val2", "--Arg3", "val3"},
+			[]string{"-o", "Arg1=val1", "-o", "Arg2=val2", "-o", "Arg3=val3"},
+		},
+		{
+			"mixed args with single-flag",
+			[]string{"--Arg1=val1", "--Arg2=val2", "--Arg3", "val3", "--Arg4"},
+			[]string{"-o", "Arg1=val1", "-o", "Arg2=val2", "-o", "Arg3=val3", "-o", "Arg4"},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				args := correctMergedSshOpts(test.args)
+				assert.Equal(t, test.expectedArgs, args)
+			},
+		)
+	}
+}
+
 // TODO This test doesn't work because of rsync issues with kerberos
 // // Then we can get rid of the hostnameRegex stuff, and just use localhost
 // func TestRsyncCopyToDestination(t *testing.T) {
