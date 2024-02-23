@@ -346,6 +346,16 @@ func GetPingOptsFromConfig(checkServiceConfigPath string) []string {
 	return pingOpts
 }
 
+// GetSSHOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
+// extra args to pass to the fileCopier worker.  If the override does not exist,
+// it uses the configuration to calculate the default path to the relevant directory
+func GetSSHOptsFromConfig(checkServiceConfigPath string) []string {
+	sshOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "sshOptions")
+	sshOptsString := viper.GetString(sshOptsPath)
+	sshOpts, _ := shlex.Split(sshOptsString)
+	return sshOpts
+}
+
 // Functions to set environment.CommandEnvironment inside worker.Config
 
 // Setkrb5ccname returns a function that sets the KRB5CCNAME directory environment variable in an environment.CommandEnvironment

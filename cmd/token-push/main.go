@@ -490,6 +490,7 @@ func run(ctx context.Context) error {
 			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
 			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
 			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
+			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -508,6 +509,7 @@ func run(ctx context.Context) error {
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
 				worker.SetSupportedExtrasKeyValue(worker.PingOptions, extraPingOpts),
+				worker.SetSupportedExtrasKeyValue(worker.SSHOptions, sshOpts),
 				vaultTokenStoreHoldoffFunc,
 			)
 			if err != nil {
