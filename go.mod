@@ -3,6 +3,7 @@ module github.com/fermitools/managed-tokens
 go 1.21
 
 require (
+	github.com/cornfeedhobo/pflag v1.1.0
 	github.com/lestrrat-go/jwx v1.2.25
 	github.com/mattn/go-sqlite3 v1.14.15
 	github.com/prometheus/client_golang v1.13.0

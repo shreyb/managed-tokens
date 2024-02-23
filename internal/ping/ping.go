@@ -24,6 +24,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/cornfeedhobo/pflag"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/fermitools/managed-tokens/internal/utils"
@@ -114,4 +115,35 @@ func parseAndExecutePingTemplate(node string, extraPingArgs []string) ([]string,
 		return nil, retErr
 	}
 	return args, nil
+}
+
+// validatePingArgs will evaluate the extra args and return a slice of args containing the merged arguments
+func mergePingArgs(extraArgs []string) ([]string, error) {
+	fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
+	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
+
+	// Load our default set.  Note that I'm using these names as a workaround as pflag doesn't provide support for shorthand flags only, which is a bummer
+	fs.StringP("pingFlagW", "W", "5", "")
+	fs.StringP("pingFlagc", "c", "1", "")
+
+	// See if we override any of our args by parsing the extraArgs
+	fs.Parse(extraArgs)
+
+	flags := make([]string, 0)
+	fs.VisitAll(func(f *pflag.Flag) {
+		var flagName string
+		if f.Shorthand == "" {
+			flagName = "--" + f.Name
+		} else {
+			flagName = "-" + f.Shorthand
+		}
+
+		flags = append(flags, flagName)
+		flags = append(flags, f.Value.String())
+	})
+	fmt.Println(fs.GetUnknownFlags())
+	flags = append(flags, fs.GetUnknownFlags()...)
+
+	return flags, nil
+
 }

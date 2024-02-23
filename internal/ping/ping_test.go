@@ -168,3 +168,55 @@ func TestParseAndExecutePingTemplate(t *testing.T) {
 		)
 	}
 }
+
+func TestMergePingArgs(t *testing.T) {
+	defaultArgs := []string{"-W", "5", "-c", "1"}
+
+	type testCase struct {
+		description  string
+		extraArgs    []string
+		expectedArgs []string
+		err          error
+	}
+
+	testCases := []testCase{
+		{
+			"Default case",
+			[]string{},
+			defaultArgs,
+			nil,
+		},
+		{
+			"Override a default case",
+			[]string{"-W", "6"},
+			[]string{"-W", "6", "-c", "1"},
+			nil,
+		},
+		{
+			"Provide new flags",
+			[]string{"-4"},
+			[]string{"-W", "5", "-c", "1", "-4"},
+			nil,
+		},
+		{
+			"Provide new flags and overwrite defaults",
+			[]string{"-4", "-W", "6"},
+			[]string{"-W", "6", "-c", "1", "-4"},
+			nil,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				sanitizedArgs, err := mergePingArgs(test.extraArgs)
+				assert.Equal(t, test.expectedArgs, sanitizedArgs)
+				if test.err == nil {
+					assert.Nil(t, err)
+				}
+			},
+		)
+	}
+
+}
