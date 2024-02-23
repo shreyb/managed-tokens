@@ -29,7 +29,7 @@ import (
 // is an *rsyncSetup
 func TestNewSSHFileCopier(t *testing.T) {
 	environ := environment.CommandEnvironment{}
-	testCopier := NewSSHFileCopier("", "", "", "", "", "", environ)
+	testCopier := NewSSHFileCopier("", "", "", "", "", []string{}, environ)
 
 	if _, ok := testCopier.(*rsyncSetup); !ok {
 		t.Errorf(
@@ -143,7 +143,7 @@ func TestMergeSshArgs(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				args, err := mergeSshOpts(test.extraArgs)
+				args := mergeSshOpts(test.extraArgs)
 				fmt.Println(args)
 				assert.ElementsMatch(t, test.expectedArgs, args)
 				assert.Condition(t, func() (success bool) {
@@ -152,7 +152,6 @@ func TestMergeSshArgs(t *testing.T) {
 					}
 					return true
 				})
-				assert.Equal(t, test.expectedErr, err)
 			},
 		)
 	}

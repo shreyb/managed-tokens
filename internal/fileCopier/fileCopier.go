@@ -42,19 +42,17 @@ type FileCopier interface {
 }
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
-func NewSSHFileCopier(source, account, node, destination, fileCopierOptions, sshOptions string, env environment.CommandEnvironment) FileCopier {
+func NewSSHFileCopier(source, account, node, destination, fileCopierOptions string, sshOptions []string, env environment.CommandEnvironment) FileCopier {
 	// Default ssh options
-	sshOpts := "-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=1"
-	if sshOptions == "" {
-		sshOptions = sshOpts
-	}
+	sshOpts := mergeSshOpts(sshOptions)
+	sshOptsString := strings.Join(sshOpts, " ")
 
 	return &rsyncSetup{
 		source:             source,
 		account:            account,
 		node:               node,
 		destination:        destination,
-		sshOpts:            sshOptions,
+		sshOpts:            sshOptsString,
 		rsyncOpts:          fileCopierOptions,
 		CommandEnvironment: env,
 	}
@@ -161,7 +159,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 // For example, if a user wants to pass "-o ConnectTimeout=30", they should pass []string{"ConnectTimeout=30"}
 // All options passed here will be returned with the "-o" prepended, for use in ssh commands, so the only options that
 // should be passed are those supported by the ssh utility
-func mergeSshOpts(extraArgs []string) ([]string, error) {
+func mergeSshOpts(extraArgs []string) []string {
 	defaultArgs := []string{"-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1"}
 	fs := pflag.NewFlagSet("ssh args", pflag.ContinueOnError)
 	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
@@ -176,11 +174,11 @@ func mergeSshOpts(extraArgs []string) ([]string, error) {
 	_mergedArgs, err := utils.MergeCmdArgs(fs, _preprocessedArgs)
 	if err != nil {
 		log.WithField("args", extraArgs).Error("Could not merge ssh args. Using default")
-		return defaultArgs, nil
+		return defaultArgs
 	}
 
 	mergedArgs := correctMergedSshOpts(_mergedArgs)
-	return mergedArgs, nil
+	return mergedArgs
 }
 
 func preProcessSshOpts(args []string) []string {
