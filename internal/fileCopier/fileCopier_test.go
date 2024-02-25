@@ -29,7 +29,7 @@ import (
 // is an *rsyncSetup
 func TestNewSSHFileCopier(t *testing.T) {
 	environ := environment.CommandEnvironment{}
-	testCopier := NewSSHFileCopier("", "", "", "", "", []string{}, environ)
+	testCopier := NewSSHFileCopier("", "", "", "", []string{}, []string{}, environ)
 
 	if _, ok := testCopier.(*rsyncSetup); !ok {
 		t.Errorf(

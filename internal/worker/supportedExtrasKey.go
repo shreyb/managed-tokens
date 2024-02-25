@@ -80,7 +80,7 @@ func SetVaultTokenStoreHoldoff() func(*Config) error {
 
 // defaultFileCopierOpts assumes that the FileCopier will implement rsync, and thus the default options will render the
 // destination file with permissions 0o400
-const defaultFileCopierOpts = "--perms --chmod=u=r,go="
+var defaultFileCopierOpts []string = []string{"--perms", "--chmod=u=r,go="}
 
 // GetFileCopierOptionsFromExtras retrieves the file copier options value from the worker.Config,
 // and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
@@ -90,12 +90,12 @@ const defaultFileCopierOpts = "--perms --chmod=u=r,go="
 //	// set the default role file template in here
 //	opts, ok := GetFileCopierOptionsFromExtras(c)
 //	if !ok { // handle missing or incorrect value }
-func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
+func GetFileCopierOptionsFromExtras(c *Config) ([]string, bool) {
 	_fileCopierOpts, ok := c.Extras[FileCopierOptions]
 	if !ok {
 		return defaultFileCopierOpts, true
 	}
-	fileCopierOpts, ok := _fileCopierOpts.(string)
+	fileCopierOpts, ok := _fileCopierOpts.([]string)
 	return fileCopierOpts, ok
 }
 

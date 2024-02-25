@@ -307,11 +307,11 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 
 	startTime := time.Now()
 
-	var fileCopierOptions string
+	var fileCopierOptions []string
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
 	if !ok {
 		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
-		fileCopierOptions = ""
+		fileCopierOptions = []string{}
 	}
 
 	var sshOptions []string

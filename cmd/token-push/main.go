@@ -487,8 +487,8 @@ func run(ctx context.Context) error {
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
-			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
 			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
+			fileCopierOptions := cmdUtils.GetFileCopierOptionsFromConfig(serviceConfigPath)
 			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
 			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
 			c, err := worker.NewConfig(

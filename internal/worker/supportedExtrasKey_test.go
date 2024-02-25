@@ -129,7 +129,7 @@ func TestGetFileCopierOptionsFromExtras(t *testing.T) {
 	type testCase struct {
 		description   string
 		setKeyValFunc func(*Config) error
-		expectedOpts  string
+		expectedOpts  []string
 		expectedOk    bool
 	}
 
@@ -142,14 +142,14 @@ func TestGetFileCopierOptionsFromExtras(t *testing.T) {
 		},
 		{
 			"Valid opts stored",
-			SetSupportedExtrasKeyValue(FileCopierOptions, "thisisvalid --opts"),
-			"thisisvalid --opts",
+			SetSupportedExtrasKeyValue(FileCopierOptions, []string{"thisisvalid", "--opts"}),
+			[]string{"thisisvalid", "--opts"},
 			true,
 		},
 		{
 			"Invalid opts stored - wrong type",
 			SetSupportedExtrasKeyValue(FileCopierOptions, 12345),
-			"",
+			nil,
 			false,
 		},
 	}

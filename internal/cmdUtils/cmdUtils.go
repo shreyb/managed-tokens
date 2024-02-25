@@ -336,6 +336,15 @@ func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
 	return viper.GetString(serviceCreddVaultTokenPathRootPath)
 }
 
+// GetFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions
+// is overridden at the service configuration level, then the global configuration value is ignored.
+func GetFileCopierOptionsFromConfig(serviceConfigPath string) []string {
+	fileCopierOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
+	fileCopierOptsString := viper.GetString(fileCopierOptsPath)
+	fileCopierOpts, _ := shlex.Split(fileCopierOptsString)
+	return fileCopierOpts
+}
+
 // GetPingOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
 // extra args to pass to the ping worker.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory

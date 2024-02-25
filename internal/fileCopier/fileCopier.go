@@ -42,10 +42,13 @@ type FileCopier interface {
 }
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
-func NewSSHFileCopier(source, account, node, destination, fileCopierOptions string, sshOptions []string, env environment.CommandEnvironment) FileCopier {
+func NewSSHFileCopier(source, account, node, destination string, fileCopierOptions []string, sshOptions []string, env environment.CommandEnvironment) FileCopier {
 	// Default ssh options
 	sshOpts := mergeSshOpts(sshOptions)
 	sshOptsString := strings.Join(sshOpts, " ")
+
+	// We don't have any default fileCopierOptions, so we just use whatever is passed in
+	finalFileCopierOptions := strings.Join(fileCopierOptions, " ")
 
 	return &rsyncSetup{
 		source:             source,
@@ -53,7 +56,7 @@ func NewSSHFileCopier(source, account, node, destination, fileCopierOptions stri
 		node:               node,
 		destination:        destination,
 		sshOpts:            sshOptsString,
-		rsyncOpts:          fileCopierOptions,
+		rsyncOpts:          finalFileCopierOptions,
 		CommandEnvironment: env,
 	}
 }
