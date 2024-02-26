@@ -68,13 +68,6 @@ func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
 	return viper.GetString(defaultRoleFileDestinationTmplPath)
 }
 
-// getFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions
-// is overridden at the service configuration level, then the global configuration value is ignored.
-func getFileCopierOptionsFromConfig(serviceConfigPath string) string {
-	fileCopierOptions, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
-	return viper.GetString(fileCopierOptions)
-}
-
 // getVaultTokenStoreHoldoffFuncOpt examines the passed-in service to determine whether to
 // return a NOOP func, or if the service is a cmdUtils.ExperimentOverriddenService,
 // a func(*worker.Config) that sets the vault token store holdoff for the passed in Config

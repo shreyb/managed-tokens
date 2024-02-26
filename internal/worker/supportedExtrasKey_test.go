@@ -113,7 +113,6 @@ func TestGetDefaultRoleFileDestinationTemplateValueFromExtras(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				// config, _ := NewConfig(service.NewService("test_service"), SetSupportedExtrasKeyValue(DefaultRoleFileDestinationTemplate, "foobar"))
 				config, _ := NewConfig(testService, test.setKeyValFunc)
 				val, ok := GetDefaultRoleFileDestinationTemplateValueFromExtras(config)
 				assert.Equal(t, test.expectedTemplate, val)
@@ -129,7 +128,7 @@ func TestGetFileCopierOptionsFromExtras(t *testing.T) {
 	type testCase struct {
 		description   string
 		setKeyValFunc func(*Config) error
-		expectedOpts  string
+		expectedOpts  []string
 		expectedOk    bool
 	}
 
@@ -142,14 +141,14 @@ func TestGetFileCopierOptionsFromExtras(t *testing.T) {
 		},
 		{
 			"Valid opts stored",
-			SetSupportedExtrasKeyValue(FileCopierOptions, "thisisvalid --opts"),
-			"thisisvalid --opts",
+			SetSupportedExtrasKeyValue(FileCopierOptions, []string{"thisisvalid", "--opts"}),
+			[]string{"thisisvalid", "--opts"},
 			true,
 		},
 		{
 			"Invalid opts stored - wrong type",
 			SetSupportedExtrasKeyValue(FileCopierOptions, 12345),
-			"",
+			nil,
 			false,
 		},
 	}
@@ -161,6 +160,60 @@ func TestGetFileCopierOptionsFromExtras(t *testing.T) {
 				config, _ := NewConfig(testService, test.setKeyValFunc)
 				val, ok := GetFileCopierOptionsFromExtras(config)
 				assert.Equal(t, test.expectedOpts, val)
+				assert.Equal(t, test.expectedOk, ok)
+			},
+		)
+	}
+}
+
+func TestGetSSHOptionsFromExtras(t *testing.T) {
+
+	type testCase struct {
+		description  string
+		setupFunc    func() *Config
+		expectedOpts []string
+		expectedOk   bool
+	}
+
+	testCases := []testCase{
+		{
+			"No options stored",
+			func() *Config { return &Config{} },
+			[]string{},
+			true,
+		},
+		{
+			"Valid opts",
+			func() *Config {
+				c := new(Config)
+				c.Extras = make(map[supportedExtrasKey]any)
+				c.Extras[SSHOptions] = []string{"foo", "bar"}
+				return c
+			},
+			[]string{"foo", "bar"},
+			true,
+		},
+		{
+			"Invalid opts",
+			func() *Config {
+				c := new(Config)
+				c.Extras = make(map[supportedExtrasKey]any)
+				c.Extras[SSHOptions] = "thisisastring.  Oops"
+				return c
+			},
+			nil,
+			false,
+		},
+	}
+
+	// Wrong type
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				c := test.setupFunc()
+				opts, ok := GetSSHOptionsFromExtras(c)
+				assert.Equal(t, test.expectedOpts, opts)
 				assert.Equal(t, test.expectedOk, ok)
 			},
 		)

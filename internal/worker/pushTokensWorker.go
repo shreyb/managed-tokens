@@ -306,19 +306,28 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 	})
 
 	startTime := time.Now()
-	var fileCopierOptions string
+
+	var fileCopierOptions []string
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
 	if !ok {
 		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
-		fileCopierOptions = ""
+		fileCopierOptions = []string{}
 	}
+
+	var sshOptions []string
+	sshOptions, ok = GetSSHOptionsFromExtras(c)
+	if !ok {
+		log.WithField("service", c.Service.Name()).Error(`Stored SSHOptions in config is not a []string. Using default value of []string{}`)
+		sshOptions = []string{}
+	}
+
 	f := fileCopier.NewSSHFileCopier(
 		sourceFile,
 		c.Account,
 		node,
 		destinationFile,
 		fileCopierOptions,
-		"",
+		sshOptions,
 		c.CommandEnvironment,
 	)
 

@@ -487,8 +487,10 @@ func run(ctx context.Context) error {
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
-			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
 			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
+			fileCopierOptions := cmdUtils.GetFileCopierOptionsFromConfig(serviceConfigPath)
+			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
+			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -506,6 +508,8 @@ func run(ctx context.Context) error {
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
+				worker.SetSupportedExtrasKeyValue(worker.PingOptions, extraPingOpts),
+				worker.SetSupportedExtrasKeyValue(worker.SSHOptions, sshOpts),
 				vaultTokenStoreHoldoffFunc,
 			)
 			if err != nil {

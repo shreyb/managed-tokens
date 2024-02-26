@@ -328,12 +328,41 @@ func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
 	return *vaultServerPtr, nil
 }
 
-// GetKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the directory
+// GetServiceCreddVaultTokenPathRoot checks the configuration at the checkServiceConfigPath for an override for the path to the directory
 // where the condorVaultStorer worker should look for and store service/credd-specific vault tokens.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
 func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
 	serviceCreddVaultTokenPathRootPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "serviceCreddVaultTokenPathRoot")
 	return viper.GetString(serviceCreddVaultTokenPathRootPath)
+}
+
+// GetFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions
+// is overridden at the service configuration level, then the global configuration value is ignored.
+func GetFileCopierOptionsFromConfig(serviceConfigPath string) []string {
+	fileCopierOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
+	fileCopierOptsString := viper.GetString(fileCopierOptsPath)
+	fileCopierOpts, _ := shlex.Split(fileCopierOptsString)
+	return fileCopierOpts
+}
+
+// GetPingOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
+// extra args to pass to the ping worker.  If the override does not exist,
+// it uses the configuration to calculate the default path to the relevant directory
+func GetPingOptsFromConfig(checkServiceConfigPath string) []string {
+	pingOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingOptions")
+	pingOptsString := viper.GetString(pingOptsPath)
+	pingOpts, _ := shlex.Split(pingOptsString)
+	return pingOpts
+}
+
+// GetSSHOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
+// extra args to pass to the fileCopier worker.  If the override does not exist,
+// it uses the configuration to calculate the default path to the relevant directory
+func GetSSHOptsFromConfig(checkServiceConfigPath string) []string {
+	sshOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "sshOptions")
+	sshOptsString := viper.GetString(sshOptsPath)
+	sshOpts, _ := shlex.Split(sshOptsString)
+	return sshOpts
 }
 
 // Functions to set environment.CommandEnvironment inside worker.Config

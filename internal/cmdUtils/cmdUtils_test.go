@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
@@ -734,6 +735,82 @@ func TestCheckScheddsOverride(t *testing.T) {
 				if found != test.expectedFound {
 					t.Errorf("Got wrong result for found.  Expected %t, got %t", test.expectedFound, found)
 				}
+			},
+		)
+	}
+}
+
+func TestGetExtraPingOptsFromConfig(t *testing.T) {
+	configPath := "pingOptions"
+	emptyStringSlice := make([]string, 0)
+	type testCase struct {
+		description      string
+		viperSetupFunc   func()
+		expectedPingOpts []string
+	}
+
+	testCases := []testCase{
+		{
+			"Config key exists",
+			func() {
+				viper.Set(configPath, "-foo --bar value")
+			},
+			[]string{"-foo", "--bar", "value"},
+		},
+		{
+			"Config key does not exist",
+			func() {
+			},
+			emptyStringSlice,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				test.viperSetupFunc()
+				defer viper.Reset()
+				pingOpts := GetPingOptsFromConfig(configPath)
+				assert.Equal(t, test.expectedPingOpts, pingOpts)
+			},
+		)
+	}
+}
+
+func TestGetExtraSSHOptsFromConfig(t *testing.T) {
+	configPath := "sshOptions"
+	emptyStringSlice := make([]string, 0)
+	type testCase struct {
+		description     string
+		viperSetupFunc  func()
+		expectedSSHOpts []string
+	}
+
+	testCases := []testCase{
+		{
+			"Config key exists",
+			func() {
+				viper.Set(configPath, "-foo --bar value")
+			},
+			[]string{"-foo", "--bar", "value"},
+		},
+		{
+			"Config key does not exist",
+			func() {
+			},
+			emptyStringSlice,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				test.viperSetupFunc()
+				defer viper.Reset()
+				sshOpts := GetSSHOptsFromConfig(configPath)
+				assert.Equal(t, test.expectedSSHOpts, sshOpts)
 			},
 		)
 	}

@@ -21,8 +21,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 	"text/template"
 
+	"github.com/cornfeedhobo/pflag"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/fermitools/managed-tokens/internal/utils"
@@ -36,7 +38,7 @@ var (
 
 // PingNoder is an interface that wraps the PingNode method. It is meant to be used where pinging a node is necessary.  PingNoders also implement the Stringer interface.
 type PingNoder interface {
-	PingNode(context.Context) error
+	PingNode(context.Context, []string) error
 	String() string
 }
 
@@ -47,10 +49,10 @@ type Node string
 func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
-func (n Node) PingNode(ctx context.Context) error {
+func (n Node) PingNode(ctx context.Context, extraPingOpts []string) error {
 	funcLogger := log.WithField("node", string(n))
 
-	args, err := parseAndExecutePingTemplate(string(n))
+	args, err := parseAndExecutePingTemplate(string(n), extraPingOpts)
 	if err != nil {
 		funcLogger.Error("Could not parse and execute ping template")
 		return err
@@ -86,10 +88,20 @@ func init() {
 	}
 }
 
-func parseAndExecutePingTemplate(node string) ([]string, error) {
-	pingTemplate, err := template.New("ping").Parse("-W 5 -c 1 {{.Node}}")
+func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string, error) {
+	mergedPingOpts, err := mergePingOpts(extraPingOpts)
 	if err != nil {
-		log.Error("could not parse kinit template")
+		msg := "could not merge ping args"
+		log.WithFields(log.Fields{
+			"extraPingOpts": extraPingOpts,
+			"node":          node,
+		}).Errorf(msg)
+		return nil, errors.New("msg")
+	}
+	finalPingOpts := strings.Join(mergedPingOpts, " ")
+	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingOpts))
+	if err != nil {
+		log.Error("could not parse ping template")
 		return nil, err
 	}
 
@@ -111,4 +123,15 @@ func parseAndExecutePingTemplate(node string) ([]string, error) {
 		return nil, retErr
 	}
 	return args, nil
+}
+
+// mergePingOpts will evaluate the extra args and return a slice of args containing the merged arguments
+func mergePingOpts(extraArgs []string) ([]string, error) {
+	fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
+
+	// Load our default set.  Note that I'm using these names as a workaround as pflag doesn't provide support for shorthand flags only, which is a bummer
+	fs.StringS("pingFlagW", "W", "5", "")
+	fs.StringS("pingFlagc", "c", "1", "")
+
+	return utils.MergeCmdArgs(fs, extraArgs)
 }

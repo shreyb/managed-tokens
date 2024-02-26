@@ -24,6 +24,8 @@ const (
 	DefaultRoleFileDestinationTemplate supportedExtrasKey = iota
 	FileCopierOptions
 	VaultTokenStoreHoldoff
+	PingOptions
+	SSHOptions
 )
 
 func (s supportedExtrasKey) String() string {
@@ -34,6 +36,10 @@ func (s supportedExtrasKey) String() string {
 		return "FileCopierOptions"
 	case VaultTokenStoreHoldoff:
 		return "VaultTokenStoreHoldoff"
+	case PingOptions:
+		return "PingOptions"
+	case SSHOptions:
+		return "SSHOptions"
 	default:
 		return "unsupported extras key"
 	}
@@ -74,7 +80,7 @@ func SetVaultTokenStoreHoldoff() func(*Config) error {
 
 // defaultFileCopierOpts assumes that the FileCopier will implement rsync, and thus the default options will render the
 // destination file with permissions 0o400
-const defaultFileCopierOpts = "--perms --chmod=u=r,go="
+var defaultFileCopierOpts []string = []string{"--perms", "--chmod=u=r,go="}
 
 // GetFileCopierOptionsFromExtras retrieves the file copier options value from the worker.Config,
 // and asserts that it is a string.  Callers should check the bool return value to make sure the type assertion
@@ -84,11 +90,37 @@ const defaultFileCopierOpts = "--perms --chmod=u=r,go="
 //	// set the default role file template in here
 //	opts, ok := GetFileCopierOptionsFromExtras(c)
 //	if !ok { // handle missing or incorrect value }
-func GetFileCopierOptionsFromExtras(c *Config) (string, bool) {
+func GetFileCopierOptionsFromExtras(c *Config) ([]string, bool) {
 	_fileCopierOpts, ok := c.Extras[FileCopierOptions]
 	if !ok {
 		return defaultFileCopierOpts, true
 	}
-	fileCopierOpts, ok := _fileCopierOpts.(string)
+	fileCopierOpts, ok := _fileCopierOpts.([]string)
 	return fileCopierOpts, ok
+}
+
+// GetPingOptionsFromExtras retrieves the ping options slice from the worker.Config, and asserts
+// that it is a []string.  Callers should check the bool return value to make sure that the
+// type assertion passes.
+func GetPingOptionsFromExtras(c *Config) ([]string, bool) {
+	emptyOpts := make([]string, 0)
+	_pingOpts, ok := c.Extras[PingOptions]
+	if !ok {
+		return emptyOpts, true
+	}
+	pingOpts, ok := _pingOpts.([]string)
+	return pingOpts, ok
+}
+
+// GetSSHOptionsFromExtras retrieves the SSH options slice from the worker.Config, and asserts
+// that it is a []string.  Callers should check the bool return value to make sure that the
+// type assertion passes.
+func GetSSHOptionsFromExtras(c *Config) ([]string, bool) {
+	emptyOpts := make([]string, 0)
+	_sshOpts, ok := c.Extras[SSHOptions]
+	if !ok {
+		return emptyOpts, true
+	}
+	SSHOpts, ok := _sshOpts.([]string)
+	return SSHOpts, ok
 }
