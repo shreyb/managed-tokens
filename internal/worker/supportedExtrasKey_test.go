@@ -113,7 +113,6 @@ func TestGetDefaultRoleFileDestinationTemplateValueFromExtras(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				// config, _ := NewConfig(service.NewService("test_service"), SetSupportedExtrasKeyValue(DefaultRoleFileDestinationTemplate, "foobar"))
 				config, _ := NewConfig(testService, test.setKeyValFunc)
 				val, ok := GetDefaultRoleFileDestinationTemplateValueFromExtras(config)
 				assert.Equal(t, test.expectedTemplate, val)
