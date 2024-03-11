@@ -34,7 +34,7 @@ func TestNewEmail(t *testing.T) {
 	assert.Equal(t, *e, *NewEmail("from@address", []string{"toemail@address1", "toemail@address2"}, "test subject", "smtp.host", 42))
 }
 
-func TestSendMessageContextErrors(t *testing.T) {
+func TestSendMessageEmailContextErrors(t *testing.T) {
 	type testCase struct {
 		description      string
 		contextSetupFunc func() (context.Context, context.CancelFunc)
@@ -82,7 +82,7 @@ func TestSendMessageContextErrors(t *testing.T) {
 	}
 }
 
-func TestSendMessageError(t *testing.T) {
+func TestSendMessageEmailError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(func() {
 		cancel()
