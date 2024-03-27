@@ -152,7 +152,6 @@ func initConfig() error {
 }
 
 func initServices() error {
-	fmt.Println(pflag.NArg())
 	if pflag.NArg() != 0 && viper.GetString("service") == "" {
 		viper.Set("service", pflag.Arg(0))
 	}
