@@ -25,6 +25,7 @@ import (
 
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
+	log "github.com/sirupsen/logrus"
 )
 
 func TestInitServices(t *testing.T) {
@@ -130,6 +131,7 @@ func servicesReset() {
 }
 
 func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
+	exeLogger = log.NewEntry(log.New())
 	type testCase struct {
 		description      string
 		timeoutsConfig   string
