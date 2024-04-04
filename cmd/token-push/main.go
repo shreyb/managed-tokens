@@ -474,13 +474,13 @@ func run(ctx context.Context) error {
 
 			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
 			if err != nil {
-				exeLogger.Error("Cannot proceed without vault server.  Exiting now")
-				os.Exit(1)
+				exeLogger.Error("Cannot proceed without vault server.  Returning now")
+				return
 			}
 			schedds, err := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
 			if err != nil {
-				funcLogger.Error("Cannot proceed without schedds.  Exiting now")
-				os.Exit(1)
+				funcLogger.Error("Cannot proceed without schedds.  Returning now")
+				return
 			}
 
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
