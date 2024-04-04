@@ -44,15 +44,16 @@ var (
 	exeLogger         *log.Entry
 )
 
-// Supported timeouts and their default values
+// Supported timeouts that can be read in from configuration file and their default values
 var timeouts = map[string]time.Duration{
-	"global":      time.Duration(300 * time.Second),
-	"kerberos":    time.Duration(20 * time.Second),
-	"vaultstorer": time.Duration(60 * time.Second),
+	"global":   time.Duration(300 * time.Second),
+	"kerberos": time.Duration(20 * time.Second),
 }
 
+var errExitOK = errors.New("exit 0") // Error to return when a function wants to indicate to caller to exit with code 0
+
 // Initial setup.  Read flags, find config file
-func init() {
+func setup() error {
 	// Get current executable name
 	if exePath, err := os.Executable(); err != nil {
 		log.Error("Could not get path of current executable")
@@ -61,18 +62,19 @@ func init() {
 	}
 
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
+		log.WithField("executable", currentExecutable).Error("Current user is root.  Please run this executable as a non-root user")
+		return err
 	}
 
 	initFlags()
 	if viper.GetBool("version") {
 		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
-		os.Exit(0)
+		return errExitOK
 	}
 
 	if err := initConfig(); err != nil {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
-		os.Exit(1)
+		return err
 	}
 
 	// If user wants to list all services, do that and exit
@@ -85,18 +87,27 @@ func init() {
 			}
 		}
 		fmt.Println(strings.Join(allServices, "\n"))
-		os.Exit(0)
+		return errExitOK
 	}
 
 	if err := initServices(); err != nil {
 		fmt.Println("Fatal error in parsing service to run onboarding for")
-		os.Exit(1)
+		return err
 	}
 
 	initLogs()
-	if err := initTimeouts(); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
+
+	// Test flag sets which notifications section from config we want to use.
+	if viper.GetBool("test") {
+		exeLogger.Info("Running in test mode")
 	}
+
+	if err := initTimeouts(); err != nil {
+		log.WithField("executable", currentExecutable).Error("Fatal error setting up timeouts")
+		return err
+	}
+
+	return nil
 }
 
 func initFlags() {
@@ -110,10 +121,11 @@ func initFlags() {
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 	pflag.Bool("list-services", false, "List all configured services in config file")
+	pflag.String("timeout", "60s", "Timeout for vault_storer portion of run")
+	pflag.StringP("service", "s", "", "Service (experiment_role) to onboard")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
-
 }
 
 func initConfig() error {
@@ -139,7 +151,7 @@ func initConfig() error {
 }
 
 func initServices() error {
-	if pflag.NArg() != 0 {
+	if pflag.NArg() != 0 && viper.GetString("service") == "" {
 		viper.Set("service", pflag.Arg(0))
 	}
 
@@ -178,16 +190,11 @@ func initLogs() {
 
 	exeLogger = log.WithField("executable", currentExecutable)
 	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
-
-	// Test flag sets which notifications section from config we want to use.
-	if viper.GetBool("test") {
-		exeLogger.Info("Running in test mode")
-	}
 }
 
 // Setup of timeouts, if they're set
 func initTimeouts() error {
-	// Save supported timeouts into timeouts map
+	// Save supported timeouts into global timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
 		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
 		// Only save the timeout if it's supported, otherwise ignore it
@@ -218,10 +225,32 @@ func initTimeouts() error {
 		exeLogger.Error(msg)
 		return errors.New(msg)
 	}
+
+	// If we have a timeout from the command line, override global setting, save timeout in vaultstorer key
+	if timeout := viper.GetString("timeout"); timeout != "" {
+		vaultStorerTimeout, err := time.ParseDuration(timeout)
+		if err != nil {
+			exeLogger.WithField("timeout", timeout).Error("Could not parse timeout duration from command line")
+			return err
+		}
+		timeouts["vaultstorer"] = vaultStorerTimeout
+
+		if vaultStorerTimeout > timeouts["global"] {
+			exeLogger.Info("Command-line vault_storer timeout exceeds global timeout.  Overriding global timeout")
+			timeouts["global"] = vaultStorerTimeout
+		}
+	}
 	return nil
 }
 
 func main() {
+	if err := setup(); err != nil {
+		if errors.Is(err, errExitOK) {
+			os.Exit(0)
+		}
+		log.Fatal("Error running setup actions.  Exiting")
+	}
+
 	var globalTimeout time.Duration
 	var ok bool
 
