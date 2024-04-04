@@ -56,7 +56,7 @@ func TestInitTimeouts(t *testing.T) {
 
 			viper.Set("timeout", tc.cmdLineTimeout)
 
-			timeouts, err := initTimeouts()
+			err := initTimeouts()
 
 			if err != nil {
 				t.Errorf("Expected nil error, but got %s", err)

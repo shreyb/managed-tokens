@@ -102,8 +102,7 @@ func setup() error {
 		exeLogger.Info("Running in test mode")
 	}
 
-	var err error
-	if timeouts, err = initTimeouts(); err != nil {
+	if err := initTimeouts(); err != nil {
 		log.WithField("executable", currentExecutable).Error("Fatal error setting up timeouts")
 		return err
 	}
@@ -194,8 +193,8 @@ func initLogs() {
 }
 
 // Setup of timeouts, if they're set
-func initTimeouts() (map[string]time.Duration, error) {
-	// Save supported timeouts into timeouts map
+func initTimeouts() error {
+	// Save supported timeouts into global timeouts map
 	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
 		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
 		// Only save the timeout if it's supported, otherwise ignore it
@@ -224,7 +223,7 @@ func initTimeouts() (map[string]time.Duration, error) {
 	if timeForComponentCheck.After(timeForGlobalCheck) {
 		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
 		exeLogger.Error(msg)
-		return timeouts, errors.New(msg)
+		return errors.New(msg)
 	}
 
 	// If we have a timeout from the command line, override global setting, save timeout in vaultstorer key
@@ -232,7 +231,7 @@ func initTimeouts() (map[string]time.Duration, error) {
 		vaultStorerTimeout, err := time.ParseDuration(timeout)
 		if err != nil {
 			exeLogger.WithField("timeout", timeout).Error("Could not parse timeout duration from command line")
-			return timeouts, err
+			return err
 		}
 		timeouts["vaultstorer"] = vaultStorerTimeout
 
@@ -241,7 +240,7 @@ func initTimeouts() (map[string]time.Duration, error) {
 			timeouts["global"] = vaultStorerTimeout
 		}
 	}
-	return timeouts, nil
+	return nil
 }
 
 func main() {
