@@ -266,37 +266,51 @@ func TestInitConfig(t *testing.T) {
 	os.WriteFile(path.Join(tempConfigDir, "config.yml"), testData, 0644)
 	os.WriteFile(path.Join(tempConfigDir, "managedTokens.yml"), testData, 0644)
 
-	// Test case: Config file exists
-	t.Run("Config file exists", func(t *testing.T) {
-		viper.Reset()
-		viper.Set("configfile", path.Join(tempConfigDir, "config.yml"))
+	type testCase struct {
+		description        string
+		configFile         string
+		expectedConfigFile string
+		expectedErr        error
+	}
 
-		err := initConfig()
+	testCases := []testCase{
+		{
+			"Config file exists",
+			path.Join(tempConfigDir, "config.yml"),
+			path.Join(tempConfigDir, "config.yml"),
+			nil,
+		},
+		{
+			"Config file does not exist, default config name used",
+			"",
+			path.Join(tempConfigDir, "managedTokens.yml"),
+			nil,
+		},
+		{
+			"User flag points to nonexistent file",
+			"/path/to/nonexistent.yaml",
+			"",
+			os.ErrNotExist,
+		},
+	}
 
-		assert.NoError(t, err)
-		assert.Equal(t, path.Join(tempConfigDir, "config.yml"), viper.ConfigFileUsed())
-	})
+	for _, tc := range testCases {
+		t.Run(
+			tc.description,
+			func(t *testing.T) {
+				viper.Reset()
+				viper.AddConfigPath(tempConfigDir)
+				viper.Set("configfile", tc.configFile)
 
-	// Test case: Config file does not exist, default config name used
-	t.Run("Config file does not exist, default config name used", func(t *testing.T) {
-		viper.Reset()
-		viper.AddConfigPath(tempConfigDir)
-		viper.Set("configfile", "")
+				err := initConfig()
 
-		err := initConfig()
-
-		assert.NoError(t, err)
-		assert.Equal(t, path.Join(tempConfigDir, "managedTokens.yml"), viper.ConfigFileUsed())
-	})
-
-	// Test case: Configfile doesn't exist
-	t.Run("Error reading config file", func(t *testing.T) {
-		viper.Reset()
-		viper.Set("configfile", "/path/to/nonexistent.yaml")
-
-		err := initConfig()
-
-		assert.Error(t, err)
-		assert.ErrorIs(t, err, os.ErrNotExist)
-	})
+				if tc.expectedErr == nil {
+					assert.NoError(t, err)
+					assert.Equal(t, tc.expectedConfigFile, viper.ConfigFileUsed())
+				} else {
+					assert.ErrorIs(t, err, tc.expectedErr)
+				}
+			},
+		)
+	}
 }
