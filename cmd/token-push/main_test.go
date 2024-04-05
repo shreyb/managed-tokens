@@ -16,16 +16,19 @@
 package main
 
 import (
+	"os"
+	"path"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
-	log "github.com/sirupsen/logrus"
 )
 
 func TestInitServices(t *testing.T) {
@@ -255,4 +258,45 @@ func timeoutsReset() {
 		"ping":        time.Duration(10 * time.Second),
 		"push":        time.Duration(30 * time.Second),
 	}
+}
+
+func TestInitConfig(t *testing.T) {
+	tempConfigDir := t.TempDir()
+	testData := []byte("")
+	os.WriteFile(path.Join(tempConfigDir, "config.yml"), testData, 0644)
+	os.WriteFile(path.Join(tempConfigDir, "managedTokens.yml"), testData, 0644)
+
+	// Test case: Config file exists
+	t.Run("Config file exists", func(t *testing.T) {
+		viper.Reset()
+		viper.Set("configfile", path.Join(tempConfigDir, "config.yml"))
+
+		err := initConfig()
+
+		assert.NoError(t, err)
+		assert.Equal(t, path.Join(tempConfigDir, "config.yml"), viper.ConfigFileUsed())
+	})
+
+	// Test case: Config file does not exist, default config name used
+	t.Run("Config file does not exist, default config name used", func(t *testing.T) {
+		viper.Reset()
+		viper.AddConfigPath(tempConfigDir)
+		viper.Set("configfile", "")
+
+		err := initConfig()
+
+		assert.NoError(t, err)
+		assert.Equal(t, path.Join(tempConfigDir, "managedTokens.yml"), viper.ConfigFileUsed())
+	})
+
+	// Test case: Configfile doesn't exist
+	t.Run("Error reading config file", func(t *testing.T) {
+		viper.Reset()
+		viper.Set("configfile", "/path/to/nonexistent.yaml")
+
+		err := initConfig()
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
 }
