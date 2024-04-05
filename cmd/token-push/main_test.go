@@ -31,6 +31,11 @@ import (
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
+func TestMain(m *testing.M) {
+	exeLogger = log.NewEntry(log.New())
+	os.Exit(m.Run())
+}
+
 func TestInitServices(t *testing.T) {
 	testServicesConfig := `
 	{
@@ -134,7 +139,6 @@ func servicesReset() {
 }
 
 func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
-	exeLogger = log.NewEntry(log.New())
 	type testCase struct {
 		description      string
 		timeoutsConfig   string
@@ -309,6 +313,48 @@ func TestInitConfig(t *testing.T) {
 					assert.Equal(t, tc.expectedConfigFile, viper.ConfigFileUsed())
 				} else {
 					assert.ErrorIs(t, err, tc.expectedErr)
+				}
+			},
+		)
+	}
+}
+
+func TestOpenDatabaseAndLoadServices(t *testing.T) {
+	tempDbDir := t.TempDir()
+
+	type testCase struct {
+		description    string
+		dbLocation     string
+		errNil         bool
+		expectedDbPath string
+	}
+
+	testCases := []testCase{
+		{
+			"Valid db location",
+			path.Join(tempDbDir, "test.db"),
+			true,
+			path.Join(tempDbDir, "test.db"),
+		},
+		{
+			"Invalid db location",
+			os.DevNull,
+			false,
+			"",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(
+			tc.description,
+			func(t *testing.T) {
+				viper.Reset()
+				viper.Set("dbLocation", tc.dbLocation)
+				db, err := openDatabaseAndLoadServices()
+				if tc.errNil {
+					assert.Equal(t, tc.expectedDbPath, db.Location())
+				} else {
+					assert.Error(t, err)
 				}
 			},
 		)
