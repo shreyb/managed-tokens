@@ -124,7 +124,7 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(
 // loadServiceConfigsIntoChannel loads *worker.Config objects into a channel, usually for use by a worker, and then closes the channel
 func loadServiceConfigsIntoChannel(chanToLoad chan<- *worker.Config, serviceConfigSlice []*worker.Config) {
 	defer close(chanToLoad)
-	for _, sc := range serviceConfigs {
+	for _, sc := range serviceConfigSlice {
 		chanToLoad <- sc
 	}
 }

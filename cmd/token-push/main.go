@@ -91,8 +91,7 @@ var (
 )
 
 var (
-	services       []service.Service
-	serviceConfigs = make(map[string]*worker.Config)
+	services []service.Service
 )
 
 var errExitOK = errors.New("exit 0")
@@ -435,6 +434,8 @@ func run(ctx context.Context) error {
 			exeLogger.WithField("kerbCacheDir", kerbCacheDir).Info("Cleared kerberos cache directory")
 		}()
 	}
+
+	serviceConfigs := make(map[string]*worker.Config) // Running map of the service configurations to pass to workers
 
 	// This block launches a goroutine that listens for successfully-setup service configs (*worker.Config) objects
 	// and then populates a map of those Config objects and a map to store the overall success status of each
