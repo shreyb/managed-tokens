@@ -869,3 +869,14 @@ func createAndOpenTestDatabaseWithApplicationId(tempDir string) (*ManagedTokensD
 	}
 	return m, nil
 }
+func TestManagedTokensDatabase_Location(t *testing.T) {
+	tempDir := t.TempDir()
+	dbLocation := path.Join(tempDir, fmt.Sprintf("managed-tokens-test-%d.db", rand.Intn(10000)))
+	m := &ManagedTokensDatabase{filename: dbLocation}
+
+	location := m.Location()
+
+	if location != dbLocation {
+		t.Errorf("Expected location to be %s, but got %s", dbLocation, location)
+	}
+}
