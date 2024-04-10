@@ -46,6 +46,11 @@ type ManagedTokensDatabase struct {
 	db       *sql.DB
 }
 
+// Location returns the location of the ManagedTokensDatabase file
+func (m *ManagedTokensDatabase) Location() string {
+	return m.filename
+}
+
 // OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
 // exists at the filename provided, it will open that database as long as the ApplicationId matches
 // OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already

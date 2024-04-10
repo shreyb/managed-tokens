@@ -11,8 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInitTimeouts(t *testing.T) {
+func TestMain(m *testing.M) {
 	exeLogger = log.NewEntry(log.New())
+	os.Exit(m.Run())
+}
+
+func TestInitTimeouts(t *testing.T) {
 	type testCase struct {
 		description      string
 		cmdLineTimeout   string

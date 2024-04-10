@@ -16,16 +16,25 @@
 package main
 
 import (
+	"os"
+	"path"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
+
+func TestMain(m *testing.M) {
+	exeLogger = log.NewEntry(log.New())
+	os.Exit(m.Run())
+}
 
 func TestInitServices(t *testing.T) {
 	testServicesConfig := `
@@ -252,5 +261,102 @@ func timeoutsReset() {
 		"vaultstorer": time.Duration(60 * time.Second),
 		"ping":        time.Duration(10 * time.Second),
 		"push":        time.Duration(30 * time.Second),
+	}
+}
+
+func TestInitConfig(t *testing.T) {
+	tempConfigDir := t.TempDir()
+	testData := []byte("")
+	os.WriteFile(path.Join(tempConfigDir, "config.yml"), testData, 0644)
+	os.WriteFile(path.Join(tempConfigDir, "managedTokens.yml"), testData, 0644)
+
+	type testCase struct {
+		description        string
+		configFile         string
+		expectedConfigFile string
+		expectedErr        error
+	}
+
+	testCases := []testCase{
+		{
+			"Config file exists",
+			path.Join(tempConfigDir, "config.yml"),
+			path.Join(tempConfigDir, "config.yml"),
+			nil,
+		},
+		{
+			"Config file does not exist, default config name used",
+			"",
+			path.Join(tempConfigDir, "managedTokens.yml"),
+			nil,
+		},
+		{
+			"User flag points to nonexistent file",
+			"/path/to/nonexistent.yaml",
+			"",
+			os.ErrNotExist,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(
+			tc.description,
+			func(t *testing.T) {
+				viper.Reset()
+				viper.AddConfigPath(tempConfigDir)
+				viper.Set("configfile", tc.configFile)
+
+				err := initConfig()
+
+				if tc.expectedErr == nil {
+					assert.NoError(t, err)
+					assert.Equal(t, tc.expectedConfigFile, viper.ConfigFileUsed())
+				} else {
+					assert.ErrorIs(t, err, tc.expectedErr)
+				}
+			},
+		)
+	}
+}
+
+func TestOpenDatabaseAndLoadServices(t *testing.T) {
+	tempDbDir := t.TempDir()
+
+	type testCase struct {
+		description    string
+		dbLocation     string
+		errNil         bool
+		expectedDbPath string
+	}
+
+	testCases := []testCase{
+		{
+			"Valid db location",
+			path.Join(tempDbDir, "test.db"),
+			true,
+			path.Join(tempDbDir, "test.db"),
+		},
+		{
+			"Invalid db location",
+			os.DevNull,
+			false,
+			"",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(
+			tc.description,
+			func(t *testing.T) {
+				viper.Reset()
+				viper.Set("dbLocation", tc.dbLocation)
+				db, err := openDatabaseAndLoadServices()
+				if tc.errNil {
+					assert.Equal(t, tc.expectedDbPath, db.Location())
+				} else {
+					assert.Error(t, err)
+				}
+			},
+		)
 	}
 }
