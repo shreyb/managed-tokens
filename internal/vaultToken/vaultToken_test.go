@@ -263,6 +263,12 @@ func TestGetAllVaultTokenLocations(t *testing.T) {
 	goodCondorFile := func() string { return createFileIfNotExist(fmt.Sprintf("/tmp/vt_u%s-%s", user.Uid, serviceName)) }
 	badFile := func() string { return "thispathdoesnotexist" }
 
+	clearFiles := func() {
+		os.Remove(goodDefaultFile())
+		os.Remove(goodCondorFile())
+		os.Remove(badFile())
+	}
+
 	type testCase struct {
 		description    string
 		fileCreators   []func() string
@@ -296,6 +302,7 @@ func TestGetAllVaultTokenLocations(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
+				clearFiles()
 				for _, f := range test.fileCreators {
 					defaultFile := f()
 					defer os.Remove(defaultFile)
