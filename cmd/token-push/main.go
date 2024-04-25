@@ -348,9 +348,7 @@ func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase
 
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
-		msg := "Could not open or create ManagedTokensDatabase"
-		span.SetStatus(codes.Error, msg)
-		exeLogger.Error(msg)
+		tracing.LogErrorWithTrace(span, exeLogger, "Could not open or create ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -363,7 +361,7 @@ func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase
 		exeLogger.Error("Could not update database with currently-configured services.  Future database-based operations may fail")
 	}
 
-	span.SetStatus(codes.Ok, "Successfully opened database and loaded services")
+	tracing.LogSuccessWithTrace(span, exeLogger, "Successfully opened database and loaded services")
 	return database, nil
 }
 
@@ -418,7 +416,7 @@ func run(ctx context.Context) error {
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
 	tp := otel.GetTracerProvider()
-	ctx, span := tp.Tracer("token-push").Start(ctx, "token-push test")
+	ctx, span := tp.Tracer("token-push").Start(ctx, "run")
 	defer span.End()
 
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
@@ -428,7 +426,9 @@ func run(ctx context.Context) error {
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
 	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
 	if databaseErr != nil {
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError("Could not open or create ManagedTokensDatabase", currentExecutable)
+		msg := "Could not open or create ManagedTokensDatabase"
+		span.SetStatus(codes.Error, msg)
+		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 	} else {
 		defer database.Close()
 	}
@@ -437,8 +437,8 @@ func run(ctx context.Context) error {
 	defer func() {
 		// Run cleanup actions
 		// Cleanup
-		if err := reportSuccessesAndFailures(ctx, successfulServices); err != nil {
-			exeLogger.Error("Error aggregating successes and failures")
+		if err := reportSuccessesAndFailures(successfulServices); err != nil {
+			tracing.LogErrorWithTrace(span, exeLogger, "Error aggregating successes and failures")
 		}
 		// Push metrics to prometheus pushgateway
 		if prometheusUp {
@@ -536,17 +536,13 @@ func run(ctx context.Context) error {
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Error obtaining UID for service")
-				funcLogger.Error("Error obtaining UID for service.  Skipping service.")
+				tracing.LogErrorWithTrace(span, funcLogger, "Error obtaining UID for service. Skipping service.")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Cannot have a blank userPrincipal")
-				funcLogger.Error("Cannot have a blank userPrincipal.  Skipping service")
+				tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal. Skipping service")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
@@ -554,26 +550,20 @@ func run(ctx context.Context) error {
 			// Create kerberos cache for this service
 			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Cannot create kerberos cache")
-				exeLogger.Error("Cannot create kerberos cache.  Subsequent operations will fail.  Returning")
+				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 
 			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Cannot proceed without vault server")
-				exeLogger.Error("Cannot proceed without vault server.  Returning now")
+				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 			schedds, err := cmdUtils.GetScheddsFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "Cannot proceed without schedds")
-				funcLogger.Error("Cannot proceed without schedds.  Returning now")
+				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
@@ -608,18 +598,21 @@ func run(ctx context.Context) error {
 				vaultTokenStoreHoldoffFunc,
 			)
 			if err != nil {
-				funcLogger.Error("Could not create config for service")
+				tracing.LogErrorWithTrace(span, funcLogger, "Could not create config for service")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 			collectServiceConfigs <- c
 			registerServiceNotificationsChan(ctx, s, admNotMgr)
+			span.SetStatus(codes.Ok, "Service config setup")
 		}(s)
 	}
 	serviceConfigSetupWg.Wait()
 	close(collectServiceConfigs)
 	close(collectFailedServiceSetups)
 	<-serviceInitDone // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
+
+	span.AddEvent("Service configs setup complete")
 
 	// Add our configured nodes to managed tokens database
 	nodesToAddToDatabase := make([]string, 0)
@@ -631,7 +624,9 @@ func run(ctx context.Context) error {
 	}
 
 	// Setup done.  Push prometheus metrics
-	exeLogger.Debug("Setup complete")
+	msg := "Setup complete"
+	span.AddEvent(msg)
+	exeLogger.Debug(msg)
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "setup").Set(time.Since(startSetup).Seconds())
 	}
@@ -646,6 +641,7 @@ func run(ctx context.Context) error {
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
 	startKerberos := time.Now()
+	span.AddEvent("Starting to obtain kerberos tickets")
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberos")
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
@@ -661,10 +657,12 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "getKerberosTickets").Set(time.Since(startKerberos).Seconds())
 	}
+	span.AddEvent("All kerberos tickets obtained")
 
 	// 2. Get and store vault tokens
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
 	startCondorVault := time.Now()
+	span.AddEvent("Starting to obtain and store vault tokens")
 	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
 
 	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
@@ -686,6 +684,7 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "storeAndGetTokens").Set(time.Since(startCondorVault).Seconds())
 	}
+	span.AddEvent("All vault tokens obtained and stored")
 
 	// If we're in test mode, stop here
 	if viper.GetBool("test") {
@@ -705,6 +704,7 @@ func run(ctx context.Context) error {
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
 	startPing := time.Now()
+	span.AddEvent("Starting to ping nodes")
 	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "ping")
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
@@ -717,10 +717,12 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "pingNodes").Set(time.Since(startPing).Seconds())
 	}
+	span.AddEvent("Done pinging nodes")
 
 	// 4. Push vault tokens to nodes
 	// Get channels and start worker for pushing tokens to service nodes
 	startPush := time.Now()
+	span.AddEvent("Starting to push tokens")
 	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "push")
 
 	// Aggregate the successes
@@ -733,11 +735,12 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "pushTokens").Set(time.Since(startPush).Seconds())
 	}
+	span.AddEvent("Done pushing tokens")
 
 	return nil
 }
 
-func reportSuccessesAndFailures(ctx context.Context, successMap map[string]bool) error {
+func reportSuccessesAndFailures(successMap map[string]bool) error {
 	startCleanup = time.Now()
 	defer func() {
 		if prometheusUp {

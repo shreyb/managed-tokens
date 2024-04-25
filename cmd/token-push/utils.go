@@ -18,11 +18,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"runtime"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
@@ -114,7 +117,17 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
 	serviceConfigs map[string]*worker.Config, timeoutCheckKey string) worker.ChannelsForWorkers {
 	// Channels, context, and worker for getting kerberos tickets
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startServiceConfigWorkerForProcessing")
+	span.SetAttributes(
+		attribute.KeyValue{
+			Key:   "workerFunc",
+			Value: attribute.StringValue(runtime.FuncForPC(reflect.ValueOf(workerFunc).Pointer()).Name()),
+		},
+	)
+	defer span.End()
+
 	var useCtx context.Context
+
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
 	startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {

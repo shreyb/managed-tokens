@@ -24,6 +24,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/fermitools/managed-tokens/internal/metrics"
 )
@@ -74,6 +76,10 @@ type ServiceEmailManager struct {
 // the NotificationMinimum via EmailManagerOptions passed in.  If a ManagedTokensDatabase is not passed in via an EmailManagerOption,
 // then the EmailManager will send all notifications
 func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email, opts ...ServiceEmailManagerOption) *ServiceEmailManager {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "NewServiceEmailManager")
+	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(service)})
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.NewServiceEmailManager",
 		"service": service,
