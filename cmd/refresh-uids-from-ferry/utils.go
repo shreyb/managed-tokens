@@ -110,6 +110,12 @@ func getAllAccountsFromConfig() []string {
 	return s
 }
 
+// TODO This should implement the WLCG bearer token discovery standard
+// 1. BEARER_TOKEN
+// 2. BEARER_TOKEN_FILE
+// 3. $XDG_RUNTIME_DIR/bt_u$ID
+// 4. /tmp/bt_u<UID>
+// Then make unit test for it
 // getBearerTokenDefaultLocation returns the default location of the bearer token
 // by looking first at the environment variable BEARER_TOKEN_FILE, and then
 // using the current user's UID to find the default location for the bearer token

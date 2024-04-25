@@ -325,11 +325,12 @@ func run(ctx context.Context) error {
 		funcLogger.Error("Cannot proceed without vault server.  Exiting now")
 		os.Exit(1)
 	}
-	schedds, err := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+	schedds, err := cmdUtils.GetScheddsFromConfiguration(ctx, serviceConfigPath)
 	if err != nil {
 		funcLogger.Error("Cannot proceed without schedds.  Exiting now")
 		os.Exit(1)
 	}
+	// TODO LEFT OFF HERE
 	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 	keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 	serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)

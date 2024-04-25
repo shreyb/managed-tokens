@@ -16,6 +16,7 @@
 package cmdUtils
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -356,8 +357,9 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.description,
 			func(t *testing.T) {
+				ctx := context.Background()
 				test.setupTestFunc()
-				schedds, _ := GetScheddsFromConfiguration(serviceConfigPath)
+				schedds, _ := GetScheddsFromConfiguration(ctx, serviceConfigPath)
 				viper.Reset()
 
 				if !testUtils.SlicesHaveSameElementsOrdered[string](test.expectedSchedds, schedds) {
@@ -371,6 +373,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 
 func TestGetScheddsFromConfigurationCached(t *testing.T) {
 	// setup
+	ctx := context.Background()
 	once := &sync.Once{}
 	once.Do(func() {})
 	collectorHost := "myCollectorHost"
@@ -385,7 +388,7 @@ func TestGetScheddsFromConfigurationCached(t *testing.T) {
 	globalScheddCache.cache.Store(collectorHost, cacheEntry)
 
 	// test
-	result, err := GetScheddsFromConfiguration("fakeservicepath")
+	result, err := GetScheddsFromConfiguration(ctx, "fakeservicepath")
 	if err != nil {
 		t.Errorf("Expected nil error. Got %v", err)
 	}

@@ -32,6 +32,10 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/yukitsune/lokirus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
@@ -39,6 +43,7 @@ import (
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 	"github.com/fermitools/managed-tokens/internal/vaultToken"
 	"github.com/fermitools/managed-tokens/internal/worker"
@@ -327,8 +332,12 @@ func initServices() {
 // openDatabaseAndLoadServices opens a db.ManagedTokensDatabase and loads the configured services into
 // the database.  If any of these operations fail, it returns a nil *db.ManagedTokensDatabase and an error.
 // Otherwise, it returns the pointer to the db.ManagedTokensDatabase
-func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
+func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase, error) {
 	var dbLocation string
+
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "openDatabaseAndLoadService")
+	defer span.End()
+
 	// Open connection to the SQLite database where notification info will be stored
 	if viper.IsSet("dbLocation") {
 		dbLocation = viper.GetString("dbLocation")
@@ -340,6 +349,7 @@ func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
+		span.SetStatus(codes.Error, msg)
 		exeLogger.Error(msg)
 		return nil, err
 	}
@@ -349,11 +359,27 @@ func openDatabaseAndLoadServices() (*db.ManagedTokensDatabase, error) {
 		servicesToAddToDatabase = append(servicesToAddToDatabase, cmdUtils.GetServiceName(s))
 	}
 
-	if err := database.UpdateServices(context.Background(), servicesToAddToDatabase); err != nil {
+	if err := database.UpdateServices(ctx, servicesToAddToDatabase); err != nil {
 		exeLogger.Error("Could not update database with currently-configured services.  Future database-based operations may fail")
 	}
 
+	span.SetStatus(codes.Ok, "Successfully opened database and loaded services")
 	return database, nil
+}
+
+// initTracing initializes the tracing configuration and returns a function to shutdown the
+// initialized TracerProvider and an error, if any.
+func initTracing() (func(context.Context), error) {
+	// TODO this will have to be configured from viper in the future
+	url := "https://landscape.fnal.gov/jaeger-collector/api/traces"
+	tp, shutdown, err := tracing.JaegerTraceProvider(url)
+	if err != nil {
+		exeLogger.Error("Could not obtain a TraceProvider.  Continuing without tracing")
+		return nil, err
+	}
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
+	return shutdown, nil
 }
 
 func main() {
@@ -373,6 +399,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	if tracingShutdown, err := initTracing(); err == nil {
+		defer tracingShutdown(ctx)
+	}
+
 	// Run our actual operation
 	if err := run(ctx); err != nil {
 		exeLogger.Fatal("Error running operations to push vault tokens.  Exiting")
@@ -387,9 +417,13 @@ func run(ctx context.Context) error {
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
+	tp := otel.GetTracerProvider()
+	ctx, span := tp.Tracer("token-push").Start(ctx, "token-push test")
+	defer span.End()
+
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
 
-	database, databaseErr := openDatabaseAndLoadServices()
+	database, databaseErr := openDatabaseAndLoadServices(ctx)
 
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
 	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
@@ -453,6 +487,9 @@ func run(ctx context.Context) error {
 
 		defer close(serviceInitDone)
 
+		_, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "collectServiceConfigs_anonFunc")
+		defer span.End()
+
 		_wg.Add(1)
 		go func() {
 			defer _wg.Done()
@@ -488,17 +525,27 @@ func run(ctx context.Context) error {
 				"caller":  "token-push.run",
 				"service": s.Name(),
 			})
+
 			// Setup the configs
 			defer serviceConfigSetupWg.Done()
+
+			ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "serviceConfigSetup_anonFunc")
+			span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(s.Name())})
+			defer span.End()
+
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Error obtaining UID for service")
 				funcLogger.Error("Error obtaining UID for service.  Skipping service.")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Cannot have a blank userPrincipal")
 				funcLogger.Error("Cannot have a blank userPrincipal.  Skipping service")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
@@ -507,6 +554,8 @@ func run(ctx context.Context) error {
 			// Create kerberos cache for this service
 			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Cannot create kerberos cache")
 				exeLogger.Error("Cannot create kerberos cache.  Subsequent operations will fail.  Returning")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
@@ -514,12 +563,16 @@ func run(ctx context.Context) error {
 
 			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Cannot proceed without vault server")
 				exeLogger.Error("Cannot proceed without vault server.  Returning now")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-			schedds, err := cmdUtils.GetScheddsFromConfiguration(serviceConfigPath)
+			schedds, err := cmdUtils.GetScheddsFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "Cannot proceed without schedds")
 				funcLogger.Error("Cannot proceed without schedds.  Returning now")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return

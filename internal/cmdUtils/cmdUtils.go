@@ -18,6 +18,7 @@
 package cmdUtils
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -32,6 +33,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
 )
@@ -157,13 +161,21 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 
 // GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
-func GetScheddsFromConfiguration(checkServiceConfigPath string) ([]string, error) {
+func GetScheddsFromConfiguration(ctx context.Context, checkServiceConfigPath string) ([]string, error) {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
+	ctx, span := otel.Tracer("managed-tokens").Start(ctx, "GetScheddsFromConfiguration")
+	span.SetAttributes(attribute.KeyValue{Key: "checkServiceConfigPath", Value: attribute.StringValue(checkServiceConfigPath)})
+	defer span.End()
 
 	// 1. Try override
 	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
 	schedds, found := checkScheddsOverride(checkServiceConfigPath)
 	if found {
+		span.SetStatus(codes.Ok, "Schedds successfully retrieved from override")
+		span.SetAttributes(
+			attribute.KeyValue{Key: "scheddInfoSource", Value: attribute.StringValue("override")},
+			attribute.KeyValue{Key: "schedds", Value: attribute.StringValue(strings.Join(schedds, ","))},
+		)
 		return schedds, nil
 	}
 
@@ -191,10 +203,11 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) ([]string, error
 				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
 				scheddSourceForLog = "collector"
 				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
-				err = cacheEntryVal.populateFromCollector(collectorHost, constraint)
+				err = cacheEntryVal.populateFromCollector(ctx, collectorHost, constraint)
 			},
 		)
 		if err != nil {
+			span.SetStatus(codes.Error, "Could not populate schedd cache from collector")
 			return nil, err
 		}
 	}
@@ -205,6 +218,8 @@ func GetScheddsFromConfiguration(checkServiceConfigPath string) ([]string, error
 		"schedds":       schedds,
 		"collectorHost": collectorHost,
 	}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
+	span.SetAttributes(attribute.KeyValue{Key: "scheddInfoSource", Value: attribute.StringValue(scheddSourceForLog)})
+	span.SetStatus(codes.Ok, "Schedds successfully retrieved")
 	return schedds, nil
 }
 
@@ -236,8 +251,14 @@ func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 }
 
 // getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
-func getScheddsFromCondor(collectorHost, constraint string) ([]string, error) {
+func getScheddsFromCondor(ctx context.Context, collectorHost, constraint string) ([]string, error) {
 	funcLogger := log.WithField("collector", collectorHost)
+	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getScheddsFromCondor")
+	span.SetAttributes(
+		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
+		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},
+	)
+	defer span.End()
 
 	funcLogger.Debug("Querying collector for schedds")
 	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
@@ -248,7 +269,9 @@ func getScheddsFromCondor(collectorHost, constraint string) ([]string, error) {
 	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
 	classads, err := statusCmd.Run()
 	if err != nil {
-		funcLogger.WithField("command", statusCmd.Cmd().String()).Error("Could not run condor_status to get cluster schedds")
+		msg := "Could not run condor_status to get cluster schedds"
+		span.SetStatus(codes.Error, msg)
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Error(msg)
 		return nil, err
 	}
 
@@ -257,6 +280,7 @@ func getScheddsFromCondor(collectorHost, constraint string) ([]string, error) {
 		name := classad["Name"].String()
 		schedds = append(schedds, name)
 	}
+	span.SetStatus(codes.Ok, "Schedds successfully retrieved from condor")
 	return schedds, nil
 }
 

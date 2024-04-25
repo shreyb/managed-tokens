@@ -21,6 +21,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
@@ -36,6 +38,10 @@ import (
 //
 // If the default behavior is not possible, the configuration should have a desiredUIDOverride field to allow token-push to run properly
 func getDesiredUIDByOverrideOrLookup(ctx context.Context, serviceConfigPath string, database *db.ManagedTokensDatabase) (uint32, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "getDesiredUIDByOverrideOrLookup")
+	span.SetAttributes(attribute.KeyValue{Key: "serviceConfigPath", Value: attribute.StringValue(serviceConfigPath)})
+	defer span.End()
+
 	if viper.IsSet(serviceConfigPath + ".desiredUIDOverride") {
 		return viper.GetUint32(serviceConfigPath + ".desiredUIDOverride"), nil
 	}
