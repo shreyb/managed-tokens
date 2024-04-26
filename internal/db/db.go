@@ -23,10 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -170,11 +174,23 @@ func (m *ManagedTokensDatabase) checkApplicationId() error {
 // getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.  This is the main func to run
 // from this library for retrieving data from the database
 func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string, args ...any) ([][]any, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getValuesTransactionRunner")
+	span.SetAttributes(attribute.String("getStatementString", getStatementString))
+	if argSlice, err := dbArgsToStringSlice(args); err == nil {
+		span.SetAttributes(attribute.StringSlice("args", argSlice))
+	}
+	defer span.End()
+
 	data := make([][]any, 0)
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		log.Error("Could not parse db timeout duration")
+		tracing.LogErrorWithTrace(
+			span,
+			log.NewEntry(log.StandardLogger()),
+			"Could not parse db timeout duration",
+			tracing.KeyValueForLog{Key: "dbDefaultTimeoutStr", Value: dbDefaultTimeoutStr},
+		)
 		return data, err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
@@ -184,10 +200,20 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	rows, err := db.QueryContext(dbContext, getStatementString, args...)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
+			tracing.LogErrorWithTrace(
+				span,
+				log.NewEntry(log.StandardLogger()),
+				"Context timeout",
+				tracing.KeyValueForLog{Key: "dbStatement", Value: getStatementString},
+			)
 			return data, dbContext.Err()
 		}
-		log.Errorf("Error running SELECT query against database: %s", err)
+		tracing.LogErrorWithTrace(
+			span,
+			log.NewEntry(log.StandardLogger()),
+			fmt.Sprintf("Error running SELECT query against database: %s", err),
+			tracing.KeyValueForLog{Key: "dbStatement", Value: getStatementString},
+		)
 		return data, err
 	}
 	defer rows.Close()
@@ -195,7 +221,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	// Get column names so we can get the length of each row
 	cols, err := rows.Columns()
 	if err != nil {
-		log.Error("Error getting columns from query results")
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error getting columns from query results")
 		return data, err
 	}
 
@@ -205,10 +231,10 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 		err := rows.Scan(resultRowPtrs...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
-				log.Error("Context timeout")
+				tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
 				return data, dbContext.Err()
 			}
-			log.Errorf("Error retrieving results of SELECT query: %s", err)
+			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error retrieving results of SELECT query")
 			return data, err
 		}
 
@@ -217,9 +243,10 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	}
 	err = rows.Err()
 	if err != nil {
-		log.Error(err)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error reading rows from database")
 		return data, err
 	}
+	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Successfully retrieved data from database")
 	return data, nil
 }
 
@@ -228,9 +255,13 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 // "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table".  This is the main func to use to get
 // dimension-like data in this library
 func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatement string) ([]string, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getNamedDimensionStringValues")
+	span.SetAttributes(attribute.String("sqlGetStatement", sqlGetStatement))
+	defer span.End()
+
 	data, err := getValuesTransactionRunner(ctx, db, sqlGetStatement)
 	if err != nil {
-		log.Error("Could not get values from database")
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Could not get values from database")
 		return nil, err
 	}
 
@@ -241,10 +272,11 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 
 	unpackedData, err := unpackNamedDimensionData(data)
 	if err != nil {
-		log.Error("Error unpacking named dimension data")
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error unpacking named dimension data")
 		return nil, err
 	}
 
+	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Successfully retrieved named dimension data from database")
 	return unpackedData, nil
 }
 
@@ -253,9 +285,18 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 // filled in with the values given by each element of insertData.  This is the main func to use in this library to insert
 // values into the database
 func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "insertValuesTransactionRunner")
+	span.SetAttributes(attribute.String("insertStatementString", insertStatementString))
+	defer span.End()
+
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		log.Error("Could not parse db timeout duration")
+		tracing.LogErrorWithTrace(
+			span,
+			log.NewEntry(log.StandardLogger()),
+			"Could not parse db timeout duration",
+			tracing.KeyValueForLog{Key: "dbDefaultTimeoutStr", Value: dbDefaultTimeoutStr},
+		)
 		return err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
@@ -264,49 +305,63 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	tx, err := db.Begin()
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
 			return dbContext.Err()
 		}
-		log.Errorf("Could not open transaction to database: %s", err)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Could not open transaction to database: %s", err))
 		return err
 	}
 
 	insertStatement, err := tx.Prepare(insertStatementString)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
 			return dbContext.Err()
 		}
-		log.Errorf("Could not prepare INSERT statement to database: %s", err)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Could not prepare INSERT statement to database: %s", err))
 		return err
 	}
 	defer insertStatement.Close()
 
+	argSlice := make([]string, 0)
 	// Run the passed-in insert statement on insertData
 	for _, datum := range insertData {
 		datumValues := datum.insertValues()
+
+		// This bit is only for tracing
+		if datumValueSlice, err := dbArgsToStringSlice(datumValues); err == nil {
+			argSlice = append(argSlice, datumValueSlice...)
+		}
+
 		_, err := insertStatement.ExecContext(dbContext, datumValues...)
 		if err != nil {
 			if dbContext.Err() == context.DeadlineExceeded {
-				log.Error("Context timeout")
+				span.SetAttributes(attribute.StringSlice("args", argSlice))
+				tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
 				return dbContext.Err()
 			}
-			log.Errorf("Could not insert data into database: %s", err)
+			span.SetAttributes(attribute.StringSlice("args", argSlice))
+			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Could not insert data into database: %s", err))
 			return err
 		}
 	}
+	span.SetAttributes(attribute.StringSlice("args", argSlice))
 
 	err = tx.Commit()
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			log.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
 			return dbContext.Err()
 		}
-		log.Errorf("Could not commit transaction to database.  Rolling back.  Error: %s", err)
+		tracing.LogErrorWithTrace(
+			span,
+			log.NewEntry(log.StandardLogger()),
+			fmt.Sprintf("Could not commit transaction to database. Rolling back.  Error: %s", err),
+		)
 		return err
 	}
 
-	log.Debug("Inserted data into database")
+	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Successfully inserted data into database")
 	return nil
 }
 
@@ -441,6 +496,28 @@ func (d *databaseCheckError) Error() string {
 	return msg
 }
 func (d *databaseCheckError) Unwrap() error { return d.err }
+
+// dbArgsToStringSlice converts a slice of any type to a slice of strings.
+// Supported types are string, int, float32, and float64.
+// If an unsupported type is encountered, it returns an empty string slice and an error.
+func dbArgsToStringSlice(args []any) ([]string, error) {
+	argsStr := make([]string, len(args))
+	for i, arg := range args {
+		switch val := arg.(type) {
+		case string:
+			argsStr[i] = val
+		case int:
+			argsStr[i] = strconv.Itoa(val)
+		case float32:
+			argsStr[i] = strconv.FormatFloat(float64(val), 'f', -1, 32)
+		case float64:
+			argsStr[i] = strconv.FormatFloat(val, 'f', -1, 64)
+		default:
+			return []string{}, fmt.Errorf("unsupported type %T", arg)
+		}
+	}
+	return argsStr, nil
+}
 
 var (
 	errDatabaseDataWrongStructure error = errors.New("returned data has wrong structure")

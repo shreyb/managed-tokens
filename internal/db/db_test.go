@@ -880,3 +880,45 @@ func TestManagedTokensDatabase_Location(t *testing.T) {
 		t.Errorf("Expected location to be %s, but got %s", dbLocation, location)
 	}
 }
+func TestDbArgsToStringSlice(t *testing.T) {
+	testCases := []struct {
+		args         []any
+		expectedArgs []string
+		expectedErr  error
+	}{
+		{
+			args:         []any{"hello", 42, 3.14, 2.718},
+			expectedArgs: []string{"hello", "42", "3.14", "2.718"},
+			expectedErr:  nil,
+		},
+		{
+			args:         []any{"world", 123, 1.23, 4.56},
+			expectedArgs: []string{"world", "123", "1.23", "4.56"},
+			expectedErr:  nil,
+		},
+		{
+			args:         []any{"foo", "bar", "baz"},
+			expectedArgs: []string{"foo", "bar", "baz"},
+			expectedErr:  nil,
+		},
+		{
+			args:         []any{true, false},
+			expectedArgs: []string{},
+			expectedErr:  fmt.Errorf("unsupported type bool"),
+		},
+	}
+
+	for _, tc := range testCases {
+		argsStr, err := dbArgsToStringSlice(tc.args)
+
+		if err != nil {
+			if tc.expectedErr == nil {
+				t.Errorf("Expected nil error for args %v, got %v", tc.args, err)
+			} else if err.Error() != tc.expectedErr.Error() {
+				t.Errorf("Expected error %v for args %v, got %v", tc.expectedErr, tc.args, err)
+			}
+		} else if !slices.Equal(argsStr, tc.expectedArgs) {
+			t.Errorf("Expected args %v, got %v", tc.expectedArgs, argsStr)
+		}
+	}
+}
