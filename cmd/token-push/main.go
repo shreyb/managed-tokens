@@ -640,7 +640,7 @@ func run(ctx context.Context) error {
 	// 1. Get kerberos tickets
 	// Get channels and start worker for getting kerberos ticekts
 	startKerberos := time.Now()
-	span.AddEvent("Starting to obtain kerberos tickets")
+	span.AddEvent("Starting get kerberos tickets")
 	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberos")
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
@@ -656,12 +656,12 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "getKerberosTickets").Set(time.Since(startKerberos).Seconds())
 	}
-	span.AddEvent("All kerberos tickets obtained")
+	span.AddEvent("End get kerberos tickets")
 
 	// 2. Get and store vault tokens
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
 	startCondorVault := time.Now()
-	span.AddEvent("Starting to obtain and store vault tokens")
+	span.AddEvent("Start obtain and store vault tokens")
 	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
 
 	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
@@ -683,7 +683,7 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "storeAndGetTokens").Set(time.Since(startCondorVault).Seconds())
 	}
-	span.AddEvent("All vault tokens obtained and stored")
+	span.AddEvent("End obtain and store vault tokens")
 
 	// If we're in test mode, stop here
 	if viper.GetBool("test") {
@@ -703,7 +703,7 @@ func run(ctx context.Context) error {
 	// 3. Ping nodes to check their status
 	// Get channels and start worker for pinging service nodes
 	startPing := time.Now()
-	span.AddEvent("Starting to ping nodes")
+	span.AddEvent("Start ping nodes")
 	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "ping")
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
@@ -716,12 +716,12 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "pingNodes").Set(time.Since(startPing).Seconds())
 	}
-	span.AddEvent("Done pinging nodes")
+	span.AddEvent("End ping nodes")
 
 	// 4. Push vault tokens to nodes
 	// Get channels and start worker for pushing tokens to service nodes
 	startPush := time.Now()
-	span.AddEvent("Starting to push tokens")
+	span.AddEvent("Start push tokens")
 	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "push")
 
 	// Aggregate the successes
@@ -734,7 +734,7 @@ func run(ctx context.Context) error {
 	if prometheusUp {
 		promDuration.WithLabelValues(currentExecutable, "pushTokens").Set(time.Since(startPush).Seconds())
 	}
-	span.AddEvent("Done pushing tokens")
+	span.AddEvent("End push tokens")
 
 	return nil
 }
