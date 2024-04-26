@@ -416,6 +416,9 @@ func run(ctx context.Context) error {
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "token-push")
+	if viper.GetBool("test") {
+		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
+	}
 	defer span.End()
 
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
