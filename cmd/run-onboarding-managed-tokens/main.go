@@ -28,10 +28,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 	"github.com/fermitools/managed-tokens/internal/vaultToken"
 	"github.com/fermitools/managed-tokens/internal/worker"
@@ -250,6 +254,21 @@ func initTimeouts() error {
 	return nil
 }
 
+// initTracing initializes the tracing configuration and returns a function to shutdown the
+// initialized TracerProvider and an error, if any.
+func initTracing() (func(context.Context), error) {
+	// TODO this will have to be configured from viper in the future
+	url := "https://landscape.fnal.gov/jaeger-collector/api/traces"
+	tp, shutdown, err := tracing.JaegerTraceProvider(url)
+	if err != nil {
+		exeLogger.Error("Could not obtain a TraceProvider.  Continuing without tracing")
+		return nil, err
+	}
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
+	return shutdown, nil
+}
+
 func main() {
 	if err := setup(); err != nil {
 		if errors.Is(err, errExitOK) {
@@ -269,6 +288,10 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	if tracingShutdown, err := initTracing(); err == nil {
+		defer tracingShutdown(ctx)
+	}
+
 	// Run our actual operation
 	if err := run(ctx); err != nil {
 		exeLogger.Fatal("Error running onboarding.  Exiting")
@@ -281,6 +304,10 @@ func run(ctx context.Context) error {
 	// Order of operations:
 	// 1. Generate kerberos principal for service
 	// 2. Store (and obtain) vault tokens for service, running in interactive mode so user can authenticate if needed
+	ctx, span := otel.GetTracerProvider().Tracer("run-onboarding-managed-tokens").Start(ctx, "run-onboarding-managed-tokens")
+	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(viper.GetString("service"))})
+	defer span.End()
+
 	var serviceConfig *worker.Config
 
 	// Grab HTGETTOKENOPTS if it's there
@@ -289,7 +316,7 @@ func run(ctx context.Context) error {
 	// Temporary directory for kerberos caches
 	krb5ccname, err := os.MkdirTemp("", "managed-tokens")
 	if err != nil {
-		exeLogger.Error("Cannot create temporary dir for kerberos cache.  This will cause a fatal race condition.  Exiting")
+		tracing.LogErrorWithTrace(span, exeLogger, "Could not create temporary directory for kerberos cache. This will cause a fatal race condition.  Exiting")
 		return err
 	}
 	defer func() {
@@ -307,6 +334,7 @@ func run(ctx context.Context) error {
 	// Determine what the real experiment name should be
 	givenServiceExperiment, givenRole := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
 	experiment := cmdUtils.CheckExperimentOverride(givenServiceExperiment)
+	span.SetAttributes(attribute.KeyValue{Key: "experiment", Value: attribute.StringValue(experiment)})
 
 	// If we're reading from an experiment config entry that has an overridden experiment
 	// s should be of type ExperimentOverriddenService.  Else, it should use the normal
@@ -324,20 +352,19 @@ func run(ctx context.Context) error {
 	serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 	userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 	if userPrincipal == "" {
-		funcLogger.Error("Cannot have a blank userPrincipal.  Exiting")
-		os.Exit(1)
+		tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal.  Exiting")
+		return errors.New("blank userPrincipal")
 	}
 	vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
 	if err != nil {
-		funcLogger.Error("Cannot proceed without vault server.  Exiting now")
-		os.Exit(1)
+		tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server.  Exiting")
+		return err
 	}
 	schedds, err := cmdUtils.GetScheddsFromConfiguration(ctx, serviceConfigPath)
 	if err != nil {
-		funcLogger.Error("Cannot proceed without schedds.  Exiting now")
-		os.Exit(1)
+		tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds.  Exiting")
+		return err
 	}
-	// TODO LEFT OFF HERE
 	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 	keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 	serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
@@ -356,11 +383,12 @@ func run(ctx context.Context) error {
 		worker.SetServiceCreddVaultTokenPathRoot(serviceCreddVaultTokenPathRoot),
 	)
 	if err != nil {
-		funcLogger.Error("Could not create config for service")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not create config for service")
 		return err
 	}
 
 	// 1. Get Kerberos ticket
+	span.AddEvent("Start get kerberos ticket")
 	// Channel, context, and worker for getting kerberos ticket
 	var kerberosContext context.Context
 	if kerberosTimeout, ok := timeouts["kerberos"]; ok {
@@ -371,11 +399,13 @@ func run(ctx context.Context) error {
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
 	if err := worker.GetKerberosTicketandVerify(kerberosContext, serviceConfig); err != nil {
-		funcLogger.Error("Failed to obtain kerberos ticket. Stopping onboarding")
-		return errors.New("could not obtain kerberos ticket")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not obtain kerberos ticket.  Stopping onboarding")
+		return err
 	}
+	span.AddEvent("End get kerberos ticket")
 
 	// 2.  Get and store vault tokens for service
+	span.AddEvent("Start store vault tokens")
 	var vaultStorerContext context.Context
 	if vaultStorerTimeout, ok := timeouts["vaultstorer"]; ok {
 		vaultStorerContext = utils.ContextWithOverrideTimeout(ctx, vaultStorerTimeout)
@@ -389,10 +419,11 @@ func run(ctx context.Context) error {
 		}
 	}()
 	if err := worker.StoreAndGetRefreshAndVaultTokens(vaultStorerContext, serviceConfig); err != nil {
-		funcLogger.Error("Could not generate refresh tokens and store vault token for service")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not generate refresh tokens and store vault token for service")
 		return err
 	}
+	span.AddEvent("End store vault tokens")
 
-	funcLogger.Info("Successfully generated refresh token in vault.  Onboarding complete.")
+	tracing.LogSuccessWithTrace(span, funcLogger, "Successfully generated refresh token in vault. Onboarding complete")
 	return nil
 }

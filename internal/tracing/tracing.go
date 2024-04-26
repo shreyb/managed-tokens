@@ -25,7 +25,7 @@ func JaegerTraceProvider(url string) (*sdktrace.TracerProvider, func(context.Con
 		sdktrace.WithBatcher(exp),
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("token-push"),
+			semconv.ServiceNameKey.String("managed-tokens"),
 			semconv.DeploymentEnvironmentKey.String("production"),
 		)),
 	)
