@@ -28,7 +28,10 @@ import (
 	jwtLib "github.com/lestrrat-go/jwx/jwt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/vaultToken"
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
@@ -46,6 +49,13 @@ const (
 // a TLS-secured *http.Client, send an HTTP request to a url, and returns the *http.Response object
 func withTLSAuth() func(context.Context, string, string) (*http.Response, error) {
 	return func(ctx context.Context, url, verb string) (*http.Response, error) {
+		ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "withTLSAuth")
+		span.SetAttributes(
+			attribute.KeyValue{Key: "url", Value: attribute.StringValue(url)},
+			attribute.KeyValue{Key: "verb", Value: attribute.StringValue(verb)},
+		)
+		defer span.End()
+
 		caCertSlice := make([]string, 0)
 		caCertPool := x509.NewCertPool()
 
@@ -56,14 +66,19 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 			viper.GetString("ferry.hostKey"),
 		)
 		if err != nil {
-			log.Error(err)
+			tracing.LogErrorWithTrace(span, exeLogger, "Could not load host cert")
 			return &http.Response{}, err
 		}
 
 		// Load CA certs
 		caFiles, err := os.ReadDir(viper.GetString("ferry.caPath"))
 		if err != nil {
-			log.WithField("caPath", viper.GetString("ferry.caPath")).Error(err)
+			tracing.LogErrorWithTrace(
+				span,
+				exeLogger,
+				"Could not read CA directory",
+				tracing.KeyValueForLog{Key: "caPath", Value: viper.GetString("ferry.caPath")},
+			)
 			return &http.Response{}, err
 		}
 		for _, f := range caFiles {
@@ -94,9 +109,15 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 			// Default value for HTTP verb
 			verb = "GET"
 		}
-		req, err := http.NewRequest(strings.ToUpper(verb), url, nil)
+		req, err := http.NewRequestWithContext(ctx, strings.ToUpper(verb), url, nil)
 		if err != nil {
-			log.WithField("account", url).Error("Could not initialize HTTP request")
+			tracing.LogErrorWithTrace(
+				span,
+				exeLogger,
+				"Could not initialize HTTP request",
+				tracing.KeyValueForLog{Key: "url", Value: url},
+			)
+			return &http.Response{}, err
 		}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -106,6 +127,23 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 				"authMethod": "cert",
 			}).Error("Error executing HTTP request")
 			log.WithField("url", url).Error(err)
+			tracing.LogErrorWithTrace(
+				span,
+				exeLogger,
+				"Error executing HTTP request",
+				tracing.KeyValueForLog{Key: "url", Value: url},
+				tracing.KeyValueForLog{Key: "verb", Value: verb},
+				tracing.KeyValueForLog{Key: "authMethod", Value: "tlsAuth"},
+			)
+		} else {
+			tracing.LogSuccessWithTrace(
+				span,
+				exeLogger,
+				"Executed HTTP request",
+				tracing.KeyValueForLog{Key: "url", Value: url},
+				tracing.KeyValueForLog{Key: "verb", Value: verb},
+				tracing.KeyValueForLog{Key: "authMethod", Value: "tlsAuth"},
+			)
 		}
 		return resp, err
 	}
@@ -118,6 +156,13 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 	// return type as withTLSAuth.
 	return func() func(context.Context, string, string) (*http.Response, error) {
 		return func(ctx context.Context, url, verb string) (*http.Response, error) {
+			ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "withKerberosJWTAuth")
+			span.SetAttributes(
+				attribute.KeyValue{Key: "url", Value: attribute.StringValue(url)},
+				attribute.KeyValue{Key: "verb", Value: attribute.StringValue(verb)},
+			)
+			defer span.End()
+
 			// Get our bearer token and locate it
 			if err := vaultToken.GetToken(
 				ctx,
@@ -126,13 +171,17 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 				viper.GetString("ferry.vaultServer"),
 				serviceConfig.CommandEnvironment,
 			); err != nil {
-				log.Error("Could not get token to authenticate to FERRY")
+				tracing.LogErrorWithTrace(span, exeLogger, "Could not get token to authenticate to FERRY",
+					tracing.KeyValueForLog{Key: "service", Value: serviceConfig.Service.Name()},
+					tracing.KeyValueForLog{Key: "userPrincipal", Value: serviceConfig.UserPrincipal},
+					tracing.KeyValueForLog{Key: "vaultServer", Value: viper.GetString("ferry.vaultServer")},
+				)
 				return &http.Response{}, err
 			}
 
 			bearerTokenDefaultLocation, err := getBearerTokenDefaultLocation()
 			if err != nil {
-				log.Error("Could not get default location for bearer tokens")
+				tracing.LogErrorWithTrace(span, exeLogger, "Could not get default location for bearer tokens")
 				return &http.Response{}, err
 			}
 			defer func() {
@@ -144,13 +193,16 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 
 			bearerBytes, err := os.ReadFile(bearerTokenDefaultLocation)
 			if err != nil {
-				log.Errorf("Could not open bearer token file for reading, %s", err)
+				tracing.LogErrorWithTrace(span, exeLogger, "Could not open bearer token file for reading",
+					tracing.KeyValueForLog{Key: "bearerTokenFileLocation", Value: bearerTokenDefaultLocation},
+				)
 				return &http.Response{}, err
 			}
 
 			// Validate token
 			if _, err := jwtLib.Parse(bearerBytes); err != nil {
-				log.Errorf("Token validation failed: not a valid bearer (JWT) token, %s", err)
+				tracing.LogErrorWithTrace(span, exeLogger, "Token validation failed: not a valid bearer (JWT) token",
+					tracing.KeyValueForLog{Key: "bearerTokenFileLocation", Value: bearerTokenDefaultLocation})
 				return &http.Response{}, err
 			}
 
@@ -159,18 +211,35 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 
 			bearerHeader := "Bearer " + tokenString
 
-			req, err := http.NewRequest("GET", url, nil)
+			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 			if err != nil {
-				log.Errorf("Could not initialize HTTP request, %s", err)
+				tracing.LogErrorWithTrace(span, exeLogger, "Could not initialize HTTP request",
+					tracing.KeyValueForLog{Key: "url", Value: url},
+					tracing.KeyValueForLog{Key: "verb", Value: "GET"},
+				)
 				return &http.Response{}, err
 			}
 			req.Header.Add("Authorization", bearerHeader)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				log.Errorf("Could not send request, %s", err)
+				tracing.LogErrorWithTrace(
+					span,
+					exeLogger,
+					"Error executing HTTP request",
+					tracing.KeyValueForLog{Key: "url", Value: url},
+					tracing.KeyValueForLog{Key: "verb", Value: verb},
+					tracing.KeyValueForLog{Key: "authMethod", Value: "jwtAuth"})
 				return &http.Response{}, err
+			} else {
+				tracing.LogSuccessWithTrace(
+					span,
+					exeLogger,
+					"Executed HTTP request",
+					tracing.KeyValueForLog{Key: "url", Value: url},
+					tracing.KeyValueForLog{Key: "verb", Value: verb},
+					tracing.KeyValueForLog{Key: "authMethod", Value: "jwtAuth"},
+				)
 			}
-
 			return resp, nil
 		}
 	}
