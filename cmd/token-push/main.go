@@ -415,8 +415,7 @@ func run(ctx context.Context) error {
 	// 2. Get and store vault tokens
 	// 3. Ping nodes to check their status
 	// 4. Push vault tokens to nodes
-	tp := otel.GetTracerProvider()
-	ctx, span := tp.Tracer("token-push").Start(ctx, "run")
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "run")
 	defer span.End()
 
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
