@@ -163,7 +163,7 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
 func GetScheddsFromConfiguration(ctx context.Context, checkServiceConfigPath string) ([]string, error) {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
-	ctx, span := otel.Tracer("managed-tokens").Start(ctx, "GetScheddsFromConfiguration")
+	ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration")
 	span.SetAttributes(attribute.KeyValue{Key: "checkServiceConfigPath", Value: attribute.StringValue(checkServiceConfigPath)})
 	defer span.End()
 
@@ -253,7 +253,7 @@ func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 // getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
 func getScheddsFromCondor(ctx context.Context, collectorHost, constraint string) ([]string, error) {
 	funcLogger := log.WithField("collector", collectorHost)
-	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getScheddsFromCondor")
+	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "cmdUtils.getScheddsFromCondor")
 	span.SetAttributes(
 		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
 		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},

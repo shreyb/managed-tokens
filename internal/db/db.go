@@ -174,7 +174,7 @@ func (m *ManagedTokensDatabase) checkApplicationId() error {
 // getValuesTransactionRunner queries a database table and returns a [][]any of the row values requested.  This is the main func to run
 // from this library for retrieving data from the database
 func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementString string, args ...any) ([][]any, error) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getValuesTransactionRunner")
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.getValuesTransactionRunner")
 	span.SetAttributes(attribute.String("getStatementString", getStatementString))
 	if argSlice, err := dbArgsToStringSlice(args); err == nil {
 		span.SetAttributes(attribute.StringSlice("args", argSlice))
@@ -255,7 +255,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 // "SELECT name FROM table".  An invalid query would be "SELECT id, name FROM table".  This is the main func to use to get
 // dimension-like data in this library
 func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatement string) ([]string, error) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getNamedDimensionStringValues")
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.getNamedDimensionStringValues")
 	span.SetAttributes(attribute.String("sqlGetStatement", sqlGetStatement))
 	defer span.End()
 
@@ -285,7 +285,7 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 // filled in with the values given by each element of insertData.  This is the main func to use in this library to insert
 // values into the database
 func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatementString string, insertData []insertValues) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "insertValuesTransactionRunner")
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.insertValuesTransactionRunner")
 	span.SetAttributes(attribute.String("insertStatementString", insertStatementString))
 	defer span.End()
 

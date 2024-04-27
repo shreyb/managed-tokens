@@ -39,7 +39,7 @@ type scheddCacheEntry struct {
 
 // populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
 func (s *scheddCacheEntry) populateFromCollector(ctx context.Context, collectorHost, constraint string) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "populateFromCollector")
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "cmdUtils.populateFromCollector")
 	span.SetAttributes(
 		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
 		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},
