@@ -26,8 +26,12 @@ import (
 
 	"github.com/cornfeedhobo/pflag"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -63,6 +67,8 @@ func NewSSHFileCopier(source, account, node, destination string, fileCopierOptio
 
 // CopyToDestination wraps a FileCopier's copyToDestination method
 func CopyToDestination(ctx context.Context, f FileCopier) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.CopyToDestination")
+	defer span.End()
 	return f.copyToDestination(ctx)
 }
 
@@ -79,6 +85,10 @@ type rsyncSetup struct {
 
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
 func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.rsyncSetup.copyToDestination")
+	span.SetAttributes(attribute.String("type", "rsyncSetup"))
+	defer span.End()
+
 	err := rsyncFile(ctx, r.source, r.node, r.account, r.destination, r.sshOpts, r.rsyncOpts, r.CommandEnvironment)
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -94,6 +104,15 @@ func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
 
 // rsyncFile runs rsync on a file at source, and syncs it with the destination account@node:dest
 func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsyncOptions string, environ environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.rsyncFile")
+	span.SetAttributes(
+		attribute.String("source", source),
+		attribute.String("node", node),
+		attribute.String("account", account),
+		attribute.String("dest", dest),
+	)
+	defer span.End()
+
 	utils.CheckForExecutables(fileCopierExecutables)
 
 	funcLogger := log.WithFields(log.Fields{
@@ -108,7 +127,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	rsyncArgs := "-e \"{{.SSHExe}} {{.SSHOpts}}\" {{.RsyncOpts}} {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
 	rsyncTemplate, err := template.New("rsync").Parse(rsyncArgs)
 	if err != nil {
-		funcLogger.Error("could not parse rsync template")
+		tracing.LogErrorWithTrace(span, funcLogger, "could not parse rsync template")
 		return err
 	}
 
@@ -128,12 +147,13 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 		var t2 *utils.TemplateArgsError
 		var retErr error
 		if errors.As(err, &t1) {
+			tracing.LogErrorWithTrace(span, funcLogger, "could not execute rsync template")
 			retErr = fmt.Errorf("could not execute rsync template: %w", err)
 		}
 		if errors.As(err, &t2) {
+			tracing.LogErrorWithTrace(span, funcLogger, "could not get rsync command arguments from template")
 			retErr = fmt.Errorf("could not get rsync command arguments from template: %w", err)
 		}
-		funcLogger.Error(retErr.Error())
 		return retErr
 	}
 
@@ -144,10 +164,14 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	}).Debug("Running commmand to rsync file")
 
 	if err := cmd.Run(); err != nil {
-		err := fmt.Sprintf("rsync command failed: %s", err.Error())
-		funcLogger.WithField("command", cmd.String()).Error(err)
-
-		return errors.New(err)
+		msg := fmt.Sprintf("rsync command failed: %s", err.Error())
+		tracing.LogErrorWithTrace(
+			span,
+			funcLogger,
+			msg,
+			tracing.KeyValueForLog{Key: "command", Value: cmd.String()},
+		)
+		return errors.New(msg)
 	}
 
 	log.WithFields(log.Fields{
@@ -155,6 +179,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 		"node":     node,
 		"destPath": dest,
 	}).Debug("rsync successful")
+	span.SetStatus(codes.Ok, "rsync successful")
 	return nil
 }
 
