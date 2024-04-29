@@ -26,9 +26,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // Metrics
@@ -72,6 +76,10 @@ type packageErrors struct {
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file
 // configured at adminTemplatePath
 func SendAdminNotifications(ctx context.Context, operation string, isTest bool, sendMessagers ...SendMessager) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.SendAdminNotifications")
+	span.SetAttributes(attribute.String("operation", operation))
+	defer span.End()
+
 	funcLogger := log.WithField("caller", "notifications.SendAdminNotifications")
 
 	// Let all adminErrors writers finish updating adminErrors
@@ -82,17 +90,18 @@ func SendAdminNotifications(ctx context.Context, operation string, isTest bool, 
 	if adminErrorsIsEmpty() {
 		if isTest {
 			if err := sendSlackNoErrorTestMessages(ctx, sendMessagers); err != nil {
-				funcLogger.Error("Error sending admin notifications saying there were no errors in test mode")
+				tracing.LogErrorWithTrace(span, funcLogger, "Error sending admin notifications saying there were no errors in test mode")
 				return err
 			}
 		}
+		span.SetStatus(codes.Ok, "No errors to send")
 		funcLogger.Debug("No errors to send")
 		return nil
 	}
 
 	fullMessage, abridgedMessage, err := prepareFullAndAbridgedMessages(operation)
 	if err != nil {
-		funcLogger.Errorf("Could not prepare full or abridged admin message from template: %s", err)
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not prepare full or abridged admin message from template: %s", err.Error()))
 		return err
 	}
 
@@ -133,14 +142,21 @@ func SendAdminNotifications(ctx context.Context, operation string, isTest bool, 
 	}
 
 	if err := g.Wait(); err != nil {
-		return errors.New("sending admin notifications failed.  Please see logs")
+		err2 := errors.New("sending admin notifications failed.  Please see logs")
+		tracing.LogErrorWithTrace(span, funcLogger, err2.Error())
+		return err2
 	}
 
+	span.SetStatus(codes.Ok, "Admin notifications sent")
 	return nil
 }
 
 func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessager) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.sendSlackNoErrorTestMessages")
+	defer span.End()
+
 	funcLogger := log.WithField("caller", "sendSlackNoErrorTestMessages")
+
 	slackMessages := make([]*slackMessage, 0)
 	slackMsgText := "Test run completed successfully"
 	for _, sm := range sendMessagers {
@@ -150,10 +166,11 @@ func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessa
 	}
 	for _, slackMessage := range slackMessages {
 		if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
-			funcLogger.Error("Failed to send slack message")
+			tracing.LogErrorWithTrace(span, funcLogger, "Failed to send slack message")
 			return slackErr
 		}
 	}
+	span.SetStatus(codes.Ok, "Slack messages sent")
 	return nil
 }
 
