@@ -25,8 +25,11 @@ import (
 	"text/template"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 var kerberosExecutables = map[string]string{
@@ -43,6 +46,13 @@ func init() {
 
 // GetTicket uses the keytabPath and userPrincipal to obtain a kerberos ticket
 func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "kerberos.GetTicket")
+	span.SetAttributes(
+		attribute.String("keytabPath", keytabPath),
+		attribute.String("userPrincipal", userPrincipal),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"keytabPath":    keytabPath,
 		"userPrincipal": userPrincipal,
@@ -51,7 +61,7 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	// Parse and execute kinit template
 	args, err := parseAndExecuteKinitTemplate(keytabPath, userPrincipal)
 	if err != nil {
-		funcLogger.Error("Could not parse and execute kinit template")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse and execute kinit template")
 		return err
 	}
 
@@ -60,18 +70,23 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	funcLogger.WithField("command", createKerberosTicket.String()).Debug("Now creating new kerberos ticket with keytab")
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return ctx.Err()
 		}
-		funcLogger.Error("Error running kinit to create new kerberos ticket")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error running kinit to create new kerberos ticket")
 		funcLogger.Errorf("%s", stdoutstdErr)
 		return err
 	}
+	tracing.LogSuccessWithTrace(span, funcLogger, "Successfully created new kerberos ticket")
 	return nil
 }
 
 // CheckPrincipal verifies that the kerberos ticket principal matches checkPrincipal
 func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "kerberos.CheckPrincipal")
+	span.SetAttributes(attribute.String("checkPrincipal", checkPrincipal))
+	defer span.End()
+
 	funcLogger := log.WithField("caller", "CheckKerberosPrincipal")
 
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
@@ -79,10 +94,11 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	stdoutStderr, err := checkForKerberosTicket.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return ctx.Err()
 		}
-		funcLogger.Errorf("Error running klist:\n %s", stdoutStderr)
+		tracing.LogErrorWithTrace(span, funcLogger, "Error running klist to check kerberos principal")
+		funcLogger.Error(stdoutStderr)
 		return err
 	}
 	funcLogger.Debugf("%s", stdoutStderr)
@@ -90,15 +106,17 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	// Check output of klist to get principal
 	principal, err := getKerberosPrincipalFromKerbListOutput(stdoutStderr)
 	if err != nil {
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get kerberos principal")
 		funcLogger.Error("Could not get kerberos principal")
 		return err
 	}
 
 	if principal != checkPrincipal {
 		err := fmt.Errorf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
-		funcLogger.Error(err)
+		tracing.LogErrorWithTrace(span, funcLogger, err.Error())
 		return err
 	}
+	tracing.LogSuccessWithTrace(span, funcLogger, "Kerberos principal matches configured principal")
 	return nil
 }
 
