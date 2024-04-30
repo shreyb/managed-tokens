@@ -165,6 +165,8 @@ func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Conte
 
 	go func() {
 		defer close(a.adminErrorChan)
+		ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.runAdminNotificationHandler_anonFunc")
+		defer span.End()
 		for {
 			select {
 			case <-ctx.Done():

@@ -24,7 +24,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // slackMessage is a Slack message configuration that consists of the url endpoint to which the message data should be POSTed via HTTP.
@@ -54,8 +58,11 @@ func NewSlackMessage(url string) *slackMessage {
 // sendMessage sends message as a Slack message by sending an HTTP POST request to the value of the url field of the
 // slackMessage.
 func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.slackMessage.sendMessage")
+	defer span.End()
+
 	if e := ctx.Err(); e != nil {
-		log.Errorf("Error sending slack message: %s", e)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Error sending slack message: %s", e.Error()))
 		return e
 	}
 
@@ -67,7 +74,7 @@ func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 	msg := []byte(fmt.Sprintf(`{"text": "%s"}`, strings.Replace(message, "\"", "\\\"", -1)))
 	req, err := http.NewRequest("POST", s.url, bytes.NewBuffer(msg))
 	if err != nil {
-		log.Errorf("Error sending slack message: %s", err)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Error sending slack message: %s", err.Error()))
 		return err
 	}
 
@@ -77,13 +84,13 @@ func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 	client := http.DefaultClient
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Errorf("Error sending slack message: %s", err)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Error sending slack message: %s", err.Error()))
 		return err
 	}
 
 	// This should be redundant, but just in case the timeout before didn't trigger.
 	if e := ctx.Err(); e != nil {
-		log.Errorf("Error sending slack message: %s", e)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Error sending slack message: %s", e.Error()))
 		return e
 	}
 
@@ -99,8 +106,14 @@ func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
 			"response headers": resp.Header,
 			"response body":    string(body),
 		}).Error(err)
+		span.SetAttributes(
+			attribute.String("url", s.url),
+			attribute.String("response status", resp.Status),
+		)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	log.Debug("Slack message sent")
+	span.SetStatus(codes.Ok, "Slack message sent")
 	return nil
 }

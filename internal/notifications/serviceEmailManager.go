@@ -26,8 +26,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // Metrics
@@ -143,6 +145,10 @@ func backupServiceEmailManager(s1 *ServiceEmailManager) *ServiceEmailManager {
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
 func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.ServiceEmailManager.runServiceNotificationHandler")
+	span.SetAttributes(attribute.String("service", em.Service))
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.runServiceNotificationHandler",
 		"service": em.Service,
@@ -150,16 +156,20 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 
 	// Start listening for new notifications
 	go func() {
-		serviceErrorsTable := make(map[string]string, 0)
 		defer em.wg.Done()
 		defer close(em.adminNotificationChan)
+
+		ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.ServiceEmailManager.runServiceNotificationHandler_anonFunc")
+		defer span.End()
+
+		serviceErrorsTable := make(map[string]string, 0)
 		for {
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
-					funcLogger.Error("Timeout exceeded in notification Manager")
+					tracing.LogErrorWithTrace(span, funcLogger, "Timeout exceeded in notification Manager")
 				} else {
-					funcLogger.Error(err)
+					tracing.LogErrorWithTrace(span, funcLogger, err.Error())
 				}
 				return
 
@@ -211,6 +221,10 @@ func addPushErrorNotificationToServiceErrorsTable(n Notification, serviceErrorsT
 }
 
 func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string]string, em *ServiceEmailManager) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.sendServiceEmailIfErrors")
+	span.SetAttributes(attribute.String("service", em.Service))
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"caller":  "notifications.sendServiceEmailIfErrors",
 		"service": em.Service,
@@ -226,9 +240,9 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 		"The following is a list of nodes on which all vault tokens were not refreshed, and the corresponding roles for those failed token refreshes:",
 		[]string{"Node", "Error"},
 	)
-	msg, err := prepareServiceEmail(ctx, tableString)
+	msg, err := prepareServiceEmail(tableString)
 	if err != nil {
-		funcLogger.Error("Error preparing service email for sending")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error preparing service email for sending")
 	}
 
 	start := time.Now()
@@ -236,16 +250,17 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 	err = SendMessage(ctx, em.Email, msg)
 	dur := time.Since(start).Seconds()
 	if err != nil {
-		funcLogger.Error("Error sending email")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error sending email")
 	} else {
 		serviceErrorNotificationSendDuration.Observe(dur)
 		success = true
+		span.SetStatus(codes.Ok, "Email sent successfully")
 	}
 	serviceErrorNotificationAttemptTimestamp.WithLabelValues(em.Service, strconv.FormatBool(success)).SetToCurrentTime()
 }
 
 // prepareServiceEmail returns a string that contains email text according to the passed in errorTable
-func prepareServiceEmail(ctx context.Context, errorTable string) (string, error) {
+func prepareServiceEmail(errorTable string) (string, error) {
 	timestamp := time.Now().Format(time.RFC822)
 	templateStruct := struct {
 		Timestamp  string
