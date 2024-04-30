@@ -26,7 +26,11 @@ import (
 
 	"github.com/cornfeedhobo/pflag"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -50,11 +54,15 @@ func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
 func (n Node) PingNode(ctx context.Context, extraPingOpts []string) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "ping.Node.PingNode")
+	span.SetAttributes(attribute.String("node", string(n)))
+	defer span.End()
+
 	funcLogger := log.WithField("node", string(n))
 
 	args, err := parseAndExecutePingTemplate(string(n), extraPingOpts)
 	if err != nil {
-		funcLogger.Error("Could not parse and execute ping template")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse and execute ping template")
 		return err
 	}
 
@@ -62,14 +70,19 @@ func (n Node) PingNode(ctx context.Context, extraPingOpts []string) error {
 	funcLogger.WithField("command", cmd.String()).Debug("Running command to ping node")
 	if cmdOut, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		if e := ctx.Err(); e != nil {
-			funcLogger.WithField("command", cmd.String()).Error(fmt.Sprintf("Context error: %s", e.Error()))
+			tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Context error: %s", e.Error()),
+				tracing.KeyValueForLog{Key: "command", Value: cmd.String()},
+			)
 			return e
 		}
 
-		funcLogger.WithField("command", cmd.String()).Error(fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()))
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()),
+			tracing.KeyValueForLog{Key: "command", Value: cmd.String()},
+		)
 		return fmt.Errorf("%s %s", cmdOut, cmdErr)
 
 	}
+	span.SetStatus(codes.Ok, "Ping successful")
 	return nil
 }
 
