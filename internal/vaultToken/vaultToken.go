@@ -170,7 +170,7 @@ func validateVaultToken(vaultTokenFilename string) error {
 	return nil
 }
 
-// TODO STILL UNDER DEVELOPMENT.  Export when ready
+// TODO STILL UNDER DEVELOPMENT.  Export when ready, and add tracing
 func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
 	htgettokenArgs := []string{
 		"-d",

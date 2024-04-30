@@ -24,8 +24,12 @@ import (
 	"regexp"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -56,6 +60,14 @@ type TokenStorer interface {
 
 // StoreAndValidateToken stores a vault token in the passed in Hashicorp vault server and the passed in credd.
 func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.StoreAndValidateToken")
+	span.SetAttributes(
+		attribute.String("service", t.GetServiceName()),
+		attribute.String("credd", t.GetCredd()),
+		attribute.String("vaultServer", t.GetVaultServer()),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"serviceName": t.GetServiceName(),
 		"vaultServer": t.GetVaultServer(),
@@ -63,19 +75,20 @@ func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environm
 	})
 	if err := t.getTokensAndStoreInVault(ctx, environ); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return err
 		}
-		funcLogger.Errorf("Could not obtain vault token: %s", err)
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not obtain vault token: %s", err.Error()))
 		return err
 	}
 	funcLogger.Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
 
 	if err := t.validateToken(); err != nil {
-		funcLogger.Error("Could not validate vault token for TokenStorer")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not validate vault token for TokenStorer")
 		return err
 	}
 
+	span.SetStatus(codes.Ok, "Stored and validated vault token")
 	funcLogger.Debug("Validated vault token")
 	return nil
 }
@@ -105,6 +118,14 @@ func (t *InteractiveTokenStorer) validateToken() error {
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
 // It allows for the token-storing command to prompt the user for action
 func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.InteractiveTokenStorer.getTokensAndStoreInVault")
+	span.SetAttributes(
+		attribute.String("service", t.serviceName),
+		attribute.String("credd", t.credd),
+		attribute.String("vaultServer", t.vaultServer),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"service":     t.serviceName,
 		"vaultServer": t.vaultServer,
@@ -118,20 +139,21 @@ func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, e
 
 	if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return ctx.Err()
 		}
-		funcLogger.Errorf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error())
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error()))
 		return err
 	}
 	if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return ctx.Err()
 		}
-		funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error running condor_vault_storer to store and obtain tokens; %s", err))
 		return err
 	}
+	span.SetStatus(codes.Ok, "Stored and obtained vault token")
 	return nil
 }
 
@@ -160,6 +182,14 @@ func (t *NonInteractiveTokenStorer) validateToken() error {
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
 // It doew not allow for the token-storing command to prompt the user for action
 func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.NonInteractiveTokenStorer.getTokensAndStoreInVault")
+	span.SetAttributes(
+		attribute.String("service", t.serviceName),
+		attribute.String("credd", t.credd),
+		attribute.String("vaultServer", t.vaultServer),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"service":     t.serviceName,
 		"vaultServer": t.vaultServer,
@@ -171,30 +201,42 @@ func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context
 	// and capture the output
 	if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return ctx.Err()
 		}
 		authErr := checkStdoutStderrForAuthNeededError(stdoutStderr)
 		funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
 		funcLogger.Errorf("%s", stdoutStderr)
 		if authErr != nil {
+			span.SetStatus(codes.Error, "Authentication needed")
 			return authErr
 		}
+		span.SetStatus(codes.Error, "Error running condor_vault_storer to store and obtain tokens")
 		return err
 	} else {
 		if len(stdoutStderr) > 0 {
 			funcLogger.Debugf("%s", stdoutStderr)
 		}
 	}
+	span.SetStatus(codes.Ok, "Stored and obtained vault token")
 	return nil
 }
 
 func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) *exec.Cmd {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.setupCmdWithEnvironmentForTokenStorer")
+	span.SetAttributes(
+		attribute.String("service", t.GetServiceName()),
+		attribute.String("credd", t.GetCredd()),
+		attribute.String("vaultServer", t.GetVaultServer()),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"service":     t.GetServiceName(),
 		"vaultServer": t.GetVaultServer(),
 		"credd":       t.GetCredd(),
 	})
+
 	cmdArgs := getCmdArgsForTokenStorer(ctx, t.GetServiceName())
 	newEnv := setupEnvironmentForTokenStorer(environ, t.GetCredd(), t.GetVaultServer())
 	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
@@ -209,7 +251,12 @@ func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t TokenStorer, e
 }
 
 func getCmdArgsForTokenStorer(ctx context.Context, serviceName string) []string {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.getCmdArgsForTokenStorer")
+	span.SetAttributes(attribute.String("service", serviceName))
+	defer span.End()
+
 	funcLogger := log.WithField("service", serviceName)
+
 	cmdArgs := make([]string, 0, 2)
 	verbose, err := utils.GetVerboseFromContext(ctx)
 	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
