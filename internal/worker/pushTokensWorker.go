@@ -28,11 +28,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/fileCopier"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -105,6 +109,9 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 // pushes vault tokens to all the configured destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker")
+	defer span.End()
+
 	defer close(chans.GetSuccessChan())
 	defer func() {
 		close(chans.GetNotificationsChan())
@@ -132,6 +139,12 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 		go func(sc *Config) {
 			defer configWg.Done()
+			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc")
+			span.SetAttributes(
+				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
+			)
+			defer span.End()
+
 			func() {
 				defer func(p *pushTokenSuccess) {
 					chans.GetSuccessChan() <- p
@@ -164,7 +177,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				sourceFilename, err := findFirstCreddVaultToken(sc.ServiceCreddVaultTokenPathRoot, sc.Service.Name(), sc.Schedds)
 				if err != nil {
 					msg := "Could not find suitable vault token to push.  Will not push any vault tokens for this service."
-					serviceLogger.Error(msg)
+					tracing.LogErrorWithTrace(span, serviceLogger, msg)
 					pushSuccess.changeSuccessValue(false)
 					chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
 					return
@@ -180,8 +193,17 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 				for _, destinationNode := range sc.Nodes {
 					nodeWg.Add(1)
 					go func(destinationNode string) {
-						nodeLogger := serviceLogger.WithField("node", destinationNode)
 						defer nodeWg.Done()
+
+						ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc_nodeAnonFunc")
+						span.SetAttributes(
+							attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
+							attribute.String("node", destinationNode),
+						)
+						defer span.End()
+
+						nodeLogger := serviceLogger.WithField("node", destinationNode)
+
 						var filenameWg sync.WaitGroup
 
 						// Channel for each goroutine launched below to send notifications on for later aggregation
@@ -195,6 +217,15 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 							filenameWg.Add(1)
 							go func(destinationFilename string) {
 								defer filenameWg.Done()
+
+								ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc")
+								span.SetAttributes(
+									attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
+									attribute.String("node", destinationNode),
+									attribute.String("filename", destinationFilename),
+								)
+								defer span.End()
+
 								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 								defer pushCancel()
 								nodeLogger.Debug("Attempting to push tokens to destination node")
@@ -214,6 +245,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 										notificationErrorString = notificationErrorString + err.Error()
 										nodeLogger.Error("Error pushing vault tokens to destination node")
 									}
+									tracing.LogErrorWithTrace(span, nodeLogger, notificationErrorString)
 									pushSuccess.changeSuccessValue(false) // Mark the whole service config as failed
 
 									// Mark this node as failed
@@ -250,6 +282,7 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 						// Set tokenPushTimestamp metric
 						if nodeStatus.success {
+							span.SetStatus(codes.Ok, "Successfully pushed tokens to node")
 							tokenPushTimestamp.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
 							successNodes.LoadOrStore(destinationNode, struct{}{})
 						}
@@ -297,6 +330,16 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
+	startTime := time.Now()
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pushToNode")
+	span.SetAttributes(
+		attribute.String("service", c.ServiceNameFromExperimentAndRole()),
+		attribute.String("node", node),
+		attribute.String("sourceFilename", sourceFile),
+		attribute.String("destinationFilename", destinationFile),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"experiment":          c.Service.Experiment(),
 		"role":                c.Service.Role(),
@@ -304,8 +347,6 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		"destinationFilename": destinationFile,
 		"node":                node,
 	})
-
-	startTime := time.Now()
 
 	var fileCopierOptions []string
 	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
@@ -333,14 +374,14 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 
 	err := fileCopier.CopyToDestination(ctx, f)
 	if err != nil {
-		funcLogger.Errorf("Could not copy file to destination")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not copy file to destination")
 		pushFailureCount.WithLabelValues(c.Service.Name(), node).Inc()
 		return err
 	}
 
 	dur := time.Since(startTime).Seconds()
 	tokenPushDuration.WithLabelValues(c.Service.Name(), node).Set(dur)
-	funcLogger.Info("Success copying file to destination")
+	tracing.LogSuccessWithTrace(span, funcLogger, "Success copying file to destination")
 	return nil
 
 }

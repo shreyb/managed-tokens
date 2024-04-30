@@ -23,11 +23,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -78,6 +82,9 @@ func (v *kinitSuccess) GetSuccess() bool {
 // obtains kerberos tickets from the configured kerberos principals.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketsWorker")
+	defer span.End()
+
 	defer close(chans.GetSuccessChan())
 	defer func() {
 		close(chans.GetNotificationsChan())
@@ -94,6 +101,14 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 		wg.Add(1)
 		go func(sc *Config) {
 			defer wg.Done()
+
+			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketsWorker_anonFunc")
+			span.SetAttributes(
+				attribute.String("account", sc.Account),
+				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
+			)
+			defer span.End()
+
 			success := &kinitSuccess{
 				Service: sc.Service,
 			}
@@ -111,14 +126,15 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				} else {
 					msg = "Could not obtain and verify kerberos ticket"
 				}
-				log.WithFields(log.Fields{
+				tracing.LogErrorWithTrace(span, log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 					"account":    sc.Account,
-				}).Error(msg)
+				}), msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 				return
 			}
+			span.SetStatus(codes.Ok, "Kerberos ticket obtained and verified")
 			success.success = true
 		}(sc)
 	}
@@ -126,6 +142,13 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 }
 
 func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketandVerify")
+	span.SetAttributes(
+		attribute.String("experiment", sc.Service.Experiment()),
+		attribute.String("role", sc.Service.Role()),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"experiment": sc.Service.Experiment(),
 		"role":       sc.Service.Role(),
@@ -133,20 +156,20 @@ func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
 	start := time.Now()
 
 	if err := kerberos.GetTicket(ctx, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-		msg := "Could not obtain kerberos ticket"
-		funcLogger.Error(msg)
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not obtain kerberos ticket")
 		kinitFailureCount.WithLabelValues(sc.Service.Name()).Inc()
 		return err
 	}
 
 	if err := kerberos.CheckPrincipal(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-		msg := "Kerberos ticket verification failed"
-		funcLogger.Error(msg)
+		tracing.LogErrorWithTrace(span, funcLogger, "Kerberos ticket verification failed")
 		kinitFailureCount.WithLabelValues(sc.Service.Name()).Inc()
 		return err
 	}
-	funcLogger.Debug("Kerberos ticket obtained and verified")
+
 	dur := time.Since(start).Seconds()
 	kinitDuration.WithLabelValues(sc.Service.Name()).Set(dur)
+	span.SetStatus(codes.Ok, "Kerberos ticket obtained and verified")
+	funcLogger.Debug("Kerberos ticket obtained and verified")
 	return nil
 }
