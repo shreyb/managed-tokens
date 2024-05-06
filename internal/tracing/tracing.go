@@ -16,7 +16,7 @@ import (
 
 // JaegerTraceProvider returns a new instance of sdktrace.TracerProvider configured with Jaeger exporter, along with its shutdown function.
 // The provided URL is used as the collector endpoint for sending traces.
-func JaegerTraceProvider(url string) (*sdktrace.TracerProvider, func(context.Context), error) {
+func JaegerTraceProvider(url, deploymentEnvironmentKey string) (*sdktrace.TracerProvider, func(context.Context), error) {
 	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
 	if err != nil {
 		return nil, nil, err
@@ -26,7 +26,7 @@ func JaegerTraceProvider(url string) (*sdktrace.TracerProvider, func(context.Con
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceNameKey.String("managed-tokens"),
-			semconv.DeploymentEnvironmentKey.String("production"),
+			semconv.DeploymentEnvironmentKey.String(deploymentEnvironmentKey),
 		)),
 	)
 	return tp, func(ctx context.Context) { tp.Shutdown(ctx) }, nil
