@@ -276,11 +276,15 @@ func initMetrics() error {
 // initTracing initializes the tracing configuration and returns a function to shutdown the
 // initialized TracerProvider and an error, if any.
 func initTracing() (func(context.Context), error) {
-	// TODO this will have to be configured from viper in the future
-	url := "https://landscape.fnal.gov/jaeger-collector/api/traces"
-	tp, shutdown, err := tracing.JaegerTraceProvider(url)
+	url := viper.GetString("tracing.url")
+	if url == "" {
+		msg := "no tracing URL configured.  Continuing without tracing"
+		exeLogger.Error(msg)
+		return nil, errors.New(msg)
+	}
+	tp, shutdown, err := tracing.JaegerTraceProvider(url, devEnvironmentLabel)
 	if err != nil {
-		exeLogger.Error("Could not obtain a TraceProvider.  Continuing without tracing")
+		exeLogger.Error("could not obtain a TraceProvider.  Continuing without tracing")
 		return nil, err
 	}
 	otel.SetTracerProvider(tp)
@@ -306,6 +310,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
 
+	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
 	if tracingShutdown, err := initTracing(); err == nil {
 		defer tracingShutdown(ctx)
 	}

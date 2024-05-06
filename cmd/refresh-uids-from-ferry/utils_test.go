@@ -16,6 +16,8 @@
 package main
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/fermitools/managed-tokens/internal/testUtils"
@@ -57,4 +59,62 @@ func TestGetAllAccountsFromConfig(t *testing.T) {
 	expected := []string{"account1", "account2", "account3"}
 	assert.Equal(t, len(expected), len(accounts))
 	assert.True(t, testUtils.SlicesHaveSameElementsOrdered(accounts, expected))
+}
+
+func TestGetDevEnvironmentLabel(t *testing.T) {
+	type testCase struct {
+		description   string
+		envSetup      func()
+		configSetup   func()
+		expectedValue string
+	}
+
+	configSetFromFakeConfig := func() {
+		fakeFileText := strings.NewReader(`{"devEnvironmentLabel": "test_config"}`)
+		viper.SetConfigType("json")
+		viper.ReadConfig(fakeFileText)
+	}
+
+	testCases := []testCase{
+		{
+			"Environment variable is set",
+			func() { t.Setenv("MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL", "test_env") },
+			nil,
+			"test_env",
+		},
+		{
+			"Config file has dev label",
+			nil,
+			configSetFromFakeConfig,
+			"test_config",
+		},
+		{
+			"Neither env nor config file has dev label",
+			nil,
+			nil,
+			devEnvironmentLabelDefault,
+		},
+		{
+			"Both env and config file have dev label",
+			func() { t.Setenv("MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL", "test_env") },
+			configSetFromFakeConfig,
+			"test_env",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			reset()
+			if tc.envSetup != nil {
+				tc.envSetup()
+				defer os.Unsetenv("MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL")
+			}
+			if tc.configSetup != nil {
+				tc.configSetup()
+			}
+
+			result := getDevEnvironmentLabel()
+			assert.Equal(t, tc.expectedValue, result)
+		})
+	}
 }
