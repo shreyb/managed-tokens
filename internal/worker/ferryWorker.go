@@ -29,9 +29,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -109,6 +113,14 @@ type ferryUIDResponse struct {
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
 	ferryDataChan chan<- db.FerryUIDDatum) (*UIDEntryFromFerry, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens.worker").Start(ctx, "worker.GetFERRYUIDData")
+	span.SetAttributes(
+		attribute.String("username", username),
+		attribute.String("ferryHost", ferryHost),
+		attribute.Int("ferryPort", ferryPort),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"account":   username,
 		"ferryHost": ferryHost,
@@ -119,6 +131,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 
 	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)
 	if err != nil {
+		span.SetStatus(codes.Error, "Could not parse ferryRequest timeout")
 		funcLogger.Fatal("Could not parse ferryRequest timeout")
 	}
 
@@ -132,6 +145,7 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	var b strings.Builder
 	if err := ferryURLUIDTemplate.Execute(&b, ferryAPIConfig); err != nil {
 		fatalErr := fmt.Errorf("could not execute ferryURLUID template: %w", err)
+		span.SetStatus(codes.Error, fatalErr.Error())
 		funcLogger.Fatal(fatalErr)
 	}
 
@@ -143,10 +157,10 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 		funcLogger.Error("Attempt to get UID from FERRY failed")
 		ferryRequestErrorCount.Inc()
 		if err2 := ctx.Err(); errors.Is(err2, context.DeadlineExceeded) {
-			funcLogger.Error("Timeout error")
+			tracing.LogErrorWithTrace(span, funcLogger, "Timeout error")
 			return &entry, err2
 		}
-		funcLogger.Error(err)
+		tracing.LogErrorWithTrace(span, funcLogger, err.Error())
 		return &entry, err
 	}
 	defer resp.Body.Close()
@@ -154,26 +168,26 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		ferryRequestErrorCount.Inc()
-		funcLogger.Error("Could not read body from HTTP response")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not read body from HTTP response")
 		return &entry, err
 	}
 
 	parsedResponse := ferryUIDResponse{}
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
-		funcLogger.Errorf("Could not unmarshal FERRY response: %s", err)
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not unmarshal FERRY response: %s", err))
 		return &entry, err
 	}
 
 	if parsedResponse.FerryStatus == "failure" {
 		ferryRequestErrorCount.Inc()
-		funcLogger.Errorf("FERRY server error: %s", parsedResponse.FerryError)
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("FERRY server error: %s", parsedResponse.FerryError))
 		return &entry, errors.New("unspecified FERRY error.  Check logs")
 	}
 
 	entry.username = username
 	entry.uid = parsedResponse.FerryOutput.Uid
 
-	funcLogger.Info("Successfully got data from FERRY")
+	tracing.LogSuccessWithTrace(span, funcLogger, "Successfully got data from FERRY")
 	dur := time.Since(startRequest).Seconds()
 	ferryRequestDuration.Observe(dur)
 	return &entry, nil

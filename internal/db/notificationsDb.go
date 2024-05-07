@@ -18,9 +18,13 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // SQL statements to be used by API
@@ -117,22 +121,40 @@ var (
 // GetAllServices queries the ManagedTokensDatabase for the registered services
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetAllServices")
+	defer span.End()
+
 	dataConverted, err := getNamedDimensionStringValues(ctx, m.db, getAllServicesFromTableStatement)
 	if err != nil {
-		log.WithField("dbLocation", m.filename).Error("Could not get service names from database")
+		tracing.LogErrorWithTrace(
+			span,
+			log.NewEntry(log.StandardLogger()),
+			"Could not get service names from database",
+			tracing.KeyValueForLog{Key: "dbLocation", Value: m.filename},
+		)
 		return nil, err
 	}
+	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Got service names from database")
 	return dataConverted, nil
 }
 
 // GetAllNodes queries the ManagedTokensDatabase for the registered nodes
 // and returns a slice of strings with their names
 func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetAllNodes")
+	defer span.End()
+
 	dataConverted, err := getNamedDimensionStringValues(ctx, m.db, getAllNodesFromTableStatement)
 	if err != nil {
-		log.WithField("dbLocation", m.filename).Error("Could not get node names from database")
+		tracing.LogErrorWithTrace(
+			span,
+			log.NewEntry(log.StandardLogger()),
+			"Could not get node names from database",
+			tracing.KeyValueForLog{Key: "dbLocation", Value: m.filename},
+		)
 		return nil, err
 	}
+	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Got node names from database")
 	return dataConverted, nil
 }
 
@@ -179,12 +201,16 @@ func (s *setupErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error
 // GetSetupErrorsInfo queries the ManagedTokensDatabase for setup error counts.  It returns the data in the form of a slice of SetupErrorCounts
 // that the caller can unpack using the interface methods Service() and Count()
 func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]SetupErrorCount, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetSetupErrorsInfo")
+	span.SetAttributes(attribute.String("dbLocation", m.filename))
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 
 	// dataConverted := make([]SetupErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsStatement)
 	if err != nil {
-		funcLogger.Error("Could not get setup errors information from ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get setup errors information from ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -196,26 +222,29 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 	// Unpack data
 	unpackedData, err := unpackData[*setupErrorCount](data)
 	if err != nil {
-		if err != nil {
-			funcLogger.Error("Error unpacking setupErrorCount data")
-			return nil, err
-		}
+		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking setupErrorCount data")
+		return nil, err
 	}
 	convertedData := make([]SetupErrorCount, 0, len(unpackedData))
 	for _, datum := range unpackedData {
 		convertedData = append(convertedData, datum)
 	}
 
+	tracing.LogSuccessWithTrace(span, funcLogger, "Got setup errors information from ManagedTokensDatabase")
 	return convertedData, nil
 }
 
 // GetSetupErrorsInfoByService queries the ManagedTokensDatabase for the setup errors for a specific service.  It returns the data as a SetupErrorCount that
 // calling functions can unpack using the Service() or Count() functions.
 func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context, service string) (SetupErrorCount, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetSetupErrorsInfoByService")
+	span.SetAttributes(attribute.String("service", service), attribute.String("dbLocation", m.filename))
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{"dbLocation": m.filename, "service": service})
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
 	if err != nil {
-		funcLogger.Error("Could not get setup errors information from ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get setup errors information from ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -225,31 +254,36 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 	}
 
 	if len(data) != 1 {
-		msg := "setup error data should only have 1 row"
-		funcLogger.Errorf("%s: %v", msg, data)
+		msg := fmt.Sprintf("setup error data should only have 1 row: %v", data)
+		tracing.LogErrorWithTrace(span, funcLogger, msg)
 		return nil, errDatabaseDataWrongStructure
 	}
 
 	unpackedData, err := unpackData[*setupErrorCount](data)
 	if err != nil {
-		funcLogger.Error("Error unpacking setupErrorCount data")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking setupErrorCount data")
 		return nil, err
 	}
+	tracing.LogSuccessWithTrace(span, funcLogger, "Got setup errors information from ManagedTokensDatabase")
 	return unpackedData[0], nil
 }
 
 // UpdateSetupErrorsTable updates the setup errors table of the ManagedTokens database.  The information to be modified
 // in the database should be given as a slice of SetupErrorCount (setupErrorsByService)
 func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setupErrorsByService []SetupErrorCount) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.UpdateSetupErrorsTable")
+	span.SetAttributes(attribute.String("dbLocation", m.filename))
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 
 	setupErrorDatumSlice := setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorsByService)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
-		funcLogger.Error("Could not update setup errors in ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not update setup errors in ManagedTokensDatabase")
 		return err
 	}
-	funcLogger.Debug("Updated setup errors in ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, funcLogger, "Updated setup errors in ManagedTokensDatabase")
 	return nil
 }
 
@@ -314,10 +348,13 @@ func (p *pushErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error)
 // GetPushErrorsInfo queries the ManagedTokensDatabase for push error counts.  It returns the data in the form of a slice of PushErrorCounts
 // that the caller can unpack using the interface methods Service(), Node(), and Count()
 func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushErrorCount, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetPushErrorsInfo")
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsStatement)
 	if err != nil {
-		funcLogger.Error("Could not get push errors information from ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get push errors information from ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -329,23 +366,31 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 	// Unpack data
 	unpackedData, err := unpackData[*pushErrorCount](data)
 	if err != nil {
-		funcLogger.Error("Error unpacking pushErrorCount data")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking pushErrorCount data")
 		return nil, err
 	}
 	convertedData := make([]PushErrorCount, 0, len(unpackedData))
 	for _, datum := range unpackedData {
 		convertedData = append(convertedData, datum)
 	}
+	tracing.LogSuccessWithTrace(span, funcLogger, "Got push errors information from ManagedTokensDatabase")
 	return convertedData, nil
 }
 
 // GetPushErrorsInfoByService queries the database for the push errors for a specific service.  It returns the data as a slice of PushErrorCounts
 // that the caller can unpack using the Service(), Node(), and Count() interface methods.
 func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, service string) ([]PushErrorCount, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetPushErrorsInfoByService")
+	span.SetAttributes(
+		attribute.String("service", service),
+		attribute.String("dbLocation", m.filename),
+	)
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{"dbLocation": m.filename, "service": service})
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsByServiceStatement, service)
 	if err != nil {
-		funcLogger.Error("Could not get push errors information from ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get push errors information from ManagedTokensDatabase")
 		return nil, err
 	}
 
@@ -357,27 +402,31 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 	// Unpack data
 	unpackedData, err := unpackData[*pushErrorCount](data)
 	if err != nil {
-		funcLogger.Error("Could not unpack data from database")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not unpack data from database")
 		return nil, err
 	}
 	convertedData := make([]PushErrorCount, 0, len(unpackedData))
 	for _, datum := range unpackedData {
 		convertedData = append(convertedData, datum)
 	}
+	tracing.LogSuccessWithTrace(span, funcLogger, "Got push errors information from ManagedTokensDatabase")
 	return convertedData, nil
 }
 
 // UpdatePushErrorsTable updates the push errors table of the ManagedTokens database.  The information to be modified
 // in the database should be given as a slice of PushErrorCount (pushErrorsByServiceAndNode)
 func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode []PushErrorCount) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.UpdatePushErrorsTable")
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 	pushErrorDatumSlice := pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorsByServiceAndNode)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
-		funcLogger.Error("Could not update push errors in ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not update push errors in ManagedTokensDatabase")
 		return err
 	}
-	funcLogger.Debug("Updated push errors in ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, funcLogger, "Updated push errors in ManagedTokensDatabase")
 	return nil
 }
 
@@ -406,6 +455,13 @@ func (s *serviceDatum) insertValues() []any { return []any{s} }
 // of strings for the service names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames []string) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.UpdateServices")
+	span.SetAttributes(
+		attribute.String("dbLocation", m.filename),
+		attribute.StringSlice("serviceNames", serviceNames),
+	)
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 
 	serviceDatumSlice := convertStringSliceToInsertValuesSlice(
@@ -414,10 +470,11 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 	)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
-		funcLogger.Error("Could not update services in ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not update services in ManagedTokensDatabase")
 		return err
 	}
-	funcLogger.Debug("Updated services in ManagedTokensDatabase")
+
+	tracing.LogSuccessWithTrace(span, funcLogger, "Updated services in ManagedTokensDatabase")
 	return nil
 }
 
@@ -430,6 +487,13 @@ func (n *nodeDatum) insertValues() []any { return []any{n} }
 // of strings for the node names, and inserts them if they don't already exist in the
 // database
 func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.UpdateNodes")
+	span.SetAttributes(
+		attribute.String("dbLocation", m.filename),
+		attribute.StringSlice("nodes", nodes),
+	)
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 
 	nodesDatumSlice := convertStringSliceToInsertValuesSlice(
@@ -438,10 +502,11 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 	)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
-		funcLogger.Error("Could not update nodes in ManagedTokensDatabase")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not update nodes in ManagedTokensDatabase")
 		return err
 	}
-	funcLogger.Debug("Updated nodes in ManagedTokensDatabase")
+
+	tracing.LogSuccessWithTrace(span, funcLogger, "Updated nodes in ManagedTokensDatabase")
 	return nil
 
 }

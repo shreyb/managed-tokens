@@ -69,6 +69,10 @@ prometheus:
 loki:
   host: hostname.domain # Required for loki use
 
+# Tracing settings
+tracing:
+  url: hostname.domain # Required for tracing use
+
 # Notifications
 notifications:
   SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE

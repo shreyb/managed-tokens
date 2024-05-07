@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"slices"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -65,28 +64,24 @@ func (i *InvalidVaultTokenError) Error() string {
 // HTCondor
 func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 	funcLogger := log.WithField("service", serviceName)
+	vaultTokenLocations := make([]string, 0, 2)
 
 	defaultLocation, err := getDefaultVaultTokenLocation()
 	if err != nil {
 		funcLogger.Error("Could not get default vault location")
 		return nil, err
 	}
+	if _, err := os.Stat(defaultLocation); err == nil { // Check to see if the file exists and we can read it
+		vaultTokenLocations = append(vaultTokenLocations, defaultLocation)
+	}
+
 	condorLocation, err := getCondorVaultTokenLocation(serviceName)
 	if err != nil {
 		funcLogger.Error("Could not get condor vault location")
 		return nil, err
 	}
-
-	vaultTokenLocations := []string{defaultLocation, condorLocation}
-
-	for idx, location := range vaultTokenLocations {
-		if _, err := os.Stat(location); errors.Is(err, os.ErrNotExist) {
-			if len(vaultTokenLocations) > 1 {
-				vaultTokenLocations = slices.Delete(vaultTokenLocations, idx, idx+1)
-			} else {
-				vaultTokenLocations = []string{}
-			}
-		}
+	if _, err := os.Stat(condorLocation); err == nil { // Check to see if the file exists and we can read it
+		vaultTokenLocations = append(vaultTokenLocations, condorLocation)
 	}
 
 	return vaultTokenLocations, nil
@@ -175,7 +170,7 @@ func validateVaultToken(vaultTokenFilename string) error {
 	return nil
 }
 
-// TODO STILL UNDER DEVELOPMENT.  Export when ready
+// TODO STILL UNDER DEVELOPMENT.  Export when ready, and add tracing
 func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
 	htgettokenArgs := []string{
 		"-d",

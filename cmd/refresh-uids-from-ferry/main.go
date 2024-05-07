@@ -32,11 +32,15 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"github.com/yukitsune/lokirus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -84,7 +88,9 @@ var (
 	prometheusUp = true
 )
 
-func init() {
+var errExitOK = errors.New("exit 0")
+
+func setup() error {
 	startSetup = time.Now()
 
 	// Get current executable name
@@ -95,30 +101,33 @@ func init() {
 	}
 
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Current user is root.  Please run this executable as a non-root user")
+		log.WithField("executable", currentExecutable).Error("Current user is root.  Please run this executable as a non-root user")
+		return err
 	}
 
 	initFlags() // Parse our flags
 	if viper.GetBool("version") {
 		fmt.Printf("Managed tokens library version %s, build %s\n", version, buildTimestamp)
-		os.Exit(0)
+		return errExitOK
 	}
 
 	if err := initConfig(); err != nil {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
-		os.Exit(1)
+		return err
 	}
 
 	devEnvironmentLabel = getDevEnvironmentLabel()
 
 	initLogs()
 	if err := initTimeouts(); err != nil {
-		log.WithField("executable", currentExecutable).Fatal("Fatal error setting up timeouts")
+		log.WithField("executable", currentExecutable).Error("Fatal error setting up timeouts")
+		return err
 	}
 	if err := initMetrics(); err != nil {
 		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
 	}
 
+	return nil
 }
 
 func initFlags() {
@@ -264,7 +273,33 @@ func initMetrics() error {
 	return nil
 }
 
+// initTracing initializes the tracing configuration and returns a function to shutdown the
+// initialized TracerProvider and an error, if any.
+func initTracing() (func(context.Context), error) {
+	url := viper.GetString("tracing.url")
+	if url == "" {
+		msg := "no tracing URL configured.  Continuing without tracing"
+		exeLogger.Error(msg)
+		return nil, errors.New(msg)
+	}
+	tp, shutdown, err := tracing.JaegerTraceProvider(url, devEnvironmentLabel)
+	if err != nil {
+		exeLogger.Error("could not obtain a TraceProvider.  Continuing without tracing")
+		return nil, err
+	}
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
+	return shutdown, nil
+}
+
 func main() {
+	if err := setup(); err != nil {
+		if errors.Is(err, errExitOK) {
+			os.Exit(0)
+		}
+		log.Fatal("Error running setup actions.  Exiting")
+	}
+
 	// Global Context
 	var globalTimeout time.Duration
 	var ok bool
@@ -274,6 +309,11 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
 	defer cancel()
+
+	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
+	if tracingShutdown, err := initTracing(); err == nil {
+		defer tracingShutdown(ctx)
+	}
 
 	// Run our actual operation
 	if err := run(ctx); err != nil {
@@ -297,6 +337,11 @@ func run(ctx context.Context) error {
 	// https://stackoverflow.com/a/52070387
 	// and mocked out here:
 	// https://go.dev/play/p/rww0ORt94pU
+	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "refresh-uids-from-ferry")
+	if viper.GetBool("test") {
+		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
+	}
+	defer span.End()
 
 	var dbLocation string
 	// Open connection to the SQLite database where UID info will be stored
@@ -310,20 +355,22 @@ func run(ctx context.Context) error {
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
-		exeLogger.Error(msg)
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
 		admNotMgr, adminNotifications := setupAdminNotifications(ctx, nil)
 		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
 
 		if err2 := sendAdminNotifications(ctx, admNotMgr.GetReceiveChan(), &adminNotifications); err2 != nil {
-			exeLogger.Error("Error sending admin notifications")
-			err := fmt.Errorf("error sending admin notifications regarding %w: %w", err, err2)
+			msg := "error sending admin notifications"
+			tracing.LogErrorWithTrace(span, exeLogger, msg)
+			err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
 			return err
 		}
 		return fmt.Errorf("%s: %w", msg, err)
 	}
 	defer database.Close()
+	span.AddEvent("Opened ManagedTokensDatabase")
 
 	// Send admin notifications at end of run
 	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
@@ -349,6 +396,7 @@ func run(ctx context.Context) error {
 
 	// Begin processing
 	startRequest := time.Now()
+	span.AddEvent("Starting Processing")
 
 	// Add verbose to the global context
 	if viper.GetBool("verbose") {
@@ -360,6 +408,8 @@ func run(ctx context.Context) error {
 	aggFERRYDataDone := make(chan struct{})      // Channel to close when FERRY data aggregation is done
 	go func(ferryDataChan <-chan db.FerryUIDDatum, aggFERRYDataDone chan<- struct{}) {
 		defer close(aggFERRYDataDone)
+		_, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "aggregate-ferry-data_anonFunc")
+		defer span.End()
 		for ferryDatum := range ferryDataChan {
 			ferryData = append(ferryData, ferryDatum)
 		}
@@ -389,11 +439,17 @@ func run(ctx context.Context) error {
 		authFunc = withKerberosJWTAuth(sc)
 		exeLogger.Debug("Using JWT to authenticate to FERRY")
 	default:
-		return errors.New("unsupported authentication method to communicate with FERRY")
+		msg := "unsupported authentication method to communicate with FERRY"
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
+		return errors.New(msg)
 	}
+	span.SetAttributes(attribute.KeyValue{Key: "authmethod", Value: attribute.StringValue(viper.GetString("authmethod"))})
 
 	// Start workers to get data from FERRY
 	func() {
+		span.AddEvent("Start FERRY data collection")
+		ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "get-ferry-data_anonFunc")
+		defer span.End()
 		var ferryDataWg sync.WaitGroup // WaitGroup to make sure we don't close ferryDataChan before all data is sent
 		defer close(ferryDataChan)
 
@@ -408,8 +464,11 @@ func run(ctx context.Context) error {
 			ferryDataWg.Add(1)
 
 			go func(username string) {
+				usernameCtx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ferryContext, "get-ferry-data-per-username_anonFunc")
+				span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
+				defer span.End()
 				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(ferryContext, username, authFunc, ferryDataChan, admNotMgr.GetReceiveChan())
+				getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, admNotMgr.GetReceiveChan())
 			}(username)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
@@ -417,12 +476,13 @@ func run(ctx context.Context) error {
 
 	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
 	promDuration.WithLabelValues(currentExecutable, "getFERRYData").Set(time.Since(startRequest).Seconds())
+	span.AddEvent("End FERRY data collection")
 
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
 		msg := "no data collected from FERRY"
 		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
-		exeLogger.Error(msg + ". Exiting")
+		tracing.LogErrorWithTrace(span, exeLogger, msg+". Exiting")
 		return errors.New(msg)
 	}
 
@@ -440,6 +500,7 @@ func run(ctx context.Context) error {
 		return nil
 	}
 
+	span.AddEvent("Start DB Update")
 	// INSERT all collected FERRY data into FERRYUIDDatabase
 	startDBInsert := time.Now()
 	var dbContext context.Context
@@ -451,30 +512,34 @@ func run(ctx context.Context) error {
 	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
 		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
-		exeLogger.Error(msg)
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
+	span.AddEvent("End DB Update")
 
 	// Confirm and verify that INSERT was successful
+	span.AddEvent("Start DB Verification")
 	dbData, err := database.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
 		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
-		exeLogger.Error(msg)
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
 		msg := "verification of INSERT failed.  Please check the logs"
-		exeLogger.Error(msg)
 		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(
 			"Verification of INSERT failed.  Please check the logs",
 			currentExecutable,
 		)
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return errors.New(msg)
 	}
+	span.AddEvent("End DB Verification")
+
 	exeLogger.Debug("Verified INSERT")
-	exeLogger.Info("Successfully refreshed Managed Tokens DB.")
+	tracing.LogSuccessWithTrace(span, exeLogger, "Successfully refreshed Managed Tokens DB")
 	promDuration.WithLabelValues(currentExecutable, "refreshManagedTokensDB").Set(time.Since(startDBInsert).Seconds())
 	ferryRefreshTime.SetToCurrentTime()
 	return nil

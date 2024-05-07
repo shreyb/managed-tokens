@@ -16,9 +16,13 @@
 package cmdUtils
 
 import (
+	"context"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a sync.Map,
@@ -34,12 +38,23 @@ type scheddCacheEntry struct {
 }
 
 // populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
-func (s *scheddCacheEntry) populateFromCollector(collectorHost, constraint string) error {
-	schedds, err := getScheddsFromCondor(collectorHost, constraint)
+func (s *scheddCacheEntry) populateFromCollector(ctx context.Context, collectorHost, constraint string) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "cmdUtils.populateFromCollector")
+	span.SetAttributes(
+		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
+		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},
+	)
+	defer span.End()
+
+	schedds, err := getScheddsFromCondor(ctx, collectorHost, constraint)
 	if err != nil {
-		log.Error("Could not populate schedd Cache Entry from condor")
+		msg := "Could not populate schedd Cache Entry from condor"
+		span.SetStatus(codes.Error, msg)
+		span.RecordError(err)
+		log.Error(msg)
 		return err
 	}
 	s.scheddCollection.storeSchedds(schedds)
+	span.SetStatus(codes.Ok, "Schedds populated from collector")
 	return nil
 }

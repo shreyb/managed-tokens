@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path"
 	"reflect"
@@ -321,6 +322,7 @@ func TestInitConfig(t *testing.T) {
 
 func TestOpenDatabaseAndLoadServices(t *testing.T) {
 	tempDbDir := t.TempDir()
+	ctx := context.Background()
 
 	type testCase struct {
 		description    string
@@ -350,7 +352,7 @@ func TestOpenDatabaseAndLoadServices(t *testing.T) {
 			func(t *testing.T) {
 				viper.Reset()
 				viper.Set("dbLocation", tc.dbLocation)
-				db, err := openDatabaseAndLoadServices()
+				db, err := openDatabaseAndLoadServices(ctx)
 				if tc.errNil {
 					assert.Equal(t, tc.expectedDbPath, db.Location())
 				} else {

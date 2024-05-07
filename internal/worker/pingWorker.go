@@ -24,11 +24,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/ping"
 	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -79,6 +83,9 @@ func (p *pingSuccess) GetSuccess() bool {
 // concurrently pings all of the Config's destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PingAggregatorWorker")
+	defer span.End()
+
 	defer close(chans.GetSuccessChan())
 	defer func() {
 		close(chans.GetNotificationsChan())
@@ -96,6 +103,13 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 		wg.Add(1)
 		go func(sc *Config) {
 			defer wg.Done()
+
+			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PingAggregatorWorker_anonFunc")
+			span.SetAttributes(
+				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
+			)
+			defer span.End()
+
 			success := &pingSuccess{
 				Service: sc.Service,
 			}
@@ -138,21 +152,22 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 					nodeLogger.Debug("Successfully pinged node")
 				}
 			}
-			if len(failedNodes) == 0 {
-				success.success = true
-				serviceLogger.Info("Successfully pinged all nodes for service")
-			} else {
+
+			if len(failedNodes) != 0 {
 				failedNodesStrings := make([]string, 0, len(failedNodes))
 				for _, node := range failedNodes {
 					failedNodesStrings = append(failedNodesStrings, node.String())
 				}
-				serviceLogger.Error("Error pinging some of nodes for service")
-				serviceLogger.Errorf("Failed Nodes: %s", strings.Join(failedNodesStrings, ", "))
+				msg := "Could not ping the following nodes: " + strings.Join(failedNodesStrings, ", ")
+				tracing.LogErrorWithTrace(span, serviceLogger, msg)
 				chans.GetNotificationsChan() <- notifications.NewSetupError(
-					"Could not ping the following nodes: "+strings.Join(failedNodesStrings, ", "),
+					msg,
 					sc.ServiceNameFromExperimentAndRole(),
 				)
+				return
 			}
+			success.success = true
+			tracing.LogSuccessWithTrace(span, serviceLogger, "Successfully pinged all nodes for service")
 		}(sc)
 	}
 }
@@ -160,6 +175,9 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 // pingAllNodes will launch goroutines, which each ping a ping.PingNoder from the nodes variadic.  It returns a channel,
 // on which it reports the ping.pingNodeStatuses signifying success or error
 func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...ping.PingNoder) <-chan ping.PingNodeStatus {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pingAllNodes")
+	defer span.End()
+
 	// Buffered Channel to report on
 	c := make(chan ping.PingNodeStatus, len(nodes))
 	var wg sync.WaitGroup
@@ -167,14 +185,21 @@ func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...ping.Pin
 	for _, n := range nodes {
 		go func(n ping.PingNoder) {
 			defer wg.Done()
+
 			start := time.Now()
+			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pingAllNodes_anonFunc")
+			span.SetAttributes(attribute.String("node", n.String()))
+			defer span.End()
+
 			p := ping.PingNodeStatus{
 				PingNoder: n,
 				Err:       n.PingNode(ctx, extraPingOpts),
 			}
 			if p.Err != nil {
+				span.SetStatus(codes.Error, "Failed to ping node")
 				pingFailureCount.WithLabelValues(n.String()).Inc()
 			} else {
+				span.SetStatus(codes.Ok, "Successfully pinged node")
 				dur := time.Since(start).Seconds()
 				pingDuration.WithLabelValues(n.String()).Observe(dur)
 			}

@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/notifications"
@@ -57,7 +59,11 @@ var notificationsFromWorkersChan = make(chan notifications.Notification) // Glob
 // notifications channel to the service name.  This registration is stored in the serviceNotificationChanMap.  It also increments a waitgroup
 // so the caller can keep track of how many ServiceEmailManagers have been opened.
 func registerServiceNotificationsChan(ctx context.Context, s service.Service, a *notifications.AdminNotificationManager) {
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "registerServiceNotificationsChan")
+	defer span.End()
+
 	serviceName := cmdUtils.GetServiceName(s)
+	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(serviceName)})
 
 	timestamp := time.Now().Format(time.RFC822)
 	e := notifications.NewEmail(
@@ -94,6 +100,9 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 // This func is meant for external callers to register their own notifications channel so that any passed in notifications can
 // be routed appropriately.
 func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan notifications.Notification) {
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startListenerOnWorkerNotificationChans")
+	defer span.End()
+
 	// Start up the aggregator exactly once
 	go func() {
 		f := func() { directNotificationsToManagers(ctx) }
@@ -130,6 +139,9 @@ func handleNotificationsFinalization() {
 // directNotificationsToManagers is the aggregator func that sorts notifications from notificationsFromWorkersChan and sends them to the
 // appropriate registered notifications.ServiceEmailManager.  It is meant to be called only once.
 func directNotificationsToManagers(ctx context.Context) {
+	_, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "directNotificationsToManagers")
+	defer span.End()
+
 	defer func() {
 		var once sync.Once
 		once.Do(closeRegisteredNotificationsChans)

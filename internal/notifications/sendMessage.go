@@ -18,7 +18,10 @@ package notifications
 import (
 	"context"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // SendMessager wraps the SendMessage method
@@ -34,11 +37,15 @@ func (s *SendMessageError) Error() string { return s.message }
 // SendMessage sends a message (msg).  The kind of message and how that message is sent is determined
 // by the SendMessager, which should be configured before passing into SendMessage
 func SendMessage(ctx context.Context, s SendMessager, msg string) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.SendMessage")
+	defer span.End()
+
 	err := s.sendMessage(ctx, msg)
 	if err != nil {
 		err := &SendMessageError{"Error sending message"}
-		log.Error(err)
+		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), err.Error())
 		return err
 	}
+	span.SetStatus(codes.Ok, "Message sent successfully")
 	return nil
 }

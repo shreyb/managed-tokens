@@ -15,16 +15,14 @@
 
 package main
 
-import (
-	"fmt"
-	"os"
+import "github.com/spf13/viper"
 
-	"github.com/spf13/pflag"
-)
-
-// Custom usage function for positional argument.
-func onboardingUsage() {
-	fmt.Printf("Usage: %s [OPTIONS] service...\n", os.Args[0])
-	fmt.Printf("service must be of the form 'experiment_role', e.g. 'dune_production'\n")
-	pflag.PrintDefaults()
+// getDevEnvironment first checks the environment variable MANAGED_TOKENS_DEV_ENVIRONMENT for the devEnvironment, then the configuration file.
+// If it finds neither are set, it returns the default global setting.  This logic is handled by the underlying logic in the
+// viper library
+func getDevEnvironmentLabel() string {
+	// For devs, this variable can be set to differentiate between dev and prod for metrics, for example
+	viper.SetDefault("devEnvironmentLabel", devEnvironmentLabelDefault)
+	viper.BindEnv("devEnvironmentLabel", "MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL")
+	return viper.GetString("devEnvironmentLabel")
 }

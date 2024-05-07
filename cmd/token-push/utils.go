@@ -18,10 +18,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"runtime"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
@@ -36,6 +41,10 @@ import (
 // It also returns a slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
 func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (*notifications.AdminNotificationManager, []notifications.SendMessager) {
 	var adminNotifications []notifications.SendMessager
+
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "setupAdminNotifications")
+	defer span.End()
+
 	var prefix string
 	if viper.GetBool("test") {
 		prefix = "notifications_test."
@@ -77,6 +86,9 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 }
 
 func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificationManager, adminNotificationsPtr *[]notifications.SendMessager) error {
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "sendAdminNotifications")
+	defer span.End()
+
 	funcLogger := log.WithFields(log.Fields{
 		"executable": currentExecutable,
 		"func":       "sendAdminNotifications",
@@ -84,17 +96,20 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 	handleNotificationsFinalization()
 	a.RequestToCloseReceiveChan(ctx)
 
-	err := notifications.SendAdminNotifications(
+	if err := notifications.SendAdminNotifications(
 		ctx,
 		currentExecutable,
 		viper.GetBool("test"),
 		(*adminNotificationsPtr)...,
-	)
-	if err != nil {
-		// We don't want to halt execution at this point
-		funcLogger.Error("Error sending admin notifications")
+	); err != nil {
+		msg := "Error sending admin notifications"
+		span.RecordError(err)
+		span.SetStatus(codes.Error, msg)
+		funcLogger.Error(msg)
+		return err
 	}
-	return err
+	span.SetStatus(codes.Ok, "Admin notifications sent successfully")
+	return nil
 }
 
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
@@ -102,7 +117,17 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
 	serviceConfigs map[string]*worker.Config, timeoutCheckKey string) worker.ChannelsForWorkers {
 	// Channels, context, and worker for getting kerberos tickets
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startServiceConfigWorkerForProcessing")
+	span.SetAttributes(
+		attribute.KeyValue{
+			Key:   "workerFunc",
+			Value: attribute.StringValue(runtime.FuncForPC(reflect.ValueOf(workerFunc).Pointer()).Name()),
+		},
+	)
+	defer span.End()
+
 	var useCtx context.Context
+
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
 	startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {

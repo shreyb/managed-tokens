@@ -18,10 +18,14 @@ package db
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	_ "github.com/mattn/go-sqlite3"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
@@ -87,27 +91,35 @@ func (f *ferryUidDatum) unpackDataRow(resultRow []any) (dataRowUnpacker, error) 
 // If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
 // with the information in the FERRYUIDDatum
 func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
-	funcLogger := log.WithField("dbLocation", m.filename)
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.InsertUidsIntoTableFromFERRY")
+	span.SetAttributes(attribute.String("dbLocation", m.filename))
+	defer span.End()
 
+	funcLogger := log.WithField("dbLocation", m.filename)
 	ferryUIDDatumSlice := ferryUIDDatumInterfaceSlicetoInsertValuesSlice(ferryData)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
-		funcLogger.Error("Could not update uids table in database")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not update uids table in database")
 		return err
 	}
-	funcLogger.Debug("Updated uid table in database with FERRY data")
+
+	tracing.LogSuccessWithTrace(span, funcLogger, "Updated uid table in database with FERRY data")
 	return nil
 }
 
 // ConfirmUIDsInTable returns all the user to UID mapping information in the ManagedTokensDatabase in the form of
 // a FERRYUIDDatum slice
 func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.ConfirmUIDsInTable")
+	span.SetAttributes(attribute.String("dbLocation", m.filename))
+	defer span.End()
+
 	funcLogger := log.WithField("dbLocation", m.filename)
 
 	// dataConverted := make([]FerryUIDDatum, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
 	if err != nil {
-		funcLogger.Error("Could not get usernames and uids from database")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get usernames and uids from database")
 		return nil, err
 	}
 
@@ -119,24 +131,30 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 	// Unpack data
 	unpackedData, err := unpackData[*ferryUidDatum](data)
 	if err != nil {
-		funcLogger.Error("Error unpacking UID Data row")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking UID Data row")
 		return nil, err
 	}
 	convertedData := make([]FerryUIDDatum, 0, len(unpackedData))
 	for _, elt := range unpackedData {
 		convertedData = append(convertedData, elt)
 	}
+	tracing.LogSuccessWithTrace(span, funcLogger, "Got usernames and uids from database")
 	return convertedData, nil
 }
 
 // GetUIDByUsername queries the ManagedTokensDatabase for a UID, given a username
 func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetUIDByUsername")
+	span.SetAttributes(
+		attribute.String("dbLocation", m.filename),
+		attribute.String("username", username),
+	)
 	funcLogger := log.WithField("dbLocation", m.filename)
 	var uid int
 
 	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		log.Error("Could not parse db timeout duration")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse db timeout duration")
 		return uid, err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
@@ -145,9 +163,10 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 	stmt, err := m.db.Prepare(getUIDbyUsernameStatement)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return uid, dbContext.Err()
 		}
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not prepare query to get UID: %s", err))
 		funcLogger.Errorf("Could not prepare query to get UID: %s", err)
 		return uid, err
 	}
@@ -156,12 +175,17 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 	err = stmt.QueryRowContext(dbContext, username).Scan(&uid)
 	if err != nil {
 		if dbContext.Err() == context.DeadlineExceeded {
-			funcLogger.Error("Context timeout")
+			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
 			return uid, dbContext.Err()
 		}
-		funcLogger.Errorf("Could not execute query to get UID: %s", err)
+		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not execute query to get UID: %s", err))
 		return uid, err
 	}
+
+	tracing.LogSuccessWithTrace(span, funcLogger, "Got UID from database",
+		tracing.KeyValueForLog{Key: "username", Value: username},
+		tracing.KeyValueForLog{Key: "uid", Value: strconv.Itoa(uid)},
+	)
 	return uid, nil
 }
 

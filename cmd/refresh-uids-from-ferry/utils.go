@@ -27,12 +27,16 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
@@ -40,6 +44,9 @@ import (
 // setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors
 // It also returns a slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
 func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (a *notifications.AdminNotificationManager, adminNotifications []notifications.SendMessager) {
+	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "setupAdminNotifications")
+	defer span.End()
+
 	// Send admin notifications at end of run
 	var prefix string
 	if viper.GetBool("test") {
@@ -80,6 +87,9 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 }
 
 func sendAdminNotifications(ctx context.Context, notificationsChan chan<- notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "sendAdminNotifications")
+	defer span.End()
+
 	close(notificationsChan)
 	err := notifications.SendAdminNotifications(
 		ctx,
@@ -89,8 +99,9 @@ func sendAdminNotifications(ctx context.Context, notificationsChan chan<- notifi
 	)
 	if err != nil {
 		// We don't want to halt execution at this point
-		exeLogger.Error("Error sending admin notifications")
+		tracing.LogErrorWithTrace(span, exeLogger, "Error sending admin notifications")
 	}
+	span.SetStatus(codes.Ok, "Admin notifications sent successfully")
 	return err
 }
 
@@ -110,6 +121,12 @@ func getAllAccountsFromConfig() []string {
 	return s
 }
 
+// TODO This should implement the WLCG bearer token discovery standard
+// 1. BEARER_TOKEN
+// 2. BEARER_TOKEN_FILE
+// 3. $XDG_RUNTIME_DIR/bt_u$ID
+// 4. /tmp/bt_u<UID>
+// Then make unit test for it
 // getBearerTokenDefaultLocation returns the default location of the bearer token
 // by looking first at the environment variable BEARER_TOKEN_FILE, and then
 // using the current user's UID to find the default location for the bearer token
@@ -139,6 +156,9 @@ func getBearerTokenDefaultLocation() (string, error) {
 // with kerberos credentials initialized
 func newFERRYServiceConfigWithKerberosAuth(ctx context.Context) (*worker.Config, error) {
 	var serviceName string
+
+	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "newFERRYServiceConfigWithKerberosAuth")
+	defer span.End()
 
 	if viper.GetString("ferry.serviceRole") != "" {
 		serviceName = viper.GetString("ferry.serviceExperiment") + "_" + viper.GetString("ferry.serviceRole")
@@ -229,12 +249,17 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
 	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan<- notifications.Notification) {
+	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "getAndAggregateFERRYData")
+	span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
+	defer span.End()
+
 	var ferryRequestContext context.Context
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
 		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)
 	} else {
 		ferryRequestContext = ctx
 	}
+
 	entry, err := worker.GetFERRYUIDData(
 		ferryRequestContext,
 		username,

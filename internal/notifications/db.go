@@ -22,10 +22,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 var (
@@ -78,6 +82,10 @@ type serviceErrorCounts struct {
 
 // setErrorCountsByService queries the db.ManagedTokensDatabase to load the prior errorCounts for a given service
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, error) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.setErrorCountsByService")
+	span.SetAttributes(attribute.String("service", service))
+	defer span.End()
+
 	funcLogger := log.WithField("service", service)
 
 	// Only track errors if we have a valid ManagedTokensDatabase
@@ -97,28 +105,41 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 
 	// Listen on tChan to see if we got any errors getting error counts from ManagedTokensDatabase
 	if err := g.Wait(); err != nil {
-		funcLogger.Error("Error getting error info from database.  Will not track errors")
+		tracing.LogErrorWithTrace(span, funcLogger, "Error getting error info from database.  Will not track errors")
 		return nil, err
 	}
+	span.SetStatus(codes.Ok, "Successfully loaded error counts from database")
 	return ec, nil
 }
 
 func populateServiceSetupErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.populateServiceSetupErrorCountFromDatabase")
+	span.SetAttributes(attribute.String("service", service))
+	defer span.End()
+
 	funcLogger := log.WithField("caller", "populateServiceSetupErrorCountFromDatabase")
+
 	setupErrorData, err := database.GetSetupErrorsInfoByService(ctx, service)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			funcLogger.Debug("No setupError information for service.  Assuming there are no prior errors")
 			return nil
 		}
-		funcLogger.Error("Could not get setupError information. Please inspect database")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get setupError information. Please inspect database")
 		return err
 	}
 	ec.setupErrors.value = setupErrorData.Count()
+	span.SetStatus(codes.Ok, "Successfully loaded setupError counts from database")
 	return nil
 }
+
 func populateServicePushErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.populateServicePushErrorCountFromDatabase")
+	span.SetAttributes(attribute.String("service", service))
+	defer span.End()
+
 	funcLogger := log.WithField("caller", "populateServicePushErrorCountFromDatabase")
+
 	ec.pushErrors = make(map[string]errorCount)
 	pushErrorData, err := database.GetPushErrorsInfoByService(ctx, service)
 	if err != nil {
@@ -126,13 +147,14 @@ func populateServicePushErrorCountFromDatabase(ctx context.Context, service stri
 			funcLogger.Debug("No pushError information for service.  Assuming there are no prior errors")
 			return nil
 		}
-		funcLogger.Error("Could not get pushError information.  Please inspect database")
+		tracing.LogErrorWithTrace(span, funcLogger, "Could not get pushError information.  Please inspect database")
 		return err
 	}
 	for _, datum := range pushErrorData {
 		errorCountVal := errorCount{value: datum.Count()}
 		ec.pushErrors[datum.Node()] = errorCountVal
 	}
+	span.SetStatus(codes.Ok, "Successfully loaded pushError counts from database")
 	return nil
 }
 
@@ -166,6 +188,10 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 	// 2.  The value is non-zero, but unchanged.  This means there was no error registered for that errorCount, and thus the underlying
 	// issue can be assumed to be fixed.  Reset the value to 0, and store it.
 	// Otherwise, don't save the value (only true if the value is 0, and was not changed).
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.saveErrorCountsInDatabase")
+	span.SetAttributes(attribute.String("service", service))
+	defer span.End()
+
 	shouldStoreValue := func(e *errorCount) (bool, int) {
 		if e.changed {
 			return true, e.value
@@ -182,7 +208,7 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 	if storeSetupErrorCount, value := shouldStoreValue(&ec.setupErrors); storeSetupErrorCount {
 		s := setupErrorCount{service, value}
 		if err := database.UpdateSetupErrorsTable(ctx, []db.SetupErrorCount{&s}); err != nil {
-			funcLogger.Error("Could not save new setupError counts in database")
+			tracing.LogErrorWithTrace(span, funcLogger, "Could not save new setupError counts in database")
 			return err
 		}
 		funcLogger.Debug("Updated setupError counts in database")
@@ -198,11 +224,12 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 
 	if len(pushErrorsCountSlice) != 0 {
 		if err := database.UpdatePushErrorsTable(ctx, pushErrorsCountSlice); err != nil {
-			funcLogger.Error("Could not save new pushError counts in database")
+			tracing.LogErrorWithTrace(span, funcLogger, "Could not save new pushError counts in database")
 			return err
 		}
 		funcLogger.Debug("Updated pushError counts in database")
 	}
+	span.SetStatus(codes.Ok, "Successfully saved error counts to database")
 	return nil
 }
 
