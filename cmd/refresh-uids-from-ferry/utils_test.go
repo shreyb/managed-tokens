@@ -32,20 +32,20 @@ func reset() {
 
 func TestGetAllAccountsFromConfig(t *testing.T) {
 	// Set up test data
-	viper.Set("experiments", map[string]interface{}{
-		"experiment1": map[string]interface{}{
-			"roles": map[string]interface{}{
-				"role1": map[string]interface{}{
+	viper.Set("experiments", map[string]any{
+		"experiment1": map[string]any{
+			"roles": map[string]any{
+				"role1": map[string]any{
 					"account": "account1",
 				},
-				"role2": map[string]interface{}{
+				"role2": map[string]any{
 					"account": "account2",
 				},
 			},
 		},
-		"experiment2": map[string]interface{}{
-			"roles": map[string]interface{}{
-				"role3": map[string]interface{}{
+		"experiment2": map[string]any{
+			"roles": map[string]any{
+				"role3": map[string]any{
 					"account": "account3",
 				},
 			},
