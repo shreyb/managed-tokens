@@ -31,7 +31,7 @@ var (
 // PushToPrometheus uses the package MetricsRegistry to push registered metrics to the configured Prometheus pushgateway
 func PushToPrometheus(hostName, jobName string) error {
 	pusher := push.New(hostName, jobName).Gatherer(MetricsRegistry)
-	if err := pusher.Add(); err != nil {
+	if err := pusher.Push(); err != nil {
 		log.Errorf("Could not push metrics to the prometheus pushgateway: %s", err)
 		return err
 	}
