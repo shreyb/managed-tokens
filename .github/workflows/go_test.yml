@@ -1,0 +1,61 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go build/test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+
+    - name: Populate vendor dir
+      run: go mod vendor
+
+    - name: Install dependencies
+      run: go install ./...
+
+    - name: Build
+      run: go build -v ./...
+
+    # In the next two, the fake "cd" is needed because in ubuntu 22, cd is only a shell
+    # builtin with no alias to an external executable , unlike ls, true, false, etc.
+    # This can be confirmed by comparing type -a cd with type -a ls, type -a true, etc.
+    - name: Create missing executables
+      run: >
+        touch $RUNNER_TEMP/condor_vault_storer
+        $RUNNER_TEMP/condor_status
+        $RUNNER_TEMP/condor_store_cred
+        $RUNNER_TEMP/condor_config_val
+        $RUNNER_TEMP/htgettoken
+        $RUNNER_TEMP/kinit
+        $RUNNER_TEMP/klist
+        $RUNNER_TEMP/cd
+
+    - name: Change perms on missing executables
+      run: >
+        chmod +x $RUNNER_TEMP/condor_*;
+        chmod +x $RUNNER_TEMP/htgettoken;
+        chmod +x $RUNNER_TEMP/kinit;
+        chmod +x $RUNNER_TEMP/klist;
+        chmod +x $RUNNER_TEMP/cd;
+
+    - name: Extend PATH
+      run: echo "$RUNNER_TEMP" >> $GITHUB_PATH
+
+    - name: Install fake config file
+      run: mkdir -p /home/runner/.managed-tokens; touch /home/runner/.managed-tokens/managedTokens.yml
+
+    - name: Test
+      run: go test -v ./... -skip "(TestGetSecCredentialGettokenOptsFromCondor)"
