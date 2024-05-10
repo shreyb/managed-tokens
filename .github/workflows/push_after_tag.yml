@@ -1,0 +1,19 @@
+name: Push to pkg.go.dev post-tag
+
+on:
+  push:
+    tags:
+      - '*'
+    # Only run this workflow if the version was changed in the Makefile
+    paths:
+      - 'Makefile'
+
+jobs:
+  push_to_pkg_go_dev:
+    runs-on: ubuntu-latest
+    steps:
+      # Thanks to https://stackoverflow.com/a/61974058
+      - name: Run curl to force refresh of pkg.go.dev backing db
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: curl "https://sum.golang.org/lookup/github.com/fermitools/managed-tokens@${RELEASE_VERSION}"
