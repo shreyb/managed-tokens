@@ -11,6 +11,7 @@ defaultRoleFileDestinationTemplate: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any f
 pingOptions: "--arg1 --arg2 value2" # Options to use with ping
 fileCopierOptions: "--perms --chmod=u=r,go=" # Extra options to give to the fileCopier utility - usually rsync
 sshOptions: "-o Arg1=val1 -o Arg2=val2" # Options to use with fileCopier to establish the SSH connection
+disableNotifications: false # If true, no notifications will be sent
 
 # Optional, and should not be used in production.  Defaults to "production", but can be specified here
 # or with environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
@@ -94,11 +95,12 @@ experiments:
         account: dunepro
         destinationNodes: [node1.fnal.gov]
         keytabPathOverride: "/special/path/to/keytab"
-        userPrincipalOverride: "dunepro/managedtokens/fifeutilgpvm01.fnal.gov@FNAL.GOV"
+        userPrincipalOverride: "dunepro/kerberos/principal@REALM"
         desiredUIDOverride: 12345
         condorCreddHostOverride: specialcreddhost.domain
         condorCollectorHostOverride: specialcollectorhost.domain
         defaultRoleFileDestinationTemplateOverride: "/tmp/{{.DesiredUID}}_{{.Account}}"  # Any field in the worker.Config object is supported here
+        disableNotificationsOverride: false # If true, no notifications will be sent for this role
   mu2e:
   # Minimum required configuration
     emails: [email2@example.com]
