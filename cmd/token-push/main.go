@@ -158,12 +158,16 @@ func initFlags() {
 	// Defaults
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
+	// Aliases
+	viper.RegisterAlias("dont-notify", "disableNotifications")
+
 	// Flags
 	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
 	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
 	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
+	pflag.Bool("dont-notify", false, "Turn off all notifications for this run")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.Bool("list-services", false, "List all configured services in config file")
