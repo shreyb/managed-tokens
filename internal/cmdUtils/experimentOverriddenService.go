@@ -43,10 +43,12 @@ func NewExperimentOverriddenService(serviceName, configKey string) *ExperimentOv
 	}
 }
 
+// Experiment returns the ExperimentOverriddenService's name that is guaranteed to be unique across all services
 func (e *ExperimentOverriddenService) Experiment() string { return e.ConfigExperiment }
 func (e *ExperimentOverriddenService) Role() string       { return e.Service.Role() }
 
-// Name returns the ExperimentOverriddenService's Service.Name field
+// Name returns the ExperimentOverriddenService's Service.Name field.  If there is another service with the same experiment name in the
+// configuration file, this may not be a unique value across all services.
 func (e *ExperimentOverriddenService) Name() string { return e.Service.Name() }
 
 // ConfigName returns the value stored in the ConfigService key, meant to be a concatenation
