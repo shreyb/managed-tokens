@@ -21,12 +21,14 @@ import (
 	"math/rand"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
@@ -814,6 +816,212 @@ func TestGetExtraSSHOptsFromConfig(t *testing.T) {
 				defer viper.Reset()
 				sshOpts := GetSSHOptsFromConfig(configPath)
 				assert.Equal(t, test.expectedSSHOpts, sshOpts)
+			},
+		)
+	}
+}
+
+func TestResolveDisableNotifications(t *testing.T) {
+	servicesStringSlice := []string{"experiment1_role1", "experiment2_role1", "experiment3_role1"}
+	services := make([]service.Service, 0, len(servicesStringSlice))
+	for _, s := range servicesStringSlice {
+		services = append(services, service.NewService(s))
+	}
+
+	type testCase struct {
+		description                     string
+		viperConfig                     string
+		expectedBlockAdminNotifications bool
+		expectedNoServiceNotifications  []string
+	}
+
+	testCases := []testCase{
+		{
+			"Global is false, service-levels are all non-existent",
+			`
+{"disableNotifications": false}
+	`,
+			false,
+			make([]string, 0, len(services)),
+		},
+		{
+			"Global is false, service-levels are all false",
+			`
+{
+	"disableNotifications": false,
+	"experiments": {
+		"experiment1": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": false
+				}
+			}
+		},
+		"experiment2": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": false
+				}
+			}
+		},
+		"experiment3": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": false
+				}
+			}
+		}
+	}
+}
+	`,
+			false,
+			make([]string, 0, len(services)),
+		},
+		{
+			"Global is true, no values set in services",
+			`
+{
+	"disableNotifications": true,
+	"experiments": {
+		"experiment1": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		},
+		"experiment2": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		},
+		"experiment3": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		}
+	}
+}
+			`,
+			true,
+			[]string{"experiment1_role1", "experiment2_role1", "experiment3_role1"},
+		},
+		{
+			"Global is true, values set in services that match global",
+			`
+{
+	"disableNotifications": true,
+	"experiments": {
+		"experiment1": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": true
+				}
+			}
+		},
+		"experiment2": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": true
+				}
+			}
+		},
+		"experiment3": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": true
+				}
+			}
+		}
+	}
+}
+			`,
+			true,
+			[]string{"experiment1_role1", "experiment2_role1", "experiment3_role1"},
+		},
+		{
+			"Global is false, any service-level is true", //  Note: this is fine because service email manager won't get started, so notifications won't get sent or forwarded to admin
+			`
+{
+	"disableNotifications": false,
+	"experiments": {
+		"experiment1": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		},
+		"experiment2": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": true
+				}
+			}
+		},
+		"experiment3": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		}
+	}
+}
+			`,
+			false,
+			[]string{"experiment2_role1"},
+		},
+		{
+			"If global is true, and service-level is false",
+			`
+{
+	"disableNotifications": true,
+	"experiments": {
+		"experiment1": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		},
+		"experiment2": {
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": false
+				}
+			}
+		},
+		"experiment3": {
+			"roles": {
+				"role1": {
+					"randomKey": "foo"
+				}
+			}
+		}
+	}
+}
+			`,
+			false,
+			[]string{"experiment1_role1", "experiment3_role1"},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				viper.Reset()
+				viper.SetConfigType("json")
+				viper.ReadConfig(strings.NewReader(test.viperConfig))
+
+				blockAdminNotifications, noServiceNotifications := ResolveDisableNotifications(services)
+				assert.Equal(t, test.expectedBlockAdminNotifications, blockAdminNotifications)
+				assert.Equal(t, test.expectedNoServiceNotifications, noServiceNotifications)
 			},
 		)
 	}
