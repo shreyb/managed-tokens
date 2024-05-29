@@ -830,6 +830,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 
 	type testCase struct {
 		description                     string
+		serviceSlice                    []service.Service
 		viperConfig                     string
 		expectedBlockAdminNotifications bool
 		expectedNoServiceNotifications  []string
@@ -838,6 +839,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 	testCases := []testCase{
 		{
 			"Global is false, service-levels are all non-existent",
+			services,
 			`
 {"disableNotifications": false}
 	`,
@@ -846,6 +848,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 		},
 		{
 			"Global is false, service-levels are all false",
+			services,
 			`
 {
 	"disableNotifications": false,
@@ -879,6 +882,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 		},
 		{
 			"Global is true, no values set in services",
+			services,
 			`
 {
 	"disableNotifications": true,
@@ -912,6 +916,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 		},
 		{
 			"Global is true, values set in services that match global",
+			services,
 			`
 {
 	"disableNotifications": true,
@@ -945,6 +950,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 		},
 		{
 			"Global is false, any service-level is true", //  Note: this is fine because service email manager won't get started, so notifications won't get sent or forwarded to admin
+			services,
 			`
 {
 	"disableNotifications": false,
@@ -978,6 +984,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 		},
 		{
 			"If global is true, and service-level is false",
+			services,
 			`
 {
 	"disableNotifications": true,
@@ -1009,33 +1016,10 @@ func TestResolveDisableNotifications(t *testing.T) {
 			false,
 			[]string{"experiment1_role1", "experiment3_role1"},
 		},
-	}
-
-	for _, test := range testCases {
-		t.Run(
-			test.description,
-			func(t *testing.T) {
-				viper.Reset()
-				viper.SetConfigType("json")
-				viper.ReadConfig(strings.NewReader(test.viperConfig))
-
-				blockAdminNotifications, noServiceNotifications := ResolveDisableNotifications(services)
-				assert.Equal(t, test.expectedBlockAdminNotifications, blockAdminNotifications)
-				assert.Equal(t, test.expectedNoServiceNotifications, noServiceNotifications)
-			},
-		)
-	}
-}
-
-func TestResolveDisableNotificationsExptOverriddenService(t *testing.T) {
-	servicesStringSlice := []string{"experiment1_role1", "experiment2_role1"}
-	services := make([]service.Service, 0, len(servicesStringSlice))
-	for _, s := range servicesStringSlice {
-		services = append(services, service.NewService(s))
-	}
-	services = append(services, NewExperimentOverriddenService("experiment1_role1", "experiment-override"))
-
-	fakeConfig := `
+		{
+			"Experiment-overridden service case",
+			append(services, NewExperimentOverriddenService("experiment1_role1", "experiment-override")),
+			`
 {
 	"disableNotifications": false,
 	"experiments": {
@@ -1063,13 +1047,24 @@ func TestResolveDisableNotificationsExptOverriddenService(t *testing.T) {
 		}
 	}
 }
-`
+			`,
+			false,
+			[]string{"experiment-override_role1"},
+		},
+	}
 
-	viper.Reset()
-	viper.SetConfigType("json")
-	viper.ReadConfig(strings.NewReader(fakeConfig))
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				viper.Reset()
+				viper.SetConfigType("json")
+				viper.ReadConfig(strings.NewReader(test.viperConfig))
 
-	blockAdminNotifications, noServiceNotifications := ResolveDisableNotifications(services)
-	assert.Equal(t, false, blockAdminNotifications)
-	assert.Equal(t, []string{"experiment-override_role1"}, noServiceNotifications)
+				blockAdminNotifications, noServiceNotifications := ResolveDisableNotifications(test.serviceSlice)
+				assert.Equal(t, test.expectedBlockAdminNotifications, blockAdminNotifications)
+				assert.Equal(t, test.expectedNoServiceNotifications, noServiceNotifications)
+			},
+		)
+	}
 }
