@@ -87,9 +87,15 @@ notifications_test:
 # Experiment config items
 experiments:
   dune:
-  # Example with overrides
     emails: [email1@example.com]
-    # experimentOverride: thisisactuallynotdune
+    roles:
+      production:
+        account: dunepro
+        destinationNodes: [node1.fnal.gov]
+  dune-2:
+  # Example with overrides including experiment override
+    emails: [email1@example.com]
+    experimentOverride: dune  # Indicates that according to token issuer/storer, this experiment is actually "dune"
     roles:
       production:
         account: dunepro
