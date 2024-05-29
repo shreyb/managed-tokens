@@ -1026,3 +1026,50 @@ func TestResolveDisableNotifications(t *testing.T) {
 		)
 	}
 }
+
+func TestResolveDisableNotificationsExptOverriddenService(t *testing.T) {
+	servicesStringSlice := []string{"experiment1_role1", "experiment2_role1"}
+	services := make([]service.Service, 0, len(servicesStringSlice))
+	for _, s := range servicesStringSlice {
+		services = append(services, service.NewService(s))
+	}
+	services = append(services, NewExperimentOverriddenService("experiment1_role1", "experiment-override"))
+
+	fakeConfig := `
+{
+	"disableNotifications": false,
+	"experiments": {
+		"experiment1": {
+			"roles": {
+				"role1": {
+					"fakeKey": "foo"
+				}
+			}
+		},
+		"experiment-override": {
+			"experimentOverride": "experiment1",
+			"roles": {
+				"role1": {
+					"disableNotificationsOverride": true
+				}
+			}
+		},
+		"experiment2": {
+			"roles": {
+				"role1": {
+					"fakeKey": "foo"
+				}
+			}
+		}
+	}
+}
+`
+
+	viper.Reset()
+	viper.SetConfigType("json")
+	viper.ReadConfig(strings.NewReader(fakeConfig))
+
+	blockAdminNotifications, noServiceNotifications := ResolveDisableNotifications(services)
+	assert.Equal(t, false, blockAdminNotifications)
+	assert.Equal(t, []string{"experiment-override_role1"}, noServiceNotifications)
+}
