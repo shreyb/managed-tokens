@@ -33,7 +33,26 @@ type ExperimentOverriddenService struct {
 	ConfigService string
 }
 
-// NewExperimentOverriddenService returns a new *ExperimentOverriddenService by using the service name and configuration key
+// NewExperimentOverriddenService returns a new *ExperimentOverriddenService by using the service name and configuration key that corresponds
+// to the name of the experiment in the configuration.  For example, if there is a configuration:
+// experiments:
+//
+//	experiment1:
+//		roles:
+//			role1:
+//				foo: bar
+//	experiment2:
+//		experimentOverride: experiment1
+//		roles:
+//			role1:
+//				foo: baz
+//
+// Then NewExperimentOverriddenService("experiment1_role1", "experiment2") would return an ExperimentOverriddenService
+// whose Service field would have "experiment1" and "role1" as the experiment and role, respectively; whose ConfigExperiment field would be "experiment2",
+// and whose ConfigService field would be "experiment2_role1".
+//
+// Further, the returned ExperimentOverriddenService's Experiment() method would return "experiment2" rather than "experiment1",
+// the Role() method would return "role1", and the Name() method would return "experiment1_role1"
 func NewExperimentOverriddenService(serviceName, configKey string) *ExperimentOverriddenService {
 	s := service.NewService(serviceName)
 	return &ExperimentOverriddenService{
