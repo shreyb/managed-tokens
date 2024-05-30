@@ -50,10 +50,11 @@ import (
 )
 
 var (
-	currentExecutable string
-	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
-	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
-	exeLogger         *log.Entry
+	currentExecutable       string
+	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
+	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
+	exeLogger               *log.Entry
+	notificationsDisabledBy string = "configuration"
 )
 
 // devEnvironmentLabel can be set via config or environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
@@ -127,6 +128,9 @@ func setup() error {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
 		return err
 	}
+	// TODO Remove this after bug detailed in initFlags() is fixed upstream
+	disableNotifyFlagWorkaround()
+	// END TODO
 
 	devEnvironmentLabel = getDevEnvironmentLabel()
 
@@ -158,22 +162,26 @@ func initFlags() {
 	// Defaults
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
-	// Aliases
-	viper.RegisterAlias("dont-notify", "disableNotifications")
-
 	// Flags
 	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
 	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
 	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
-	pflag.Bool("dont-notify", false, "Turn off all notifications for this run")
+	pflag.Bool("disable-notifications", false, "Turn off all notifications for this run")
+	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.Bool("list-services", false, "List all configured services in config file")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+
+	// Aliases
+	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
+	//  viper.RegisterAlias("dont-notify", "disableNotifications")
+	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
+	// Instead, we have to work around this after we read in the config file (see setup())
 }
 
 func initConfig() error {
@@ -196,6 +204,14 @@ func initConfig() error {
 		return err
 	}
 	return nil
+}
+
+// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
+func disableNotifyFlagWorkaround() {
+	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = "flag"
+	}
 }
 
 // Set up logs
@@ -478,7 +494,9 @@ func run(ctx context.Context) error {
 				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
-		if !blockAdminNotifications {
+		if blockAdminNotifications {
+			exeLogger.Debugf("Admin notifications disabled by %s. Not sending admin notifications", notificationsDisabledBy)
+		} else {
 			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
 			sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 		}
