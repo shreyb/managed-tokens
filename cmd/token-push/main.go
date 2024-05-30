@@ -434,14 +434,33 @@ func run(ctx context.Context) error {
 
 	database, databaseErr := openDatabaseAndLoadServices(ctx)
 
+	// Determine what notifications should be sent
+	blockAdminNotifications, blockServiceNotificationsSlice := cmdUtils.ResolveDisableNotifications(services)
+	noServiceNotifications := make(map[string]struct{})
+	for _, s := range blockServiceNotificationsSlice {
+		noServiceNotifications[s] = struct{}{}
+	}
+	if blockAdminNotifications {
+		exeLogger.Debug("Admin notifications disabled")
+	}
+	if len(blockServiceNotificationsSlice) > 0 {
+		exeLogger.WithField(
+			"services", strings.Join(blockServiceNotificationsSlice, ", ")).Debug(
+			"No service notifications will be sent for these services")
+	}
+
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
-	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
-	if databaseErr != nil {
-		msg := "Could not open or create ManagedTokensDatabase"
-		span.SetStatus(codes.Error, msg)
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
-	} else {
-		defer database.Close()
+	var admNotMgr *notifications.AdminNotificationManager
+	var adminNotifications []notifications.SendMessager
+	if !blockAdminNotifications {
+		admNotMgr, adminNotifications = setupAdminNotifications(ctx, database)
+		if databaseErr != nil {
+			msg := "Could not open or create ManagedTokensDatabase"
+			span.SetStatus(codes.Error, msg)
+			admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+		} else {
+			defer database.Close()
+		}
 	}
 
 	// All the cleanup actions that should run any time run() returns
@@ -459,8 +478,10 @@ func run(ctx context.Context) error {
 				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 			}
 		}
-		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-		sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
+		if !blockAdminNotifications {
+			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+			sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
+		}
 	}()
 
 	// Create temporary dir for all kerberos caches to live in
@@ -544,6 +565,15 @@ func run(ctx context.Context) error {
 			span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(s.Name())})
 			defer span.End()
 
+			// Create kerberos cache for this service
+			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
+			if err != nil {
+				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
+				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				return
+			}
+
+			// All required service-level configuration items
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
@@ -557,15 +587,6 @@ func run(ctx context.Context) error {
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-
-			// Create kerberos cache for this service
-			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
-			if err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
-				return
-			}
-
 			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
@@ -579,6 +600,7 @@ func run(ctx context.Context) error {
 				return
 			}
 
+			// Service-level configuration items that can be defined either in configuration file or on system/environment or have library defaults
 			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
@@ -587,6 +609,7 @@ func run(ctx context.Context) error {
 			fileCopierOptions := cmdUtils.GetFileCopierOptionsFromConfig(serviceConfigPath)
 			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
 			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
+
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -614,7 +637,12 @@ func run(ctx context.Context) error {
 				return
 			}
 			collectServiceConfigs <- c
-			registerServiceNotificationsChan(ctx, s, admNotMgr)
+
+			// If notifications are not disabled for this service, register the service for notifications
+			if _, ok := noServiceNotifications[cmdUtils.GetServiceName(s)]; !ok && (admNotMgr != nil) {
+				registerServiceNotificationsChan(ctx, s, admNotMgr)
+			}
+
 			span.SetStatus(codes.Ok, "Service config setup")
 		}(s)
 	}
