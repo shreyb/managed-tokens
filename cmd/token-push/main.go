@@ -54,7 +54,7 @@ var (
 	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger               *log.Entry
-	notificationsDisabledBy string = "configuration"
+	notificationsDisabledBy cmdUtils.DisableNotificationsOption = cmdUtils.DISABLED_BY_CONFIGURATION
 )
 
 // devEnvironmentLabel can be set via config or environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
@@ -105,6 +105,9 @@ var errExitOK = errors.New("exit 0")
 // Initial setup.  Read flags, find config file
 func setup() error {
 	startSetup = time.Now()
+
+	// Configuration defaults that are not flag/config file specific
+	viper.SetDefault("disableNotifications", false)
 
 	// Get current executable name
 	if exePath, err := os.Executable(); err != nil {
@@ -210,7 +213,7 @@ func initConfig() error {
 func disableNotifyFlagWorkaround() {
 	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
 		viper.Set("disableNotifications", true)
-		notificationsDisabledBy = "flag"
+		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
 	}
 }
 
@@ -451,13 +454,26 @@ func run(ctx context.Context) error {
 	database, databaseErr := openDatabaseAndLoadServices(ctx)
 
 	// Determine what notifications should be sent
-	blockAdminNotifications, blockServiceNotificationsSlice := cmdUtils.ResolveDisableNotifications(services)
+	var blockAdminNotifications bool
+	blockServiceNotificationsSlice := make([]string, 0, len(services))
+
+	// If we have disabled the notifications via a flag, we need to always block the notifications irrespective of the configuration
+	if notificationsDisabledBy == cmdUtils.DISABLED_BY_FLAG {
+		blockAdminNotifications = true
+		for _, s := range services {
+			blockServiceNotificationsSlice = append(blockServiceNotificationsSlice, cmdUtils.GetServiceName(s))
+		}
+	} else {
+		// Otherwise, look at the configuration to see if we should block notifications
+		blockAdminNotifications, blockServiceNotificationsSlice = cmdUtils.ResolveDisableNotifications(services)
+	}
+
 	noServiceNotifications := make(map[string]struct{})
 	for _, s := range blockServiceNotificationsSlice {
 		noServiceNotifications[s] = struct{}{}
 	}
 	if blockAdminNotifications {
-		exeLogger.Debug("Admin notifications disabled")
+		exeLogger.Debugf("Admin notifications disabled by %s", notificationsDisabledBy.String())
 	}
 	if len(blockServiceNotificationsSlice) > 0 {
 		exeLogger.WithField(
@@ -495,7 +511,7 @@ func run(ctx context.Context) error {
 			}
 		}
 		if blockAdminNotifications {
-			exeLogger.Debugf("Admin notifications disabled by %s. Not sending admin notifications", notificationsDisabledBy)
+			exeLogger.Debugf("Admin notifications disabled by %s. Not sending admin notifications", notificationsDisabledBy.String())
 		} else {
 			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
 			sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
