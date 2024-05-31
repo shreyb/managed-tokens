@@ -28,6 +28,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
@@ -361,4 +362,27 @@ func TestOpenDatabaseAndLoadServices(t *testing.T) {
 			},
 		)
 	}
+}
+
+func TestDisableNotifyFlagWorkaround(t *testing.T) {
+	// Reset everything
+	notificationsDisabledBy = cmdUtils.DISABLED_BY_CONFIGURATION
+	viper.Reset()
+
+	// Set one of the disable notifications flags
+	os.Args = []string{"executable-name", "--dont-notify"}
+	initFlags()
+
+	// Set the disabling to false here so we can test that the flag overrides this setting
+	fakeViperConfig := `
+{
+	"disableNotifications": false
+}
+	`
+	viper.SetConfigType("json")
+	viper.ReadConfig(strings.NewReader(fakeViperConfig))
+
+	disableNotifyFlagWorkaround()
+	assert.Equal(t, cmdUtils.DISABLED_BY_FLAG, notificationsDisabledBy)
+	assert.Equal(t, true, viper.GetBool("disableNotifications"))
 }
