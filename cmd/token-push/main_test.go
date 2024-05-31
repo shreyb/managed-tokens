@@ -369,6 +369,10 @@ func TestDisableNotifyFlagWorkaround(t *testing.T) {
 	notificationsDisabledBy = cmdUtils.DISABLED_BY_CONFIGURATION
 	viper.Reset()
 
+	// Save previous os.Args, and restore it at the end of this test
+	prevArgs := os.Args
+	t.Cleanup(func() { os.Args = prevArgs })
+
 	// Set one of the disable notifications flags
 	os.Args = []string{"executable-name", "--dont-notify"}
 	initFlags()
