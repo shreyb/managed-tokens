@@ -19,10 +19,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/fermitools/managed-tokens/internal/testUtils"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 func reset() {
@@ -117,4 +120,24 @@ func TestGetDevEnvironmentLabel(t *testing.T) {
 			assert.Equal(t, tc.expectedValue, result)
 		})
 	}
+}
+func TestSendSetupErrorToAdminMgr(t *testing.T) {
+	receiveChan := make(chan notifications.SourceNotification)
+	msg := "Test error message"
+	done := make(chan bool)
+
+	go func() {
+		defer func() { done <- true }()
+		select {
+		case notification := <-receiveChan:
+			assert.Equal(t, "Test error message", notification.Notification.GetMessage())
+		default:
+			t.Error("Expected to receive a notification, but none received")
+		}
+	}()
+
+	sendSetupErrorToAdminMgr(receiveChan, msg)
+	assert.Eventually(t, func() bool {
+		return <-done
+	}, time.Second, 10*time.Millisecond)
 }

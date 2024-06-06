@@ -39,7 +39,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
-	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
@@ -358,10 +357,11 @@ func run(ctx context.Context) error {
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
-		admNotMgr, adminNotifications := setupAdminNotifications(ctx, nil)
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+		admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, nil)
+		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		close(aReceiveChan)
 
-		if err2 := sendAdminNotifications(ctx, admNotMgr.GetReceiveChan(), &adminNotifications); err2 != nil {
+		if err2 := sendAdminNotifications(ctx, admNotMgr, &adminNotifications); err2 != nil {
 			msg := "error sending admin notifications"
 			tracing.LogErrorWithTrace(span, exeLogger, msg)
 			err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
@@ -373,7 +373,7 @@ func run(ctx context.Context) error {
 	span.AddEvent("Opened ManagedTokensDatabase")
 
 	// Send admin notifications at end of run
-	admNotMgr, adminNotifications := setupAdminNotifications(ctx, database)
+	admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, database)
 
 	// Send metrics anytime run() returns
 	defer func() {
@@ -386,7 +386,8 @@ func run(ctx context.Context) error {
 			}
 		}
 		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-		sendAdminNotifications(ctx, admNotMgr.GetReceiveChan(), &adminNotifications)
+		close(aReceiveChan)
+		sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 	}()
 
 	// Setup complete
@@ -427,7 +428,7 @@ func run(ctx context.Context) error {
 		sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 		if err != nil {
 			msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-			admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
 			exeLogger.Error(msg)
 			os.Exit(1)
 		}
@@ -468,7 +469,7 @@ func run(ctx context.Context) error {
 				span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 				defer span.End()
 				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, admNotMgr.GetReceiveChan())
+				getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan)
 			}(username)
 		}
 		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
@@ -481,7 +482,7 @@ func run(ctx context.Context) error {
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
 		msg := "no data collected from FERRY"
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+		sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		tracing.LogErrorWithTrace(span, exeLogger, msg+". Exiting")
 		return errors.New(msg)
 	}
@@ -511,7 +512,7 @@ func run(ctx context.Context) error {
 	}
 	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+		sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
@@ -522,17 +523,14 @@ func run(ctx context.Context) error {
 	dbData, err := database.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+		sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
 		msg := "verification of INSERT failed.  Please check the logs"
-		admNotMgr.GetReceiveChan() <- notifications.NewSetupError(
-			"Verification of INSERT failed.  Please check the logs",
-			currentExecutable,
-		)
+		sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return errors.New(msg)
 	}
