@@ -36,6 +36,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
@@ -44,10 +45,11 @@ import (
 )
 
 var (
-	currentExecutable string
-	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
-	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
-	exeLogger         *log.Entry
+	currentExecutable       string
+	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
+	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
+	exeLogger               *log.Entry
+	notificationsDisabledBy cmdUtils.DisableNotificationsOption = cmdUtils.DISABLED_BY_CONFIGURATION
 )
 
 var devEnvironmentLabel string
@@ -115,6 +117,10 @@ func setup() error {
 		return err
 	}
 
+	// TODO Remove this after bug detailed in initFlags() is fixed upstream
+	disableNotifyFlagWorkaround()
+	// END TODO
+
 	devEnvironmentLabel = getDevEnvironmentLabel()
 
 	initLogs()
@@ -134,15 +140,31 @@ func initFlags() {
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
 	// Flags
-	pflag.StringP("configfile", "c", "", "Specify alternate config file")
-	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
-	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.String("authmethod", "tls", "Choose method for authentication to FERRY.  Currently-supported choices are \"tls\" and \"jwt\"")
+	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.Bool("disable-notifications", false, "Do not send admin notifications")
+	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
+	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+
+	// Aliases
+	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
+	//  viper.RegisterAlias("dont-notify", "disableNotifications")
+	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
+	// Instead, we have to work around this after we read in the config file (see setup())
+}
+
+// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
+func disableNotifyFlagWorkaround() {
+	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
+	}
 }
 
 func initConfig() error {
