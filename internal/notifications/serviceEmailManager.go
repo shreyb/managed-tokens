@@ -119,7 +119,7 @@ func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service str
 		funcLogger.Debug("Not tracking Error counts in ServiceEmailManager")
 	}
 
-	em.adminNotificationChan = em.AdminNotificationManager.registerNotificationSource(ctx)
+	em.adminNotificationChan = em.AdminNotificationManager.RegisterNotificationSource(ctx)
 	em.runServiceNotificationHandler(ctx)
 
 	return em

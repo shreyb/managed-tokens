@@ -483,13 +483,16 @@ func run(ctx context.Context) error {
 
 	// Send admin notifications at end of run.  Note that if databaseErr != nil, then database = nil.
 	var admNotMgr *notifications.AdminNotificationManager
+	var aReceiveChan chan<- notifications.SourceNotification
 	var adminNotifications []notifications.SendMessager
 	if !blockAdminNotifications {
-		admNotMgr, adminNotifications = setupAdminNotifications(ctx, database)
+		admNotMgr, aReceiveChan, adminNotifications = setupAdminNotifications(ctx, database)
 		if databaseErr != nil {
 			msg := "Could not open or create ManagedTokensDatabase"
 			span.SetStatus(codes.Error, msg)
-			admNotMgr.GetReceiveChan() <- notifications.NewSetupError(msg, currentExecutable)
+			aReceiveChan <- notifications.SourceNotification{
+				Notification: notifications.NewSetupError(msg, currentExecutable),
+			}
 		} else {
 			defer database.Close()
 		}
@@ -513,6 +516,7 @@ func run(ctx context.Context) error {
 		if blockAdminNotifications {
 			exeLogger.Debugf("Admin notifications disabled by %s. Not sending admin notifications", notificationsDisabledBy.String())
 		} else {
+			close(aReceiveChan)
 			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
 			sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 		}

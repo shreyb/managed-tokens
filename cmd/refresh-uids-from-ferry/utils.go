@@ -41,9 +41,13 @@ import (
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
-// setupAdminNotifications prepares email and slack messages to be sent to admins in case of errors
-// It also returns a slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
-func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (a *notifications.AdminNotificationManager, adminNotifications []notifications.SendMessager) {
+// setupAdminNotifications prepares a notifications.AdminNotificationManager, and returns the following:
+// 1. A pointer to the AdminNotificationsManager that was set up
+// 2. A channel that the caller will send its notifications to for the AdminNotificationManager to process.
+// 3. A slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (*notifications.AdminNotificationManager, chan<- notifications.SourceNotification, []notifications.SendMessager) {
+	var adminNotifications []notifications.SendMessager
+
 	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "setupAdminNotifications")
 	defer span.End()
 
@@ -82,15 +86,16 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 		funcOpts = append(funcOpts, setDB, writeableDatabase)
 	}
 
-	a = notifications.NewAdminNotificationManager(ctx, funcOpts...)
-	return a, adminNotifications
+	aMgr := notifications.NewAdminNotificationManager(ctx, funcOpts...)
+	receiveChan := aMgr.RegisterNotificationSource(ctx)
+	return aMgr, receiveChan, adminNotifications
 }
 
-func sendAdminNotifications(ctx context.Context, notificationsChan chan<- notifications.Notification, adminNotificationsPtr *[]notifications.SendMessager) error {
+func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificationManager, adminNotificationsPtr *[]notifications.SendMessager) error {
 	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "sendAdminNotifications")
 	defer span.End()
 
-	close(notificationsChan)
+	a.RequestToCloseReceiveChan(ctx)
 	err := notifications.SendAdminNotifications(
 		ctx,
 		currentExecutable,
@@ -248,7 +253,7 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // authFunc.  It spins up a worker to get data from FERRY, and then puts that data into
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
-	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan<- notifications.Notification) {
+	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan<- notifications.SourceNotification) {
 	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "getAndAggregateFERRYData")
 	span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 	defer span.End()
@@ -271,13 +276,22 @@ func getAndAggregateFERRYData(ctx context.Context, username string, authFunc fun
 	if err != nil {
 		msg := "Could not get FERRY UID data"
 		log.WithField("username", username).Error(msg)
-		notificationsChan <- notifications.NewSetupError(msg+" for user "+username, currentExecutable)
+		sendSetupErrorToAdminMgr(notificationsChan, msg+" for user "+username)
 	} else {
 		ferryDataChan <- entry
 	}
 }
 
 // This space is for other auxiliary functions
+
+// sendSetupErrorToAdminMgr takes the passed msg string, converts it to a notifications.SourceNotifications wrapping a SetupError, and
+// sends it to the passed receiveChan
+func sendSetupErrorToAdminMgr(recChan chan<- notifications.SourceNotification, msg string) {
+	n := notifications.SourceNotification{
+		Notification: notifications.NewSetupError(msg, currentExecutable),
+	}
+	recChan <- n
+}
 
 // setUserPrincipalAndHtgettokenopts sets a worker.Config's kerberos principal and with it, the HTGETTOKENOPTS environment variable.
 func getUserPrincipalAndHtgettokenopts() (string, string) {

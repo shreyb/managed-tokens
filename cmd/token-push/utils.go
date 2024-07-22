@@ -37,9 +37,12 @@ import (
 )
 
 // Prep admin notifications
-// setupAdminNotifications prepares and returns the notifications.AdminNotificationManager that the various workers will eventually send their notifications to.
-// It also returns a slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
-func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (*notifications.AdminNotificationManager, []notifications.SendMessager) {
+
+// setupAdminNotifications prepares a notifications.AdminNotificationManager, and returns the following:
+// 1. A pointer to the AdminNotificationsManager that was set up
+// 2. A channel that the caller will send its notifications to for the AdminNotificationManager to process.
+// 3. A slice of notifications.SendMessagers that will be populated by the errors the AdminNotificationManager collects
+func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensDatabase) (*notifications.AdminNotificationManager, chan<- notifications.SourceNotification, []notifications.SendMessager) {
 	var adminNotifications []notifications.SendMessager
 
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "setupAdminNotifications")
@@ -82,7 +85,8 @@ func setupAdminNotifications(ctx context.Context, database *db.ManagedTokensData
 	}
 
 	a := notifications.NewAdminNotificationManager(ctx, funcOpts...)
-	return a, adminNotifications
+	c := a.RegisterNotificationSource(ctx)
+	return a, c, adminNotifications
 }
 
 func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificationManager, adminNotificationsPtr *[]notifications.SendMessager) error {
@@ -93,6 +97,8 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 		"executable": currentExecutable,
 		"func":       "sendAdminNotifications",
 	})
+
+	// Make sure that all of our Service Email Managers have finished sending their notifications
 	handleNotificationsFinalization()
 	a.RequestToCloseReceiveChan(ctx)
 

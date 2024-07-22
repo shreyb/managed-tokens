@@ -220,11 +220,6 @@ func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Conte
 	}()
 }
 
-// GetReceiveChan returns a chan<- Notification on which the AdminNotificationManager can receive Notifications
-func (a *AdminNotificationManager) GetReceiveChan() chan<- Notification {
-	return a.receiveChan
-}
-
 // SourceNotification is a type containing a Notification.  It should be used to send notifications from callers that are sending Notifications to the
 // AdminNotificationManager via a channel gotten via registerNotificationSource.  The notifications/admin package will send all of these types of
 // Notifications - that is, it will not run any checks to determine whether a SourceNotification should be sent.
@@ -234,7 +229,7 @@ type SourceNotification struct {
 
 // registerNotificationSource will return a channel on which callers can send SourceNotifications.  It also spins up a listener goroutine that forwards
 // these Notifications to the AdminNotificationManager's ReceiveChan as long as the context is alive
-func (a *AdminNotificationManager) registerNotificationSource(ctx context.Context) chan<- SourceNotification {
+func (a *AdminNotificationManager) RegisterNotificationSource(ctx context.Context) chan<- SourceNotification {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.registerNotificationSource")
 	defer span.End()
 
