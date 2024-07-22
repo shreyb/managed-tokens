@@ -53,3 +53,39 @@ func TestWorkerTypeString(t *testing.T) {
 		assert.Equal(t, test.expected, result)
 	}
 }
+func TestCheckValidWorkerType(t *testing.T) {
+	tests := []struct {
+		workerType WorkerType
+		expected   bool
+	}{
+		{
+			workerType: GetKerberosTicketsWorkerType,
+			expected:   true,
+		},
+		{
+			workerType: StoreAndGetTokenWorkerType,
+			expected:   true,
+		},
+		{
+			workerType: PingAggregatorWorkerType,
+			expected:   true,
+		},
+		{
+			workerType: PushTokensWorkerType,
+			expected:   true,
+		},
+		{
+			workerType: invalidWorkerType,
+			expected:   false,
+		},
+		{
+			workerType: invalidWorkerType + 1, // UnknownWorkerType
+			expected:   false,
+		},
+	}
+
+	for _, test := range tests {
+		result := checkValidWorkerType(test.workerType)
+		assert.Equal(t, test.expected, result)
+	}
+}

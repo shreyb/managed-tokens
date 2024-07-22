@@ -24,6 +24,7 @@ const (
 	StoreAndGetTokenWorkerType
 	PingAggregatorWorkerType
 	PushTokensWorkerType
+	invalidWorkerType
 )
 
 func (wt WorkerType) String() string {
@@ -39,4 +40,8 @@ func (wt WorkerType) String() string {
 	default:
 		return "UnknownWorkerType"
 	}
+}
+
+func checkValidWorkerType(workerType WorkerType) bool {
+	return workerType < invalidWorkerType
 }
