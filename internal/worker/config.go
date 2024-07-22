@@ -93,6 +93,7 @@ type Config struct {
 func NewConfig(service service.Service, options ...ConfigOption) (*Config, error) {
 	c := &Config{Service: service}
 	c.Extras = make(map[supportedExtrasKey]any)
+	c.workerSpecificConfig = initializeWorkerSpecificConfigDefaults()
 
 	for _, option := range options {
 		cBackup := backupConfig(c)
@@ -106,9 +107,6 @@ func NewConfig(service service.Service, options ...ConfigOption) (*Config, error
 
 	// Initialize our unPingableNodes field so we don't run into a nil pointer dereference panic later on
 	c.unPingableNodes = &unPingableNodes{sync.Map{}}
-
-	// Initialize our workerSpecificConfig field so we don't run into a nil pointer dereference panic later on
-	c.workerSpecificConfig = initializeWorkerSpecificConfigDefaults()
 
 	log.WithFields(log.Fields{
 		"experiment": c.Service.Experiment(),

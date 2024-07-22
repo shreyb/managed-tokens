@@ -238,14 +238,14 @@ func TestInitializeWorkerSpecificConfigDefaults(t *testing.T) {
 		PingAggregatorWorkerType,
 		PushTokensWorkerType,
 	} {
-		valInt, ok := m[wt]
+		val, ok := m[wt]
 		if !ok {
 			t.Errorf("Expected key %v not found in map", wt)
 		}
-		val, ok := valInt.(int)
+		valInt, ok := val.(int)
 		if !ok {
 			t.Errorf("Expected value of type int, got %T", m[wt])
 		}
-		assert.Equal(t, retryDefault, val)
+		assert.Equal(t, retryDefault, valInt)
 	}
 }
