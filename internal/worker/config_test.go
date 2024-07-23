@@ -242,7 +242,7 @@ func TestInitializeWorkerSpecificConfigDefaults(t *testing.T) {
 		if !ok {
 			t.Errorf("Expected key %v not found in map", wt)
 		}
-		valInt, ok := val.(int)
+		valInt, ok := val[numRetriesOption].(int)
 		if !ok {
 			t.Errorf("Expected value of type int, got %T", m[wt])
 		}
