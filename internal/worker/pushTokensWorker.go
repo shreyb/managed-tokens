@@ -188,6 +188,12 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
 				}
 
+				numRetries, err := getWorkerRetryValueFromConfig(*sc, PushTokensWorkerType)
+				if err != nil {
+					serviceLogger.Debug("Could not get retry value from config.  Using default value")
+					numRetries = 0
+				}
+
 				// Send to nodes
 				var nodeWg sync.WaitGroup
 				for _, destinationNode := range sc.Nodes {
@@ -228,23 +234,37 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 								defer pushCancel()
-								nodeLogger.Debug("Attempting to push tokens to destination node")
-								if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
-									var notificationErrorString string
-									if sc.IsNodeUnpingable(destinationNode) {
-										notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
-									}
-									if pushContext.Err() != nil {
-										if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
-											notificationErrorString = notificationErrorString + pushContext.Err().Error() + " (timeout error)"
-										} else {
+
+								var notificationErrorString string
+								var err error
+								func() {
+									for i := 0; i <= int(numRetries); i++ {
+										nodeLogger.Debugf("Attempting to push tokens to destination node, try %d, %d tries left", i+1, int(numRetries)-i)
+										err = pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename)
+										switch {
+										// Success
+										case err == nil:
+											return
+										// Unpingable node - no reason to retry
+										case sc.IsNodeUnpingable(destinationNode):
+											notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
+											return
+										// Context has errored out - no reason to retry
+										case pushContext.Err() != nil:
 											notificationErrorString = notificationErrorString + pushContext.Err().Error()
+											if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
+												notificationErrorString = notificationErrorString + " (timeout error)"
+											}
+											nodeLogger.Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
+											return
+										// Some other error - retry
+										default:
+											notificationErrorString = notificationErrorString + err.Error()
+											nodeLogger.Error("Error pushing vault tokens to destination node")
 										}
-										nodeLogger.Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
-									} else {
-										notificationErrorString = notificationErrorString + err.Error()
-										nodeLogger.Error("Error pushing vault tokens to destination node")
 									}
+								}()
+								if err != nil {
 									tracing.LogErrorWithTrace(span, nodeLogger, notificationErrorString)
 									pushSuccess.changeSuccessValue(false) // Mark the whole service config as failed
 
