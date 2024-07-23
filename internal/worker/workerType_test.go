@@ -53,7 +53,7 @@ func TestWorkerTypeString(t *testing.T) {
 		assert.Equal(t, test.expected, result)
 	}
 }
-func TestCheckValidWorkerType(t *testing.T) {
+func TestIsValidWorkerType(t *testing.T) {
 	tests := []struct {
 		workerType WorkerType
 		expected   bool
@@ -85,7 +85,7 @@ func TestCheckValidWorkerType(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := checkValidWorkerType(test.workerType)
+		result := isValidWorkerType(test.workerType)
 		assert.Equal(t, test.expected, result)
 	}
 }

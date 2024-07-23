@@ -42,6 +42,6 @@ func (wt WorkerType) String() string {
 	}
 }
 
-func checkValidWorkerType(workerType WorkerType) bool {
-	return workerType < invalidWorkerType
+func isValidWorkerType(w WorkerType) bool {
+	return w < invalidWorkerType
 }
