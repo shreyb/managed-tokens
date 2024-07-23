@@ -15,12 +15,32 @@
 
 package worker
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// workerSpecificConfigOption is a type that represents a worker-specific configuration option.
+type workerSpecificConfigOption uint8
+
+const (
+	// numRetriesOption is a worker-specific configuration option that represents the number of times a worker should retry a task before giving up.
+	numRetriesOption workerSpecificConfigOption = iota
+	invalid
+)
+
+func isValidWorkerSpecificConfigOption(option workerSpecificConfigOption) bool {
+	return option < invalid
+}
 
 // SetWorkerRetryValue is a function that sets the retry value for a specific worker type.  It returns a ConfigOption
-func SetWorkerRetryValue(workerType WorkerType, value uint) ConfigOption {
+func SetWorkerRetryValue(w WorkerType, value uint) ConfigOption {
 	return ConfigOption(func(c *Config) error {
-		c.workerSpecificConfig[workerType] = value
+		if !isValidWorkerType(w) {
+			return errors.New("invalid worker type")
+		}
+
+		c.workerSpecificConfig[w][numRetriesOption] = value
 		return nil
 	})
 }
@@ -28,12 +48,16 @@ func SetWorkerRetryValue(workerType WorkerType, value uint) ConfigOption {
 // getWorkerRetryValueFromConfig retrieves the retry value for a specific worker type from the given configuration.
 // It returns the retry value as a uint and a non-nil error if the worker type is not found in the configuration or if the value is not of type uint.
 func getWorkerRetryValueFromConfig(c Config, w WorkerType) (uint, error) {
+	if !isValidWorkerType(w) {
+		return 0, errors.New("invalid worker type")
+	}
+
 	val, ok := c.workerSpecificConfig[w]
 	if !ok {
 		return 0, fmt.Errorf("workerType %s not found in workerSpecificConfig", w)
 	}
 
-	valUInt, ok := val.(uint)
+	valUInt, ok := val[numRetriesOption].(uint)
 	if !ok {
 		return 0, fmt.Errorf("value for workerType %s is not of type uint.  Got type %T", w, val)
 	}

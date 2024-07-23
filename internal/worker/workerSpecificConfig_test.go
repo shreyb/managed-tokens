@@ -24,7 +24,8 @@ import (
 func TestSetWorkerRetryValue(t *testing.T) {
 	opt := SetWorkerRetryValue(GetKerberosTicketsWorkerType, 5)
 	c := &Config{}
-	c.workerSpecificConfig = make(map[WorkerType]any)
+	c.workerSpecificConfig = make(map[WorkerType]map[workerSpecificConfigOption]any)
+	c.workerSpecificConfig[GetKerberosTicketsWorkerType] = make(map[workerSpecificConfigOption]any, 0)
 
 	err := opt(c)
 	assert.Nil(t, err)
@@ -34,7 +35,7 @@ func TestSetWorkerRetryValue(t *testing.T) {
 		t.Errorf("Expected workerSpecificConfig to contain GetKerberosTicketsWorkerType")
 	}
 
-	valInt, ok := val.(uint)
+	valInt, ok := val[numRetriesOption].(uint)
 	if !ok {
 		t.Errorf("Expected value to be of type uint")
 	}
@@ -42,8 +43,9 @@ func TestSetWorkerRetryValue(t *testing.T) {
 }
 func TestGetWorkerRetryValueFromConfig(t *testing.T) {
 	c := &Config{}
-	c.workerSpecificConfig = make(map[WorkerType]any)
-	c.workerSpecificConfig[GetKerberosTicketsWorkerType] = uint(5)
+	c.workerSpecificConfig = make(map[WorkerType]map[workerSpecificConfigOption]any)
+	c.workerSpecificConfig[GetKerberosTicketsWorkerType] = make(map[workerSpecificConfigOption]any, 0)
+	c.workerSpecificConfig[GetKerberosTicketsWorkerType][numRetriesOption] = uint(5)
 
 	// Test case: Worker type exists in the config
 	val, err := getWorkerRetryValueFromConfig(*c, GetKerberosTicketsWorkerType)
@@ -56,8 +58,17 @@ func TestGetWorkerRetryValueFromConfig(t *testing.T) {
 	assert.Equal(t, uint(0), val)
 
 	// Test case: Worker type exists in the config but value is not of type uint
-	c.workerSpecificConfig[GetKerberosTicketsWorkerType] = "invalid"
+	c.workerSpecificConfig[GetKerberosTicketsWorkerType][numRetriesOption] = "invalid"
 	val, err = getWorkerRetryValueFromConfig(*c, GetKerberosTicketsWorkerType)
 	assert.NotNil(t, err)
 	assert.Equal(t, uint(0), val)
+}
+func TestIsValidWorkerSpecificConfigOption(t *testing.T) {
+	// Test case: Valid worker specific config option
+	validOption := isValidWorkerSpecificConfigOption(numRetriesOption)
+	assert.True(t, validOption)
+
+	// Test case: Invalid worker specific config option
+	invalidOption := isValidWorkerSpecificConfigOption(workerSpecificConfigOption(2))
+	assert.False(t, invalidOption)
 }
