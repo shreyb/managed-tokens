@@ -1068,3 +1068,119 @@ func TestResolveDisableNotifications(t *testing.T) {
 		)
 	}
 }
+func TestGetWorkerConfigStringSlice(t *testing.T) {
+	viper.Reset()
+	workerType := "myWorker"
+	key := "myKey"
+	expectedValue := []string{"value1", "value2"}
+
+	// Set up the configuration
+	viper.Set("workerType."+workerType+"."+key, expectedValue)
+
+	// Call the function
+	result := GetWorkerConfigStringSlice(workerType, key)
+
+	// Check the result
+	assert.Equal(t, expectedValue, result)
+}
+
+func TestGetWorkerConfigInt(t *testing.T) {
+	viper.Reset()
+	workerType := "myWorker"
+	key := "myKey"
+	expectedValue := 42
+
+	// Set up the test by mocking the configuration value
+	viper.Set("workerType."+workerType+"."+key, expectedValue)
+
+	// Call the function being tested
+	value := GetWorkerConfigInt(workerType, key)
+
+	// Check if the returned value matches the expected value
+	if value != expectedValue {
+		t.Errorf("Got wrong value for worker config int. Expected %d, got %d", expectedValue, value)
+	}
+
+	// Reset the configuration
+	viper.Reset()
+}
+func TestGetWorkerConfigString(t *testing.T) {
+	viper.Reset()
+	workerType := "myWorker"
+	key := "myKey"
+	expectedValue := "myValue"
+
+	// Set up the configuration
+	viper.Set("workerType."+workerType+"."+key, expectedValue)
+
+	// Call the function
+	value := GetWorkerConfigString(workerType, key)
+
+	// Check the result
+	if value != expectedValue {
+		t.Errorf("Got wrong value for worker config string. Expected %s, got %s", expectedValue, value)
+	}
+
+	// Clean up the configuration
+	viper.Reset()
+}
+func TestGetWorkerConfigValue(t *testing.T) {
+	// Set up test cases
+	testCases := []struct {
+		workerType string
+		key        string
+		config     map[string]any
+		expected   any
+	}{
+		{
+			workerType: "worker1",
+			key:        "key1",
+			config: map[string]any{
+				"workerType.worker1.key1": "value1",
+			},
+			expected: "value1",
+		},
+		{
+			workerType: "worker2",
+			key:        "key2",
+			config: map[string]any{
+				"workerType.worker2.key2": 42,
+			},
+			expected: 42,
+		},
+		{
+			workerType: "worker3",
+			key:        "key3",
+			config: map[string]any{
+				"workerType.worker3.key3": []string{"value1", "value2"},
+			},
+			expected: []string{"value1", "value2"},
+		},
+		{
+			workerType: "worker4",
+			key:        "key4",
+			config:     map[string]any{},
+			expected:   nil,
+		},
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("WorkerType: %s, Key: %s", tc.workerType, tc.key), func(t *testing.T) {
+			// Set up test environment
+			viper.Reset()
+			for k, v := range tc.config {
+				viper.Set(k, v)
+			}
+
+			// Call the function
+			result := GetWorkerConfigValue(tc.workerType, tc.key)
+
+			// Check the result
+			assert.Equal(t, tc.expected, result)
+			// if !reflect.DeepEqual(result, tc.expected) {
+			// 	t.Errorf("Unexpected result. Expected: %v, Got: %v", tc.expected, result)
+			// }
+		})
+	}
+}

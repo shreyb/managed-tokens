@@ -88,11 +88,11 @@ notifications_test:
 workerType:
   getKerberosTickets:
     numRetries: 0
-  StoreAndGetToken:
+  storeAndGetToken:
     numRetries: 0
-  PingAggregator:
+  pingAggregator:
     numRetries: 0
-  PushTokens:
+  pushTokens:
     numRetries: 3
 
 # Experiment config items
