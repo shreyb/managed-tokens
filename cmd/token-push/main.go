@@ -648,6 +648,12 @@ func run(ctx context.Context) error {
 			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
 			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
 
+			// Worker-specific config to be passed to the worker.Config constructor
+			getKerberosTicketsRetries := cmdUtils.GetWorkerConfigInt("getKerberosTickets", "numRetries")
+			storeAndGetTokenRetries := cmdUtils.GetWorkerConfigInt("storeAndGetToken", "numRetries")
+			pingAggregatorRetries := cmdUtils.GetWorkerConfigInt("pingAggregator", "numRetries")
+			pushTokensRetries := cmdUtils.GetWorkerConfigInt("pushTokens", "numRetries")
+
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -663,6 +669,10 @@ func run(ctx context.Context) error {
 				worker.SetDesiredUID(uid),
 				worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
+				worker.SetWorkerRetryValue(worker.GetKerberosTicketsWorkerType, uint(getKerberosTicketsRetries)),
+				worker.SetWorkerRetryValue(worker.StoreAndGetTokenWorkerType, uint(storeAndGetTokenRetries)),
+				worker.SetWorkerRetryValue(worker.PingAggregatorWorkerType, uint(pingAggregatorRetries)),
+				worker.SetWorkerRetryValue(worker.PushTokensWorkerType, uint(pushTokensRetries)),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
 				worker.SetSupportedExtrasKeyValue(worker.PingOptions, extraPingOpts),
