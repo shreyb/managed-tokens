@@ -28,23 +28,23 @@ func TestWorkerTypeString(t *testing.T) {
 	}{
 		{
 			workerType: GetKerberosTicketsWorkerType,
-			expected:   "GetKerberosTicketsWorker",
+			expected:   "GetKerberosTickets",
 		},
 		{
 			workerType: StoreAndGetTokenWorkerType,
-			expected:   "StoreAndGetTokenWorker",
+			expected:   "StoreAndGetToken",
 		},
 		{
 			workerType: PingAggregatorWorkerType,
-			expected:   "PingAggregatorWorker",
+			expected:   "PingAggregator",
 		},
 		{
 			workerType: PushTokensWorkerType,
-			expected:   "PushTokensWorker",
+			expected:   "PushTokens",
 		},
 		{
 			workerType: 5, // UnknownWorkerType
-			expected:   "UnknownWorkerType",
+			expected:   "Unknown",
 		},
 	}
 

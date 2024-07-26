@@ -30,15 +30,15 @@ const (
 func (wt WorkerType) String() string {
 	switch wt {
 	case GetKerberosTicketsWorkerType:
-		return "GetKerberosTicketsWorker"
+		return "GetKerberosTickets"
 	case StoreAndGetTokenWorkerType:
-		return "StoreAndGetTokenWorker"
+		return "StoreAndGetToken"
 	case PingAggregatorWorkerType:
-		return "PingAggregatorWorker"
+		return "PingAggregator"
 	case PushTokensWorkerType:
-		return "PushTokensWorker"
+		return "PushTokens"
 	default:
-		return "UnknownWorkerType"
+		return "Unknown"
 	}
 }
 
