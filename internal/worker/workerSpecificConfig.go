@@ -29,10 +29,6 @@ const (
 	invalid
 )
 
-func isValidWorkerSpecificConfigOption(option workerSpecificConfigOption) bool {
-	return option < invalid
-}
-
 // SetWorkerRetryValue is a function that sets the retry value for a specific worker type.  It returns a ConfigOption
 func SetWorkerRetryValue(w WorkerType, value uint) ConfigOption {
 	return ConfigOption(func(c *Config) error {
@@ -63,4 +59,8 @@ func getWorkerRetryValueFromConfig(c Config, w WorkerType) (uint, error) {
 	}
 
 	return valUInt, nil
+}
+
+func isValidWorkerSpecificConfigOption(option workerSpecificConfigOption) bool {
+	return option < invalid
 }
