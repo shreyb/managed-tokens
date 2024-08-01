@@ -411,6 +411,35 @@ func TestGetScheddsAndCollectorHostFromConfigurationCached(t *testing.T) {
 	}
 }
 
+func TestGetScheddsAndCollectorHostFromConfigurationFallback(t *testing.T) {
+	// setup
+	viper.Reset()
+	ctx := context.Background()
+
+	// We will put in a cached entry for myCollectorHost2.  Since myCollectorHost1 will fail, we should fall back to the cached entry for
+	// myCollectorHost2
+	collectorHost := "myCollectorHost1,myCollectorHost2"
+	viper.Set("condorCollectorHost", collectorHost)
+	defer viper.Reset()
+
+	once := &sync.Once{}
+	once.Do(func() {})
+
+	schedds := []string{"schedd1", "schedd2"}
+	cacheEntry := &scheddCacheEntry{
+		newScheddCollection(),
+		once,
+	}
+	cacheEntry.storeSchedds(schedds)
+	globalScheddCache.cache.Store("myCollectorHost2", cacheEntry)
+
+	// test
+	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "")
+	assert.Nil(t, err)
+	assert.Equal(t, "myCollectorHost2", resultCollector)
+	assert.Equal(t, schedds, resultSchedds)
+}
+
 func TestGetVaultServer(t *testing.T) {
 	type testCase struct {
 		description         string

@@ -186,8 +186,8 @@ func GetScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServi
 
 	// 2.  Try globalScheddCache
 	// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
-	scheddSourceForLog := "cache"
 	for _, collectorHostEntry := range collectorHostEntries {
+		scheddSourceForLog := "cache"
 		cacheEntry, _ := globalScheddCache.cache.LoadOrStore(
 			collectorHostEntry,
 			&scheddCacheEntry{
