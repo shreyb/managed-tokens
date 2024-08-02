@@ -396,9 +396,13 @@ func TestGetScheddsAndCollectorHostFromConfigurationCached(t *testing.T) {
 	cacheEntry := &scheddCacheEntry{
 		newScheddCollection(),
 		once,
+		nil,
 	}
 	cacheEntry.storeSchedds(schedds)
-	globalScheddCache.cache.Store(collectorHost, cacheEntry)
+
+	globalScheddCache.mu.Lock()
+	globalScheddCache.cache[collectorHost] = cacheEntry
+	globalScheddCache.mu.Unlock()
 
 	// test
 	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "fakeservicepath")
@@ -429,9 +433,12 @@ func TestGetScheddsAndCollectorHostFromConfigurationFallback(t *testing.T) {
 	cacheEntry := &scheddCacheEntry{
 		newScheddCollection(),
 		once,
+		nil,
 	}
 	cacheEntry.storeSchedds(schedds)
-	globalScheddCache.cache.Store("myCollectorHost2", cacheEntry)
+	globalScheddCache.mu.Lock()
+	globalScheddCache.cache["myCollectorHost2"] = cacheEntry
+	globalScheddCache.mu.Unlock()
 
 	// test
 	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "")

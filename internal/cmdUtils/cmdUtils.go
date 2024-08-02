@@ -46,6 +46,11 @@ var (
 	globalScheddCache     scheddCache // Global cache for the schedds, sorted by collector host
 )
 
+func init() {
+	globalScheddCache.cache = make(map[string]*scheddCacheEntry)
+	globalScheddCache.mu = &sync.Mutex{}
+}
+
 // Functional options for initialization of service Config
 
 // GetUserPrincipalFromConfiguration gets the configured kerberos principal
@@ -184,45 +189,58 @@ func GetScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServi
 		return collectorHostEntries[0], schedds, nil
 	}
 
+	// Acquire our lock for the globalScheddCache at this point
+	globalScheddCache.mu.Lock()
+	defer globalScheddCache.mu.Unlock()
+
 	// 2.  Try globalScheddCache
-	// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
 	for _, collectorHostEntry := range collectorHostEntries {
+		// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
 		scheddSourceForLog := "cache"
-		cacheEntry, _ := globalScheddCache.cache.LoadOrStore(
-			collectorHostEntry,
-			&scheddCacheEntry{
+
+		var cacheEntry *scheddCacheEntry
+		cacheEntry, ok := globalScheddCache.cache[collectorHostEntry]
+		if !ok {
+			// New cache entry
+			cacheEntry = &scheddCacheEntry{
 				newScheddCollection(),
 				&sync.Once{},
-			},
-		)
+				nil,
+			}
+			globalScheddCache.cache[collectorHostEntry] = cacheEntry
+		}
 
 		// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
 		// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
 		// This way we are guaranteed that the cache will always be populated.
-		var err error
-		cacheEntryVal, ok := cacheEntry.(*scheddCacheEntry)
-		if ok {
-			cacheEntryVal.once.Do(
-				func() {
-					// 3.  Query collector
-					// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
-					ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration.queryCollAnonFunc")
-					span.SetAttributes(attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHostEntry)})
-					defer span.End()
+		cacheEntry.once.Do(
+			func() {
+				// 3.  Query collector
+				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
+				ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration.queryCollAnonFunc")
+				span.SetAttributes(attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHostEntry)})
+				defer span.End()
 
-					scheddSourceForLog = "collector"
-					constraint := getConstraintFromConfiguration(checkServiceConfigPath)
-					err = cacheEntryVal.populateFromCollector(ctx, collectorHostEntry, constraint)
+				scheddSourceForLog = "collector"
+				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
+				cacheEntry.err = cacheEntry.populateFromCollector(ctx, collectorHostEntry, constraint)
+				if cacheEntry.err != nil {
 					span.SetStatus(codes.Error, "Could not populate schedd cache from collector")
-				},
-			)
-			if err != nil {
-				continue
+				}
+			},
+		)
+		if cacheEntry.err != nil {
+			// Move to the next collectorHostEntry because we either couldn't populate a cacheEntry, or we already have an error
+			// from a previous attempt to populate it
+			if ok {
+				// We didn't try to query the collector because a previous attempt failed.  Indicate this in the log
+				funcLogger.WithField("collectorHost", collectorHostEntry).Debug("Previous attempt to query this collector failed.  Skipping.")
 			}
+			continue
 		}
 
 		// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
-		schedds = cacheEntryVal.scheddCollection.getSchedds()
+		schedds = cacheEntry.scheddCollection.getSchedds()
 		funcLogger.WithFields(log.Fields{
 			"schedds":       schedds,
 			"collectorHost": collectorHostEntry,
