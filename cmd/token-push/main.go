@@ -600,7 +600,7 @@ func run(ctx context.Context) error {
 		go func(s service.Service) {
 			funcLogger := exeLogger.WithFields(log.Fields{
 				"caller":  "token-push.run",
-				"service": s.Name(),
+				"service": cmdUtils.GetServiceName(s),
 			})
 
 			// Setup the configs
