@@ -25,16 +25,18 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-// scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a sync.Map,
-// which contains a map[string]*scheddCacheEntry, where the key is the collector host
+// scheddCache is a cache where the schedds corresponding to each collector are stored.  It is a container for a map[string]*scheddCacheEntry,
+// where the key is the collector host, and a mutex to control access to this map
 type scheddCache struct {
-	cache sync.Map
+	cache map[string]*scheddCacheEntry
+	mu    *sync.Mutex
 }
 
 // scheddCacheEntry is an entry that contains a *scheddCollection and a *sync.Once to ensure that it is populated exactly once
 type scheddCacheEntry struct {
 	*scheddCollection
 	once *sync.Once
+	err  error // error encountered while populating the cache entry
 }
 
 // populateFromCollector queries the condor collector for the schedds and stores them in scheddCacheEntry
