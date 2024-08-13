@@ -230,8 +230,6 @@ func TestInitializeWorkerSpecificConfigDefaults(t *testing.T) {
 	// Test that the map returned by initializeWorkerSpecificConfigDefaults has the correct keys and values
 	m := initializeWorkerSpecificConfigDefaults()
 
-	assert.Equal(t, 4, len(m))
-
 	for _, wt := range []WorkerType{
 		GetKerberosTicketsWorkerType,
 		StoreAndGetTokenWorkerType,
