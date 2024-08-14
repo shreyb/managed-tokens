@@ -84,6 +84,17 @@ notifications_test:
   SLACK_ALERTS_URL: https://hooks.slack.com/FILL_IN_URL_HERE
   admin_email: admin@example.com
 
+# Worker-specific configuration
+workerType:
+  getKerberosTickets:
+    numRetries: 0
+  storeAndGetToken:
+    numRetries: 0
+  pingAggregator:
+    numRetries: 0
+  pushTokens:
+    numRetries: 3
+
 # Experiment config items
 experiments:
   dune:

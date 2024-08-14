@@ -29,6 +29,10 @@ import (
 	"github.com/fermitools/managed-tokens/internal/service"
 )
 
+const (
+	retryDefault = 0
+)
+
 // unPingableNodes holds the set of nodes that do not respond to a ping request
 type unPingableNodes struct {
 	sync.Map
@@ -65,6 +69,8 @@ type Config struct {
 	//  }
 	// Then the caller should check ok to make sure it's true before using the value
 	Extras map[supportedExtrasKey]any
+	// workerSpecificConfig is a map of values that are specific to a worker type.  This is useful for setting values that are specific to a worker
+	workerSpecificConfig map[WorkerType]map[workerSpecificConfigOption]any
 	environment.CommandEnvironment
 	*unPingableNodes // Pointer to an unPingableNodes object that indicates which configured nodes in Nodes do not respond to a ping request
 }
@@ -87,6 +93,7 @@ type Config struct {
 func NewConfig(service service.Service, options ...ConfigOption) (*Config, error) {
 	c := &Config{Service: service}
 	c.Extras = make(map[supportedExtrasKey]any)
+	c.workerSpecificConfig = initializeWorkerSpecificConfigDefaults()
 
 	for _, option := range options {
 		cBackup := backupConfig(c)
@@ -143,4 +150,23 @@ func (c *Config) RegisterUnpingableNode(node string) {
 func (c *Config) IsNodeUnpingable(node string) bool {
 	_, ok := c.unPingableNodes.Load(node)
 	return ok
+}
+
+// initializeWorkerSpecificConfigDefaults initializes and returns a map of default configuration values for each worker type.
+func initializeWorkerSpecificConfigDefaults() map[WorkerType]map[workerSpecificConfigOption]any {
+	m := make(map[WorkerType]map[workerSpecificConfigOption]any, 0)
+
+	m[GetKerberosTicketsWorkerType] = make(map[workerSpecificConfigOption]any, 0)
+	m[GetKerberosTicketsWorkerType][numRetriesOption] = retryDefault
+
+	m[StoreAndGetTokenWorkerType] = make(map[workerSpecificConfigOption]any, 0)
+	m[StoreAndGetTokenWorkerType][numRetriesOption] = retryDefault
+
+	m[PingAggregatorWorkerType] = make(map[workerSpecificConfigOption]any, 0)
+	m[PingAggregatorWorkerType][numRetriesOption] = retryDefault
+
+	m[PushTokensWorkerType] = make(map[workerSpecificConfigOption]any, 0)
+	m[PushTokensWorkerType][numRetriesOption] = retryDefault
+
+	return m
 }

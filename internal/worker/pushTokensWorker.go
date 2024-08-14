@@ -188,6 +188,12 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 					fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
 				}
 
+				numRetries, err := getWorkerRetryValueFromConfig(*sc, PushTokensWorkerType)
+				if err != nil {
+					serviceLogger.Debug("Could not get retry value from config.  Using default value")
+					numRetries = 0
+				}
+
 				// Send to nodes
 				var nodeWg sync.WaitGroup
 				for _, destinationNode := range sc.Nodes {
@@ -228,24 +234,47 @@ func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
 								defer pushCancel()
-								nodeLogger.Debug("Attempting to push tokens to destination node")
-								if err := pushToNode(pushContext, sc, sourceFilename, destinationNode, destinationFilename); err != nil {
-									var notificationErrorString string
-									if sc.IsNodeUnpingable(destinationNode) {
-										notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
-									}
-									if pushContext.Err() != nil {
-										if errors.Is(pushContext.Err(), context.DeadlineExceeded) {
-											notificationErrorString = notificationErrorString + pushContext.Err().Error() + " (timeout error)"
-										} else {
-											notificationErrorString = notificationErrorString + pushContext.Err().Error()
+
+								var notificationErrorString string
+								var err error
+								func() {
+									for i := 0; i <= int(numRetries); i++ {
+										trialContext, trialSpan := otel.GetTracerProvider().Tracer("managed-tokens").Start(pushContext, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc_trialAnonFunc")
+										trialSpan.SetAttributes(
+											attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
+											attribute.String("node", destinationNode),
+											attribute.String("filename", destinationFilename),
+											attribute.Int("try", i+1),
+										)
+										defer trialSpan.End()
+
+										nodeLogger.Debugf("Attempting to push tokens to destination node, try %d, %d retries left", i+1, int(numRetries)-i)
+										err = pushToNode(trialContext, sc, sourceFilename, destinationNode, destinationFilename)
+										// Success
+										if err == nil {
+											return
 										}
-										nodeLogger.Errorf("Error pushing vault tokens to destination node: %s", pushContext.Err())
-									} else {
+										// Unpingable node - no reason to retry
+										if sc.IsNodeUnpingable(destinationNode) {
+											notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
+											tracing.LogErrorWithTrace(trialSpan, nodeLogger, notificationErrorString+"will not retry")
+											return
+										}
+										// Context has errored out - no reason to retry
+										if trialContext.Err() != nil {
+											notificationErrorString = notificationErrorString + pushContext.Err().Error()
+											if errors.Is(trialContext.Err(), context.DeadlineExceeded) {
+												notificationErrorString = notificationErrorString + " (timeout error)"
+											}
+											tracing.LogErrorWithTrace(trialSpan, nodeLogger, fmt.Sprintf("Error pushing vault tokens to destination node: %s: will not retry", pushContext.Err()))
+											return
+										}
+										// Some other error - retry
 										notificationErrorString = notificationErrorString + err.Error()
 										nodeLogger.Error("Error pushing vault tokens to destination node")
 									}
-									tracing.LogErrorWithTrace(span, nodeLogger, notificationErrorString)
+								}()
+								if err != nil {
 									pushSuccess.changeSuccessValue(false) // Mark the whole service config as failed
 
 									// Mark this node as failed

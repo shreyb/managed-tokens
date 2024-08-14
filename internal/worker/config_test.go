@@ -225,3 +225,25 @@ func TestBackupConfig(t *testing.T) {
 	assert.Equal(t, c1.Extras, c2.Extras)
 	assert.Equal(t, c1.unPingableNodes, c2.unPingableNodes)
 }
+
+func TestInitializeWorkerSpecificConfigDefaults(t *testing.T) {
+	// Test that the map returned by initializeWorkerSpecificConfigDefaults has the correct keys and values
+	m := initializeWorkerSpecificConfigDefaults()
+
+	for _, wt := range []WorkerType{
+		GetKerberosTicketsWorkerType,
+		StoreAndGetTokenWorkerType,
+		PingAggregatorWorkerType,
+		PushTokensWorkerType,
+	} {
+		val, ok := m[wt]
+		if !ok {
+			t.Errorf("Expected key %v not found in map", wt)
+		}
+		valInt, ok := val[numRetriesOption].(int)
+		if !ok {
+			t.Errorf("Expected value of type int, got %T", m[wt])
+		}
+		assert.Equal(t, retryDefault, valInt)
+	}
+}
