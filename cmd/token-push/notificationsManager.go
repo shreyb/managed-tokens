@@ -65,10 +65,16 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 	serviceName := cmdUtils.GetServiceName(s)
 	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(serviceName)})
 
+	toEmails := viper.GetStringSlice("experiments." + s.Experiment() + ".emails")
+	if len(toEmails) == 0 {
+		exeLogger.WithField("service", serviceName).Warn("No emails found.  No notifications will be sent for this service")
+		return
+	}
+
 	timestamp := time.Now().Format(time.RFC822)
 	e := notifications.NewEmail(
 		viper.GetString("email.from"),
-		viper.GetStringSlice("experiments."+s.Experiment()+".emails"),
+		toEmails,
 		fmt.Sprintf("Managed Tokens Push Errors for %s - %s", serviceName, timestamp),
 		viper.GetString("email.smtphost"),
 		viper.GetInt("email.smtpport"),
@@ -152,15 +158,13 @@ func directNotificationsToManagers(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		default:
-			// Direct received notifications to appropriate registered notifications channel
+			// Direct received notifications to appropriate registered notifications channel, if it exists
 			if receiveChan, ok := serviceNotificationChanMap.Load(n.GetService()); ok {
 				if receiveChanVal, ok := receiveChan.(chan notifications.Notification); ok {
 					receiveChanVal <- n
 				} else {
 					exeLogger.Errorf("Registered service notification channel is of wrong type %T.  Expected chan notification.Notification", receiveChanVal)
 				}
-			} else {
-				exeLogger.Errorf("No notification channel exists for service %s", n.GetService())
 			}
 		}
 	}
