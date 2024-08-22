@@ -46,13 +46,12 @@ var (
 	globalScheddCache     scheddCache // Global cache for the schedds, sorted by collector host
 )
 
-// Functional options for initialization of service Config
-
-// GetCondorCollectorHostFromConfiguration gets the _condor_COLLECTOR_HOST environment variable from the Viper configuration
-func GetCondorCollectorHostFromConfiguration(checkServiceConfigPath string) string {
-	condorCollectorHostPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCollectorHost")
-	return viper.GetString(condorCollectorHostPath)
+func init() {
+	globalScheddCache.cache = make(map[string]*scheddCacheEntry)
+	globalScheddCache.mu = &sync.Mutex{}
 }
+
+// Functional options for initialization of service Config
 
 // GetUserPrincipalFromConfiguration gets the configured kerberos principal
 func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
@@ -160,16 +159,26 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 	}
 }
 
-// GetScheddsFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
-// by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd
-func GetScheddsFromConfiguration(ctx context.Context, checkServiceConfigPath string) ([]string, error) {
+// GetScheddsAndCollectorHostFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
+// by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd. It returns
+// the collector host used, and the list of schedds that were found.  If no valid collector host or schedds are found, an error is returned.
+func GetScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServiceConfigPath string) (string, []string, error) {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
 	ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration")
 	span.SetAttributes(attribute.KeyValue{Key: "checkServiceConfigPath", Value: attribute.StringValue(checkServiceConfigPath)})
 	defer span.End()
 
+	collectorHostString := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
+	if collectorHostString == "" {
+		msg := "no collector hosts found"
+		span.SetStatus(codes.Error, msg)
+		funcLogger.Error(msg)
+		return "", nil, errors.New(msg)
+	}
+	collectorHostEntries := strings.Split(collectorHostString, ",")
+
 	// 1. Try override
-	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that
+	// If condorCreddHostOverride is set either globally or at service level, set the schedd slice to that, and return first collector host
 	schedds, found := checkScheddsOverride(checkServiceConfigPath)
 	if found {
 		span.SetStatus(codes.Ok, "Schedds successfully retrieved from override")
@@ -177,51 +186,83 @@ func GetScheddsFromConfiguration(ctx context.Context, checkServiceConfigPath str
 			attribute.KeyValue{Key: "scheddInfoSource", Value: attribute.StringValue("override")},
 			attribute.KeyValue{Key: "schedds", Value: attribute.StringValue(strings.Join(schedds, ","))},
 		)
-		return schedds, nil
+		return collectorHostEntries[0], schedds, nil
 	}
 
-	// 2.  Try globalScheddCache
-	// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
-	scheddSourceForLog := "cache"
-	collectorHost := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
-	cacheEntry, _ := globalScheddCache.cache.LoadOrStore(
-		collectorHost,
-		&scheddCacheEntry{
-			newScheddCollection(),
-			&sync.Once{},
-		},
-	)
+	// Acquire our lock for the globalScheddCache at this point
+	globalScheddCache.mu.Lock()
+	defer globalScheddCache.mu.Unlock()
 
-	// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
-	// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
-	// This way we are guaranteed that the cache will always be populated.
-	var err error
-	cacheEntryVal, ok := cacheEntry.(*scheddCacheEntry)
-	if ok {
-		cacheEntryVal.once.Do(
+	// 2.  Try globalScheddCache
+	for _, collectorHostEntry := range collectorHostEntries {
+		// See if we already have created a cacheEntry in the globalScheddCache for the collectorHost
+		scheddSourceForLog := "cache"
+
+		var cacheEntry *scheddCacheEntry
+		cacheEntry, ok := globalScheddCache.cache[collectorHostEntry]
+		if !ok {
+			// New cache entry
+			cacheEntry = &scheddCacheEntry{
+				newScheddCollection(),
+				&sync.Once{},
+				nil,
+			}
+			globalScheddCache.cache[collectorHostEntry] = cacheEntry
+		}
+
+		// Now that we have our *scheddCacheEntry (either new or preexisting), if its *sync.Once has not been run, do so now to populate the entry.
+		// If the Once has already been run, it will wait until the first Once has completed before resuming execution.
+		// This way we are guaranteed that the cache will always be populated.
+		cacheEntry.once.Do(
 			func() {
 				// 3.  Query collector
 				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
+				ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration.queryCollAnonFunc")
+				span.SetAttributes(attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHostEntry)})
+				defer span.End()
+
 				scheddSourceForLog = "collector"
 				constraint := getConstraintFromConfiguration(checkServiceConfigPath)
-				err = cacheEntryVal.populateFromCollector(ctx, collectorHost, constraint)
+				cacheEntry.err = cacheEntry.populateFromCollector(ctx, collectorHostEntry, constraint)
+				if cacheEntry.err != nil {
+					span.SetStatus(codes.Error, "Could not populate schedd cache from collector")
+				}
 			},
 		)
-		if err != nil {
-			span.SetStatus(codes.Error, "Could not populate schedd cache from collector")
-			return nil, err
+		if cacheEntry.err != nil {
+			// Move to the next collectorHostEntry because we either couldn't populate a cacheEntry, or we already have an error
+			// from a previous attempt to populate it
+			if ok {
+				// We didn't try to query the collector because a previous attempt failed.  Indicate this in the log
+				funcLogger.WithField("collectorHost", collectorHostEntry).Debug("Previous attempt to query this collector failed.  Skipping.")
+			}
+			continue
 		}
+
+		// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
+		schedds = cacheEntry.scheddCollection.getSchedds()
+		funcLogger.WithFields(log.Fields{
+			"schedds":       schedds,
+			"collectorHost": collectorHostEntry,
+		}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
+		span.SetAttributes(attribute.KeyValue{Key: "scheddInfoSource", Value: attribute.StringValue(scheddSourceForLog)})
+		span.SetStatus(codes.Ok, "Schedds successfully retrieved")
+		return collectorHostEntry, schedds, nil
 	}
 
-	// Load schedds from cache, which we either just populated, or are only reading from; then return those schedds
-	schedds = cacheEntryVal.scheddCollection.getSchedds()
-	funcLogger.WithFields(log.Fields{
-		"schedds":       schedds,
-		"collectorHost": collectorHost,
-	}).Debugf("Set schedds successfully from %s", scheddSourceForLog)
-	span.SetAttributes(attribute.KeyValue{Key: "scheddInfoSource", Value: attribute.StringValue(scheddSourceForLog)})
-	span.SetStatus(codes.Ok, "Schedds successfully retrieved")
-	return schedds, nil
+	// All attempts to get schedds have failed
+	msg := "could not retrieve schedds from configured collectors"
+	span.SetStatus(codes.Error, msg)
+	return "", nil, errors.New(msg)
+}
+
+// GetCondorCollectorHostFromConfiguration gets the condor collector host from the Viper configuration which will be used to populate
+// the _condor_COLLECTOR_HOST environment variable.
+// It is preferred to use GetScheddsAndCollectorHostFromConfiguration to get the collector host, as it will also populate the schedd cache
+// and handle failovers
+func GetCondorCollectorHostFromConfiguration(checkServiceConfigPath string) string {
+	condorCollectorHostPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCollectorHost")
+	return viper.GetString(condorCollectorHostPath)
 }
 
 // checkScheddsOverride checks the global and service-level configurations for the condorCreddHost key.  If that key exists, the value

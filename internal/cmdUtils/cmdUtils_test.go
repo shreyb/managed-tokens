@@ -328,9 +328,18 @@ func TestGetKeytabOverrideFromConfiguration(t *testing.T) {
 	}
 }
 
+func TestGetScheddsAndColllectorHostFromConfigurationNoCollectors(t *testing.T) {
+	viper.Reset()
+	ctx := context.Background()
+	collector, schedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "")
+	assert.Equal(t, "", collector)
+	assert.Nil(t, schedds)
+	assert.ErrorContains(t, err, "no collector hosts found")
+}
+
 // TestGetScheddsFromConfigurationOverride only tests the override case, since GetScheddsFromConfiguration has a fallthrough that
 // relies on running in a condor cluster.  So here we just make sure that the override works right
-func TestGetScheddsFromConfigurationOverride(t *testing.T) {
+func TestGetScheddsAndColllectorHostFromConfigurationOverride(t *testing.T) {
 	type testCase struct {
 		description     string
 		setupTestFunc   func()
@@ -342,6 +351,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 		{
 			"Global override",
 			func() {
+				viper.Set("condorCollectorHost", "mycollectorhost")
 				viper.Set("condorCreddHost", "mycreddhost")
 			},
 			[]string{"mycreddhost"},
@@ -349,6 +359,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 		{
 			"Service-level override",
 			func() {
+				viper.Set("condorCollectorHost", "mycollectorhost")
 				viper.Set("condorCreddHost", "mycreddhost")
 				viper.Set(serviceConfigPath+".condorCreddHostOverride", "myservicecreddhost")
 			},
@@ -361,7 +372,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 			func(t *testing.T) {
 				ctx := context.Background()
 				test.setupTestFunc()
-				schedds, _ := GetScheddsFromConfiguration(ctx, serviceConfigPath)
+				_, schedds, _ := GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 				viper.Reset()
 
 				if !testUtils.SlicesHaveSameElementsOrdered[string](test.expectedSchedds, schedds) {
@@ -373,7 +384,7 @@ func TestGetScheddsFromConfigurationOverride(t *testing.T) {
 	}
 }
 
-func TestGetScheddsFromConfigurationCached(t *testing.T) {
+func TestGetScheddsAndCollectorHostFromConfigurationCached(t *testing.T) {
 	// setup
 	ctx := context.Background()
 	once := &sync.Once{}
@@ -385,19 +396,55 @@ func TestGetScheddsFromConfigurationCached(t *testing.T) {
 	cacheEntry := &scheddCacheEntry{
 		newScheddCollection(),
 		once,
+		nil,
 	}
 	cacheEntry.storeSchedds(schedds)
-	globalScheddCache.cache.Store(collectorHost, cacheEntry)
+
+	globalScheddCache.mu.Lock()
+	globalScheddCache.cache[collectorHost] = cacheEntry
+	globalScheddCache.mu.Unlock()
 
 	// test
-	result, err := GetScheddsFromConfiguration(ctx, "fakeservicepath")
+	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "fakeservicepath")
 	if err != nil {
 		t.Errorf("Expected nil error. Got %v", err)
 	}
-	if !slices.Equal(result, schedds) {
-		t.Errorf("Got wrong result.  Expected %v, got %v", schedds, result)
+	assert.Equal(t, collectorHost, resultCollector)
+	if !slices.Equal(resultSchedds, schedds) {
+		t.Errorf("Got wrong result.  Expected %v, got %v", schedds, resultSchedds)
 	}
+}
 
+func TestGetScheddsAndCollectorHostFromConfigurationFallback(t *testing.T) {
+	// setup
+	viper.Reset()
+	ctx := context.Background()
+
+	// We will put in a cached entry for myCollectorHost2.  Since myCollectorHost1 will fail, we should fall back to the cached entry for
+	// myCollectorHost2
+	collectorHost := "myCollectorHost1,myCollectorHost2"
+	viper.Set("condorCollectorHost", collectorHost)
+	defer viper.Reset()
+
+	once := &sync.Once{}
+	once.Do(func() {})
+
+	schedds := []string{"schedd1", "schedd2"}
+	cacheEntry := &scheddCacheEntry{
+		newScheddCollection(),
+		once,
+		nil,
+	}
+	cacheEntry.storeSchedds(schedds)
+	globalScheddCache.mu.Lock()
+	globalScheddCache.cache["myCollectorHost2"] = cacheEntry
+	globalScheddCache.mu.Unlock()
+
+	// test
+	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "")
+	assert.Nil(t, err)
+	assert.Equal(t, "myCollectorHost2", resultCollector)
+	assert.Equal(t, schedds, resultSchedds)
 }
 
 func TestGetVaultServer(t *testing.T) {

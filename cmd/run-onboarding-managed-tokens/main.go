@@ -84,6 +84,7 @@ func setup() error {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
 		return err
 	}
+	initEnvironment()
 
 	devEnvironmentLabel = getDevEnvironmentLabel()
 
@@ -158,6 +159,13 @@ func initConfig() error {
 		return err
 	}
 	return nil
+}
+
+// Environment variables to read into Viper config
+// Note: In keeping with best practices, these can be overridden by command line flags or direct
+// in-code overrides.  This only sets the initial state of the given viper keys.
+func initEnvironment() {
+	viper.BindEnv("collectorHost", environment.CondorCollectorHost.EnvVarKey())
 }
 
 func initServices() error {
@@ -371,12 +379,12 @@ func run(ctx context.Context) error {
 		tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server.  Exiting")
 		return err
 	}
-	schedds, err := cmdUtils.GetScheddsFromConfiguration(ctx, serviceConfigPath)
+	collectorHost, schedds, err := cmdUtils.GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 	if err != nil {
 		tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds.  Exiting")
 		return err
 	}
-	collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
+
 	keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 	serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
 	serviceConfig, err = worker.NewConfig(

@@ -217,6 +217,13 @@ func disableNotifyFlagWorkaround() {
 	}
 }
 
+// Environment variables to read into Viper config
+// Note: In keeping with best practices, these can be overridden by command line flags or direct
+// in-code overrides.  This only sets the initial state of the given viper keys.
+func initEnvironment() {
+	viper.BindEnv("collectorHost", environment.CondorCollectorHost.EnvVarKey())
+}
+
 // Set up logs
 func initLogs() {
 	log.SetLevel(log.DebugLevel)
@@ -593,7 +600,7 @@ func run(ctx context.Context) error {
 		go func(s service.Service) {
 			funcLogger := exeLogger.WithFields(log.Fields{
 				"caller":  "token-push.run",
-				"service": s.Name(),
+				"service": cmdUtils.GetServiceName(s),
 			})
 
 			// Setup the configs
@@ -631,7 +638,7 @@ func run(ctx context.Context) error {
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-			schedds, err := cmdUtils.GetScheddsFromConfiguration(ctx, serviceConfigPath)
+			collectorHost, schedds, err := cmdUtils.GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
 				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
@@ -639,7 +646,6 @@ func run(ctx context.Context) error {
 			}
 
 			// Service-level configuration items that can be defined either in configuration file or on system/environment or have library defaults
-			collectorHost := cmdUtils.GetCondorCollectorHostFromConfiguration(serviceConfigPath)
 			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
 			serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
