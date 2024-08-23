@@ -23,7 +23,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -492,7 +491,7 @@ func run(ctx context.Context) error {
 		span.AddEvent("Start FERRY data collection")
 		ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "get-ferry-data_anonFunc")
 		defer span.End()
-		var ferryDataWg sync.WaitGroup // WaitGroup to make sure we don't close ferryDataChan before all data is sent
+		ferryDataErrGroup := new(errgroup.Group) // errgroup.Group to make sure we finish all collection of FERRY data before closing the FERRY data channel
 		defer close(ferryDataChan)
 
 		var ferryContext context.Context
@@ -501,16 +500,14 @@ func run(ctx context.Context) error {
 		} else {
 			ferryContext = ctx
 		}
-		// For each username, query FERRY for UID info
-		ferryDataErrGroup := new(errgroup.Group)
 
+		// For each username, query FERRY for UID info
 		// Note: In Go 1.22, the weird behavior of closures running as goroutines was fixed, so that's reflected here.  See https://go.dev/doc/faq#closures_and_goroutines
 		for _, username := range usernames {
 			ferryDataErrGroup.Go(func() error {
 				usernameCtx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ferryContext, "get-ferry-data-per-username_anonFunc")
 				span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 				defer span.End()
-				defer ferryDataWg.Done()
 				return getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan) // TODO Will have to look inside this func and disable sending if we don't want notifications
 			})
 		}
