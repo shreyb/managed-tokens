@@ -403,11 +403,15 @@ func run(ctx context.Context) error {
 	span.AddEvent("Opened ManagedTokensDatabase")
 
 	// Send admin notifications at end of run
-	// Channel to send admin notifications on.  We need it here so we can close it at the end of the run
-	var aReceiveChan chan<- notifications.SourceNotification
+	// Note:  We don't actually need the values of admNotMgr and adminNotifications beyond the next if-clause.  However, we will need
+	// the value of aReceiveChan, and since setupAdminNotifications returns all three, we want to initialize all three, so they can possibly
+	// be overridden in the next if-clause.  If they are not overridden, they will all stay nil, which is fine.
+	var admNotMgr *notifications.AdminNotificationManager
+	var aReceiveChan chan<- notifications.SourceNotification // Channel to send admin notifications on.  We need it here so we can close it at the end of the run
+	var adminNotifications []notifications.SendMessager
 
 	if !viper.GetBool("disableNotifications") {
-		admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, database)
+		admNotMgr, aReceiveChan, adminNotifications = setupAdminNotifications(ctx, database)
 
 		defer func() {
 			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
@@ -494,11 +498,9 @@ func run(ctx context.Context) error {
 		ferryDataErrGroup := new(errgroup.Group) // errgroup.Group to make sure we finish all collection of FERRY data before closing the FERRY data channel
 		defer close(ferryDataChan)
 
-		var ferryContext context.Context
+		ferryContext := ctx
 		if timeout, ok := timeouts["ferryrequest"]; ok {
 			ferryContext = utils.ContextWithOverrideTimeout(ctx, timeout)
-		} else {
-			ferryContext = ctx
 		}
 
 		// For each username, query FERRY for UID info
@@ -514,9 +516,12 @@ func run(ctx context.Context) error {
 		// Don't close data channel until all workers have put their data in
 		if err := ferryDataErrGroup.Wait(); err != nil {
 			// It's OK if we have an error - just log it and move on so we can work with what data did come back
-			exeLogger.Error("Error getting FERRY data for one of the usernames.  Please investigate")
+			msg := "Error getting FERRY data for one of the usernames.  Please investigate"
+			tracing.LogErrorWithTrace(span, exeLogger, msg)
+			if !viper.GetBool("disableNotifications") {
+				sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			}
 		}
-
 	}()
 
 	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
