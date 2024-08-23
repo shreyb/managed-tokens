@@ -168,7 +168,6 @@ func disableNotifyFlagWorkaround() {
 		viper.Set("disableNotifications", true)
 		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
 	}
-	exeLogger.Debug("Notifications disabled by " + notificationsDisabledBy.String())
 }
 
 func initConfig() error {
@@ -362,6 +361,10 @@ func run(ctx context.Context) error {
 		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
 	}
 	defer span.End()
+
+	if viper.GetBool("disableNotifications") {
+		exeLogger.Debugf("Notifications disabled by %s", notificationsDisabledBy.String())
+	}
 
 	var dbLocation string
 	// Open connection to the SQLite database where UID info will be stored
