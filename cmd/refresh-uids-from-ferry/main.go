@@ -510,7 +510,7 @@ func run(ctx context.Context) error {
 				usernameCtx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ferryContext, "get-ferry-data-per-username_anonFunc")
 				span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 				defer span.End()
-				return getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan) // TODO Will have to look inside this func and disable sending if we don't want notifications
+				return getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan)
 			})
 		}
 		// Don't close data channel until all workers have put their data in
