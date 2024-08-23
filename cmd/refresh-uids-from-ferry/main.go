@@ -42,6 +42,7 @@ import (
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
@@ -167,6 +168,7 @@ func disableNotifyFlagWorkaround() {
 		viper.Set("disableNotifications", true)
 		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
 	}
+	exeLogger.Debug("Notifications disabled by " + notificationsDisabledBy.String())
 }
 
 func initConfig() error {
@@ -355,11 +357,6 @@ func run(ctx context.Context) error {
 	// 6. Verify that INSERTed data matches response data from FERRY
 	// 7. Push metrics and send necessary notifications
 
-	// We need to pass the pointer in here since we need to pick up the
-	// changes made to adminNotifications, as explained here:
-	// https://stackoverflow.com/a/52070387
-	// and mocked out here:
-	// https://go.dev/play/p/rww0ORt94pU
 	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "refresh-uids-from-ferry")
 	if viper.GetBool("test") {
 		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
@@ -381,15 +378,22 @@ func run(ctx context.Context) error {
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
-		admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, nil)
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
-		close(aReceiveChan)
+		if !viper.GetBool("disableNotifications") {
+			admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, nil)
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			close(aReceiveChan)
 
-		if err2 := sendAdminNotifications(ctx, admNotMgr, &adminNotifications); err2 != nil {
-			msg := "error sending admin notifications"
-			tracing.LogErrorWithTrace(span, exeLogger, msg)
-			err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
-			return err
+			// We need to pass the pointer in here since we need to pick up the
+			// changes made to adminNotifications, as explained here:
+			// https://stackoverflow.com/a/52070387
+			// and mocked out here:
+			// https://go.dev/play/p/rww0ORt94pU
+			if err2 := sendAdminNotifications(ctx, admNotMgr, &adminNotifications); err2 != nil {
+				msg := "error sending admin notifications"
+				tracing.LogErrorWithTrace(span, exeLogger, msg)
+				err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
+				return err
+			}
 		}
 		return fmt.Errorf("%s: %w", msg, err)
 	}
@@ -397,7 +401,18 @@ func run(ctx context.Context) error {
 	span.AddEvent("Opened ManagedTokensDatabase")
 
 	// Send admin notifications at end of run
-	admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, database)
+	// Channel to send admin notifications on.  We need it here so we can close it at the end of the run
+	var aReceiveChan chan<- notifications.SourceNotification
+
+	if !viper.GetBool("disableNotifications") {
+		admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, database)
+
+		defer func() {
+			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+			close(aReceiveChan)
+			sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
+		}()
+	}
 
 	// Send metrics anytime run() returns
 	defer func() {
@@ -405,13 +420,10 @@ func run(ctx context.Context) error {
 			if err := metrics.PushToPrometheus(viper.GetString("prometheus.host"), getPrometheusJobName()); err != nil {
 				// Non-essential - don't halt execution here
 				exeLogger.Error("Could not push metrics to prometheus pushgateway")
-			} else {
-				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
+				return
 			}
+			exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 		}
-		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-		close(aReceiveChan)
-		sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 	}()
 
 	// Setup complete
@@ -452,7 +464,9 @@ func run(ctx context.Context) error {
 		sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 		if err != nil {
 			msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			if !viper.GetBool("disableNotifications") {
+				sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			}
 			exeLogger.Error(msg)
 			os.Exit(1)
 		}
@@ -512,7 +526,9 @@ func run(ctx context.Context) error {
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
 		msg := "no data collected from FERRY"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg+". Exiting")
 		return errors.New(msg)
 	}
@@ -542,7 +558,9 @@ func run(ctx context.Context) error {
 	}
 	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
@@ -553,14 +571,18 @@ func run(ctx context.Context) error {
 	dbData, err := database.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
 		msg := "verification of INSERT failed.  Please check the logs"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return errors.New(msg)
 	}
