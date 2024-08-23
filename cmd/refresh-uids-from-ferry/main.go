@@ -518,9 +518,6 @@ func run(ctx context.Context) error {
 			// It's OK if we have an error - just log it and move on so we can work with what data did come back
 			msg := "Error getting FERRY data for one of the usernames.  Please investigate"
 			tracing.LogErrorWithTrace(span, exeLogger, msg)
-			if !viper.GetBool("disableNotifications") {
-				sendSetupErrorToAdminMgr(aReceiveChan, msg)
-			}
 		}
 	}()
 
