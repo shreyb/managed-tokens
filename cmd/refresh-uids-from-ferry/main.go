@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rifflock/lfshook"
 	log "github.com/sirupsen/logrus"
@@ -483,18 +485,24 @@ func run(ctx context.Context) error {
 			ferryContext = ctx
 		}
 		// For each username, query FERRY for UID info
-		for _, username := range usernames {
-			ferryDataWg.Add(1)
+		ferryDataErrGroup := new(errgroup.Group)
 
-			go func(username string) {
+		// Note: In Go 1.22, the weird behavior of closures running as goroutines was fixed, so that's reflected here.  See https://go.dev/doc/faq#closures_and_goroutines
+		for _, username := range usernames {
+			ferryDataErrGroup.Go(func() error {
 				usernameCtx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ferryContext, "get-ferry-data-per-username_anonFunc")
 				span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 				defer span.End()
 				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan)
-			}(username)
+				return getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan) // TODO Will have to look inside this func and disable sending if we don't want notifications
+			})
 		}
-		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
+		// Don't close data channel until all workers have put their data in
+		if err := ferryDataErrGroup.Wait(); err != nil {
+			// It's OK if we have an error - just log it and move on so we can work with what data did come back
+			exeLogger.Error("Error getting FERRY data for one of the usernames.  Please investigate")
+		}
+
 	}()
 
 	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
