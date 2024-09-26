@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -253,16 +254,23 @@ func checkFerryDataInDB(ferryData, dbData []db.FerryUIDDatum) bool {
 // authFunc.  It spins up a worker to get data from FERRY, and then puts that data into
 // a channel for aggregation.
 func getAndAggregateFERRYData(ctx context.Context, username string, authFunc func() func(context.Context, string, string) (*http.Response, error),
-	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan<- notifications.SourceNotification) {
+	ferryDataChan chan<- db.FerryUIDDatum, notificationsChan chan<- notifications.SourceNotification) error {
 	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "getAndAggregateFERRYData")
 	span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 	defer span.End()
 
-	var ferryRequestContext context.Context
+	if ferryDataChan == nil {
+		msg := "channel to send FERRY data to is nil"
+		log.WithField("username", username).Error(msg)
+		if notificationsChan != nil {
+			sendSetupErrorToAdminMgr(notificationsChan, msg+" for user "+username)
+		}
+		return errors.New(msg)
+	}
+
+	ferryRequestContext := ctx
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
 		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)
-	} else {
-		ferryRequestContext = ctx
 	}
 
 	entry, err := worker.GetFERRYUIDData(
@@ -276,10 +284,14 @@ func getAndAggregateFERRYData(ctx context.Context, username string, authFunc fun
 	if err != nil {
 		msg := "Could not get FERRY UID data"
 		log.WithField("username", username).Error(msg)
-		sendSetupErrorToAdminMgr(notificationsChan, msg+" for user "+username)
-	} else {
-		ferryDataChan <- entry
+		if notificationsChan != nil {
+			sendSetupErrorToAdminMgr(notificationsChan, msg+" for user "+username)
+		}
+		return err
 	}
+
+	ferryDataChan <- entry
+	return nil
 }
 
 // This space is for other auxiliary functions

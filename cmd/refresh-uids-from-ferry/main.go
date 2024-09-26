@@ -23,8 +23,9 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rifflock/lfshook"
@@ -36,18 +37,21 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
+	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var (
-	currentExecutable string
-	buildTimestamp    string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
-	version           string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
-	exeLogger         *log.Entry
+	currentExecutable       string
+	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
+	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
+	exeLogger               *log.Entry
+	notificationsDisabledBy cmdUtils.DisableNotificationsOption = cmdUtils.DISABLED_BY_CONFIGURATION
 )
 
 var devEnvironmentLabel string
@@ -115,6 +119,10 @@ func setup() error {
 		return err
 	}
 
+	// TODO Remove this after bug detailed in initFlags() is fixed upstream
+	disableNotifyFlagWorkaround()
+	// END TODO
+
 	devEnvironmentLabel = getDevEnvironmentLabel()
 
 	initLogs()
@@ -134,15 +142,31 @@ func initFlags() {
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
 	// Flags
-	pflag.StringP("configfile", "c", "", "Specify alternate config file")
-	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
-	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.String("admin", "", "Override the config file admin email")
 	pflag.String("authmethod", "tls", "Choose method for authentication to FERRY.  Currently-supported choices are \"tls\" and \"jwt\"")
+	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.Bool("disable-notifications", false, "Do not send admin notifications")
+	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
+	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+
+	// Aliases
+	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
+	//  viper.RegisterAlias("dont-notify", "disableNotifications")
+	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
+	// Instead, we have to work around this after we read in the config file (see setup())
+}
+
+// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
+func disableNotifyFlagWorkaround() {
+	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
+	}
 }
 
 func initConfig() error {
@@ -331,16 +355,15 @@ func run(ctx context.Context) error {
 	// 6. Verify that INSERTed data matches response data from FERRY
 	// 7. Push metrics and send necessary notifications
 
-	// We need to pass the pointer in here since we need to pick up the
-	// changes made to adminNotifications, as explained here:
-	// https://stackoverflow.com/a/52070387
-	// and mocked out here:
-	// https://go.dev/play/p/rww0ORt94pU
 	ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "refresh-uids-from-ferry")
 	if viper.GetBool("test") {
 		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
 	}
 	defer span.End()
+
+	if viper.GetBool("disableNotifications") {
+		exeLogger.Debugf("Notifications disabled by %s", notificationsDisabledBy.String())
+	}
 
 	var dbLocation string
 	// Open connection to the SQLite database where UID info will be stored
@@ -357,15 +380,22 @@ func run(ctx context.Context) error {
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
-		admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, nil)
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
-		close(aReceiveChan)
+		if !viper.GetBool("disableNotifications") {
+			admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, nil)
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			close(aReceiveChan)
 
-		if err2 := sendAdminNotifications(ctx, admNotMgr, &adminNotifications); err2 != nil {
-			msg := "error sending admin notifications"
-			tracing.LogErrorWithTrace(span, exeLogger, msg)
-			err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
-			return err
+			// We need to pass the pointer in here since we need to pick up the
+			// changes made to adminNotifications, as explained here:
+			// https://stackoverflow.com/a/52070387
+			// and mocked out here:
+			// https://go.dev/play/p/rww0ORt94pU
+			if err2 := sendAdminNotifications(ctx, admNotMgr, &adminNotifications); err2 != nil {
+				msg := "error sending admin notifications"
+				tracing.LogErrorWithTrace(span, exeLogger, msg)
+				err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
+				return err
+			}
 		}
 		return fmt.Errorf("%s: %w", msg, err)
 	}
@@ -373,7 +403,22 @@ func run(ctx context.Context) error {
 	span.AddEvent("Opened ManagedTokensDatabase")
 
 	// Send admin notifications at end of run
-	admNotMgr, aReceiveChan, adminNotifications := setupAdminNotifications(ctx, database)
+	// Note:  We don't actually need the values of admNotMgr and adminNotifications beyond the next if-clause.  However, we will need
+	// the value of aReceiveChan, and since setupAdminNotifications returns all three, we want to initialize all three, so they can possibly
+	// be overridden in the next if-clause.  If they are not overridden, they will all stay nil, which is fine.
+	var admNotMgr *notifications.AdminNotificationManager
+	var aReceiveChan chan<- notifications.SourceNotification // Channel to send admin notifications on.  We need it here so we can close it at the end of the run
+	var adminNotifications []notifications.SendMessager
+
+	if !viper.GetBool("disableNotifications") {
+		admNotMgr, aReceiveChan, adminNotifications = setupAdminNotifications(ctx, database)
+
+		defer func() {
+			// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+			close(aReceiveChan)
+			sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
+		}()
+	}
 
 	// Send metrics anytime run() returns
 	defer func() {
@@ -381,13 +426,10 @@ func run(ctx context.Context) error {
 			if err := metrics.PushToPrometheus(viper.GetString("prometheus.host"), getPrometheusJobName()); err != nil {
 				// Non-essential - don't halt execution here
 				exeLogger.Error("Could not push metrics to prometheus pushgateway")
-			} else {
-				exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
+				return
 			}
+			exeLogger.Info("Finished pushing metrics to prometheus pushgateway")
 		}
-		// We don't check the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
-		close(aReceiveChan)
-		sendAdminNotifications(ctx, admNotMgr, &adminNotifications)
 	}()
 
 	// Setup complete
@@ -428,7 +470,9 @@ func run(ctx context.Context) error {
 		sc, err := newFERRYServiceConfigWithKerberosAuth(ctx)
 		if err != nil {
 			msg := "Could not create service config to authenticate to FERRY with a JWT. Exiting"
-			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			if !viper.GetBool("disableNotifications") {
+				sendSetupErrorToAdminMgr(aReceiveChan, msg)
+			}
 			exeLogger.Error(msg)
 			os.Exit(1)
 		}
@@ -451,28 +495,30 @@ func run(ctx context.Context) error {
 		span.AddEvent("Start FERRY data collection")
 		ctx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ctx, "get-ferry-data_anonFunc")
 		defer span.End()
-		var ferryDataWg sync.WaitGroup // WaitGroup to make sure we don't close ferryDataChan before all data is sent
+		ferryDataErrGroup := new(errgroup.Group) // errgroup.Group to make sure we finish all collection of FERRY data before closing the FERRY data channel
 		defer close(ferryDataChan)
 
-		var ferryContext context.Context
+		ferryContext := ctx
 		if timeout, ok := timeouts["ferryrequest"]; ok {
 			ferryContext = utils.ContextWithOverrideTimeout(ctx, timeout)
-		} else {
-			ferryContext = ctx
 		}
-		// For each username, query FERRY for UID info
-		for _, username := range usernames {
-			ferryDataWg.Add(1)
 
-			go func(username string) {
+		// For each username, query FERRY for UID info
+		// Note: In Go 1.22, the weird behavior of closures running as goroutines was fixed, so that's reflected here.  See https://go.dev/doc/faq#closures_and_goroutines
+		for _, username := range usernames {
+			ferryDataErrGroup.Go(func() error {
 				usernameCtx, span := otel.GetTracerProvider().Tracer("refresh-uids-from-ferry").Start(ferryContext, "get-ferry-data-per-username_anonFunc")
 				span.SetAttributes(attribute.KeyValue{Key: "username", Value: attribute.StringValue(username)})
 				defer span.End()
-				defer ferryDataWg.Done()
-				getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan)
-			}(username)
+				return getAndAggregateFERRYData(usernameCtx, username, authFunc, ferryDataChan, aReceiveChan)
+			})
 		}
-		ferryDataWg.Wait() // Don't close data channel until all workers have put their data in
+		// Don't close data channel until all workers have put their data in
+		if err := ferryDataErrGroup.Wait(); err != nil {
+			// It's OK if we have an error - just log it and move on so we can work with what data did come back
+			msg := "Error getting FERRY data for one of the usernames.  Please investigate"
+			tracing.LogErrorWithTrace(span, exeLogger, msg)
+		}
 	}()
 
 	<-aggFERRYDataDone // Wait until FERRY data aggregation is done before we insert anything into DB
@@ -482,7 +528,9 @@ func run(ctx context.Context) error {
 	// If we got no data, that's a bad thing, since we always expect to be able to
 	if len(ferryData) == 0 {
 		msg := "no data collected from FERRY"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg+". Exiting")
 		return errors.New(msg)
 	}
@@ -512,7 +560,9 @@ func run(ctx context.Context) error {
 	}
 	if err := database.InsertUidsIntoTableFromFERRY(dbContext, ferryData); err != nil {
 		msg := "Could not insert FERRY data into database"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
@@ -523,14 +573,18 @@ func run(ctx context.Context) error {
 	dbData, err := database.ConfirmUIDsInTable(ctx)
 	if err != nil {
 		msg := "Error running verification of INSERT"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return err
 	}
 
 	if !checkFerryDataInDB(ferryData, dbData) {
 		msg := "verification of INSERT failed.  Please check the logs"
-		sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		if !viper.GetBool("disableNotifications") {
+			sendSetupErrorToAdminMgr(aReceiveChan, msg)
+		}
 		tracing.LogErrorWithTrace(span, exeLogger, msg)
 		return errors.New(msg)
 	}
