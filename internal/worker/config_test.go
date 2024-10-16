@@ -141,7 +141,7 @@ func TestRegisterUnpingableNode(t *testing.T) {
 			return true
 		})
 
-		if !testUtils.SlicesHaveSameElementsOrdered[string](test.expectedNodes, finalNodes) {
+		if !testUtils.SlicesHaveSameElementsOrderedType[string](test.expectedNodes, finalNodes) {
 			t.Errorf("Expected registered unpingable nodes is different than results.  Expected %v, got %v", test.expectedNodes, finalNodes)
 		}
 	}

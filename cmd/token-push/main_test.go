@@ -126,7 +126,7 @@ func TestInitServices(t *testing.T) {
 				for _, s := range services {
 					results = append(results, s.Name())
 				}
-				if !testUtils.SlicesHaveSameElementsOrdered[string](results, test.expectedServiceNames) {
+				if !testUtils.SlicesHaveSameElementsOrderedType[string](results, test.expectedServiceNames) {
 					t.Errorf("Didn't get expected service names from initServices.  Expected %v, got %v.", test.expectedServiceNames, results)
 				}
 			},

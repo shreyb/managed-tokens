@@ -66,7 +66,7 @@ func TestGetAllAccountsFromConfig(t *testing.T) {
 	// Assert the expected results
 	expected := []string{"account1", "account2", "account3"}
 	assert.Equal(t, len(expected), len(accounts))
-	assert.True(t, testUtils.SlicesHaveSameElementsOrdered(accounts, expected))
+	assert.True(t, testUtils.SlicesHaveSameElementsOrderedType(accounts, expected))
 }
 
 func TestGetDevEnvironmentLabel(t *testing.T) {

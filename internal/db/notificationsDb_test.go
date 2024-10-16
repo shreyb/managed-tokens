@@ -73,7 +73,7 @@ func TestGetAllServices(t *testing.T) {
 				if err != nil {
 					t.Errorf("Failure to obtain services for test %s: %s", test.description, err)
 				}
-				if !testUtils.SlicesHaveSameElementsOrdered[string](services, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrderedType[string](services, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, services)
 				}
 			},
@@ -124,7 +124,7 @@ func TestGetAllNodes(t *testing.T) {
 				if err != nil {
 					t.Errorf("Failure to obtain nodes for test %s: %s", test.description, err)
 				}
-				if !testUtils.SlicesHaveSameElementsOrdered[string](nodes, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrderedType[string](nodes, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, nodes)
 				}
 			},
@@ -194,7 +194,7 @@ func TestGetNamedDimensionStringValues(t *testing.T) {
 				if !errors.Is(err, test.expectedErr) {
 					t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
 				}
-				if err == nil && !testUtils.SlicesHaveSameElementsOrdered[string](data, test.expectedData) {
+				if err == nil && !testUtils.SlicesHaveSameElementsOrderedType[string](data, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
 				}
 			},
@@ -660,7 +660,7 @@ func TestUpdateServices(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, datum)
 				}
-				if !testUtils.SlicesHaveSameElementsOrdered[string](retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrderedType[string](retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},
@@ -744,7 +744,7 @@ func TestUpdateNodes(t *testing.T) {
 					}
 					retrievedData = append(retrievedData, datum)
 				}
-				if !testUtils.SlicesHaveSameElementsOrdered[string](retrievedData, test.expectedData) {
+				if !testUtils.SlicesHaveSameElementsOrderedType[string](retrievedData, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, retrievedData)
 				}
 			},

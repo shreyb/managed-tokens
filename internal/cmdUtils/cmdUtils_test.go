@@ -375,7 +375,7 @@ func TestGetScheddsAndColllectorHostFromConfigurationOverride(t *testing.T) {
 				_, schedds, _ := GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 				viper.Reset()
 
-				if !testUtils.SlicesHaveSameElementsOrdered[string](test.expectedSchedds, schedds) {
+				if !testUtils.SlicesHaveSameElementsOrderedType[string](test.expectedSchedds, schedds) {
 					t.Errorf("Returned schedd slices are not the same.  Expected %v, got %v", test.expectedSchedds, schedds)
 
 				}

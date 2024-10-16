@@ -53,7 +53,7 @@ func SlicesHaveSameElements[C comparable](a, b []C) bool {
 // SlicesHaveSameElements compares two slices of comparable and cmp.Ordered type to make
 // sure that they have the same elements.  The ordering of those elements does not matter.
 // This is just a quicker way to test equality of the elements of slices if the types allow.
-func SlicesHaveSameElementsOrdered[C interface {
+func SlicesHaveSameElementsOrderedType[C interface {
 	comparable
 	cmp.Ordered
 }](a, b []C) bool {
