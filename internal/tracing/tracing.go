@@ -7,17 +7,17 @@ import (
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// JaegerTraceProvider returns a new instance of sdktrace.TracerProvider configured with Jaeger exporter, along with its shutdown function.
-// The provided URL is used as the collector endpoint for sending traces.
-func JaegerTraceProvider(url, deploymentEnvironmentKey string) (*sdktrace.TracerProvider, func(context.Context), error) {
-	exp, err := jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
+// NewOTLPTraceProvider returns a new instance of sdktrace.TracerProvider configured with an OTLP trace HTTP exporter,
+// along with its shutdown function. The provided URL is used as the collector endpoint for sending traces.
+func NewOTLPHTTPTraceProvider(ctx context.Context, endpoint, deploymentEnvironmentKey string) (*sdktrace.TracerProvider, func(context.Context), error) {
+	exp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,11 +41,7 @@ type KeyValueForLog struct {
 // LogErrorWithTrace logs an error message modifies the passed in trace span.
 // It sets the status of the span to an error, records the error, and logs the error message using the provided logger.
 func LogErrorWithTrace(span trace.Span, logger *log.Entry, msg string, keyValues ...KeyValueForLog) {
-	for _, keyvalue := range keyValues {
-		span.SetAttributes(attribute.KeyValue{Key: attribute.Key(keyvalue.Key), Value: attribute.StringValue(keyvalue.Value)})
-		logger = logger.WithField(keyvalue.Key, keyvalue.Value)
-	}
-
+	span, logger = assembleSpanAndLogger(span, logger, keyValues...)
 	err := errors.New(msg)
 	span.SetStatus(codes.Error, msg)
 	span.RecordError(err)
@@ -54,11 +50,15 @@ func LogErrorWithTrace(span trace.Span, logger *log.Entry, msg string, keyValues
 
 // LogSuccessWithTrace logs a success message with the passed in logger and sets the passed-in span's status to OK
 func LogSuccessWithTrace(span trace.Span, logger *log.Entry, msg string, keyValues ...KeyValueForLog) {
-	for _, keyvalue := range keyValues {
-		span.SetAttributes(attribute.KeyValue{Key: attribute.Key(keyvalue.Key), Value: attribute.StringValue(keyvalue.Value)})
-		logger = logger.WithField(keyvalue.Key, keyvalue.Value)
-	}
-
+	span, logger = assembleSpanAndLogger(span, logger, keyValues...)
 	span.SetStatus(codes.Ok, msg)
 	logger.Info(msg)
+}
+
+func assembleSpanAndLogger(span trace.Span, logger *log.Entry, keyValues ...KeyValueForLog) (trace.Span, *log.Entry) {
+	for _, keyValue := range keyValues {
+		span.SetAttributes(attribute.KeyValue{Key: attribute.Key(keyValue.Key), Value: attribute.StringValue(keyValue.Value)})
+		logger = logger.WithField(keyValue.Key, keyValue.Value)
+	}
+	return span, logger
 }
