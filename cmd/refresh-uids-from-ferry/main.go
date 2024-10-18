@@ -298,14 +298,14 @@ func initMetrics() error {
 
 // initTracing initializes the tracing configuration and returns a function to shutdown the
 // initialized TracerProvider and an error, if any.
-func initTracing() (func(context.Context), error) {
-	url := viper.GetString("tracing.url")
-	if url == "" {
-		msg := "no tracing URL configured.  Continuing without tracing"
+func initTracing(ctx context.Context) (func(context.Context), error) {
+	endpoint := viper.GetString("tracing.endpoint")
+	if endpoint == "" {
+		msg := "no tracing endpoint configured.  Continuing without tracing"
 		exeLogger.Error(msg)
 		return nil, errors.New(msg)
 	}
-	tp, shutdown, err := tracing.JaegerTraceProvider(url, devEnvironmentLabel)
+	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, endpoint, devEnvironmentLabel)
 	if err != nil {
 		exeLogger.Error("could not obtain a TraceProvider.  Continuing without tracing")
 		return nil, err
@@ -334,7 +334,7 @@ func main() {
 	defer cancel()
 
 	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
-	if tracingShutdown, err := initTracing(); err == nil {
+	if tracingShutdown, err := initTracing(ctx); err == nil {
 		defer tracingShutdown(ctx)
 	}
 

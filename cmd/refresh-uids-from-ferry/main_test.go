@@ -16,6 +16,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path"
 	"reflect"
@@ -204,18 +205,21 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 }
 
 func TestInitTracing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
 	// Test case 1: Tracing URL is not configured
 	t.Run("Tracing URL not configured", func(t *testing.T) {
-		viper.Set("tracing.url", "")
-		shutdown, err := initTracing()
+		viper.Set("tracing.endpoint", "")
+		shutdown, err := initTracing(ctx)
 		assert.Error(t, err)
 		assert.Nil(t, shutdown)
 	})
 
 	// Test case 2: Tracing URL is configured
 	t.Run("Tracing URL configured", func(t *testing.T) {
-		viper.Set("tracing.url", "http://example.com")
-		shutdown, err := initTracing()
+		viper.Set("tracing.endpoint", "http://example.com")
+		shutdown, err := initTracing(ctx)
 		assert.NoError(t, err)
 		assert.NotNil(t, shutdown)
 	})

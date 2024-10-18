@@ -72,7 +72,7 @@ loki:
 
 # Tracing settings
 tracing:
-  url: hostname.domain # Required for tracing use
+  endpoint: scheme://hostname.domain # Required for tracing use
 
 # Notifications
 notifications:
