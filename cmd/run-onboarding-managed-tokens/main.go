@@ -271,13 +271,13 @@ func initTimeouts() error {
 // initTracing initializes the tracing configuration and returns a function to shutdown the
 // initialized TracerProvider and an error, if any.
 func initTracing(ctx context.Context) (func(context.Context), error) {
-	endpoint := viper.GetString("tracing.endpoint")
-	if endpoint == "" {
-		msg := "no tracing endpoint configured.  Continuing without tracing"
+	url := viper.GetString("tracing.url")
+	if url == "" {
+		msg := "no tracing url configured.  Continuing without tracing"
 		exeLogger.Error(msg)
 		return nil, errors.New(msg)
 	}
-	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, endpoint, devEnvironmentLabel)
+	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, url, devEnvironmentLabel)
 	if err != nil {
 		exeLogger.Error("Could not obtain a TraceProvider.  Continuing without tracing")
 		return nil, err

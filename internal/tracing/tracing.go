@@ -16,8 +16,8 @@ import (
 
 // NewOTLPTraceProvider returns a new instance of sdktrace.TracerProvider configured with an OTLP trace HTTP exporter,
 // along with its shutdown function. The provided URL is used as the collector endpoint for sending traces.
-func NewOTLPHTTPTraceProvider(ctx context.Context, endpoint, deploymentEnvironmentKey string) (*sdktrace.TracerProvider, func(context.Context), error) {
-	exp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
+func NewOTLPHTTPTraceProvider(ctx context.Context, endpointURL, deploymentEnvironmentKey string) (*sdktrace.TracerProvider, func(context.Context), error) {
+	exp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpointURL))
 	if err != nil {
 		return nil, nil, err
 	}

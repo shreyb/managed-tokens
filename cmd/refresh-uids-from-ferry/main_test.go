@@ -210,7 +210,7 @@ func TestInitTracing(t *testing.T) {
 
 	// Test case 1: Tracing URL is not configured
 	t.Run("Tracing URL not configured", func(t *testing.T) {
-		viper.Set("tracing.endpoint", "")
+		viper.Set("tracing.url", "")
 		shutdown, err := initTracing(ctx)
 		assert.Error(t, err)
 		assert.Nil(t, shutdown)
@@ -218,7 +218,7 @@ func TestInitTracing(t *testing.T) {
 
 	// Test case 2: Tracing URL is configured
 	t.Run("Tracing URL configured", func(t *testing.T) {
-		viper.Set("tracing.endpoint", "http://example.com")
+		viper.Set("tracing.url", "http://example.com")
 		shutdown, err := initTracing(ctx)
 		assert.NoError(t, err)
 		assert.NotNil(t, shutdown)
