@@ -115,17 +115,21 @@ func setup() error {
 	} else {
 		currentExecutable = path.Base(exePath)
 	}
+	setupLogger := log.WithField("executable", currentExecutable)
 
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.WithField("executable", currentExecutable).Error("Current user is root.  Please run this executable as a non-root user")
+		setupLogger.Error("Current user is root.  Please run this executable as a non-root user")
 		return err
 	}
 
 	initFlags()
+
+	versionMessage := fmt.Sprintf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
 	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
+		fmt.Println(versionMessage)
 		return errExitOK
 	}
+	setupLogger.Info(versionMessage)
 
 	if err := initConfig(); err != nil {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
@@ -152,11 +156,11 @@ func setup() error {
 	initLogs()
 	initServices()
 	if err := initTimeouts(); err != nil {
-		log.WithField("executable", currentExecutable).Error("Fatal error setting up timeouts")
+		setupLogger.Error("Fatal error setting up timeouts")
 		return err
 	}
 	if err := initMetrics(); err != nil {
-		log.WithField("executable", currentExecutable).Error("Error setting up metrics")
+		setupLogger.Error("Error setting up metrics. Will still continue")
 	}
 	return nil
 }

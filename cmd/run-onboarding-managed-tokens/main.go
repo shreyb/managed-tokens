@@ -68,17 +68,21 @@ func setup() error {
 	} else {
 		currentExecutable = path.Base(exePath)
 	}
+	setupLogger := log.WithField("executable", currentExecutable)
 
 	if err := utils.CheckRunningUserNotRoot(); err != nil {
-		log.WithField("executable", currentExecutable).Error("Current user is root.  Please run this executable as a non-root user")
+		setupLogger.Error("Current user is root.  Please run this executable as a non-root user")
 		return err
 	}
 
 	initFlags()
+
+	versionMessage := fmt.Sprintf("Managed tokens libary version %s, build %s", version, buildTimestamp)
 	if viper.GetBool("version") {
-		fmt.Printf("Managed tokens libary version %s, build %s\n", version, buildTimestamp)
+		fmt.Println(versionMessage)
 		return errExitOK
 	}
+	setupLogger.Info(versionMessage)
 
 	if err := initConfig(); err != nil {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
@@ -102,7 +106,7 @@ func setup() error {
 	}
 
 	if err := initServices(); err != nil {
-		fmt.Println("Fatal error in parsing service to run onboarding for")
+		setupLogger.Error("Fatal error in parsing service to run onboarding for")
 		return err
 	}
 
@@ -110,11 +114,11 @@ func setup() error {
 
 	// Test flag sets which notifications section from config we want to use.
 	if viper.GetBool("test") {
-		exeLogger.Info("Running in test mode")
+		setupLogger.Info("Running in test mode")
 	}
 
 	if err := initTimeouts(); err != nil {
-		log.WithField("executable", currentExecutable).Error("Fatal error setting up timeouts")
+		setupLogger.Error("Fatal error setting up timeouts")
 		return err
 	}
 
