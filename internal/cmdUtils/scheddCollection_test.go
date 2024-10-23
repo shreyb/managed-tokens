@@ -25,7 +25,7 @@ func TestStoreSchedds(t *testing.T) {
 	expectedSchedds := []string{"schedd1", "schedd2", "schedd3"}
 	s := newScheddCollection()
 	s.storeSchedds(expectedSchedds)
-	if !testUtils.SlicesHaveSameElementsOrdered[string](s.schedds, expectedSchedds) {
+	if !testUtils.SlicesHaveSameElementsOrderedType[string](s.schedds, expectedSchedds) {
 		t.Errorf("Wrong elements stored.  Expected %v, got %v", expectedSchedds, s.schedds)
 	}
 }
@@ -35,7 +35,7 @@ func TestGetSchedds(t *testing.T) {
 	s := newScheddCollection()
 	s.schedds = append(s.schedds, expectedSchedds...)
 	result := s.getSchedds()
-	if !testUtils.SlicesHaveSameElementsOrdered[string](result, expectedSchedds) {
+	if !testUtils.SlicesHaveSameElementsOrderedType[string](result, expectedSchedds) {
 		t.Errorf("Wrong elements stored.  Expected %v, got %v", expectedSchedds, result)
 	}
 }

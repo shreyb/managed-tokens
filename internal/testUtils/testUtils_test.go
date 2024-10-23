@@ -172,7 +172,7 @@ func TestSlicesHaveSameElementsIntOrdered(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				result := SlicesHaveSameElementsOrdered[int](test.slice1, test.slice2)
+				result := SlicesHaveSameElementsOrderedType[int](test.slice1, test.slice2)
 				if result != test.expectedResult {
 					t.Errorf("Got wrong result.  Expected %t, got %t", test.expectedResult, result)
 				}
@@ -226,7 +226,7 @@ func TestSlicesHaveSameElementsStringOrdered(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				result := SlicesHaveSameElementsOrdered[string](test.slice1, test.slice2)
+				result := SlicesHaveSameElementsOrderedType[string](test.slice1, test.slice2)
 				if result != test.expectedResult {
 					t.Errorf("Got wrong result.  Expected %t, got %t", test.expectedResult, result)
 				}
@@ -235,16 +235,16 @@ func TestSlicesHaveSameElementsStringOrdered(t *testing.T) {
 	}
 }
 
-// Note that on these examples, the SlicesHaveSameElementsOrdered func is about 30-50
+// Note that on these examples, the SlicesHaveSameElementsOrderedType func is about 30-50
 // times faster than SlicesHaveSameElements as measured by these benchmarks, so the
 // Ordered func should be used where possible
-func BenchmarkSlicesHaveSameElementsOrderedString(b *testing.B) {
+func BenchmarkSlicesHaveSameElementsOrderedTypeString(b *testing.B) {
 	slice1 := []string{"foo", "bar", "baz"}
 	slice2 := []string{"baz", "foo", "bar"}
 
 	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
-		SlicesHaveSameElementsOrdered[string](slice1, slice2)
+		SlicesHaveSameElementsOrderedType[string](slice1, slice2)
 	}
 }
 
@@ -257,13 +257,13 @@ func BenchmarkSlicesHaveSameElementsString(b *testing.B) {
 		SlicesHaveSameElements(slice1, slice2)
 	}
 }
-func BenchmarkSlicesHaveSameElementsOrderedInt(b *testing.B) {
+func BenchmarkSlicesHaveSameElementsOrderedTypeInt(b *testing.B) {
 	slice1 := []int{1, 2, 3}
 	slice2 := []int{2, 1, 3}
 
 	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
-		SlicesHaveSameElementsOrdered[int](slice1, slice2)
+		SlicesHaveSameElementsOrderedType[int](slice1, slice2)
 	}
 }
 
@@ -290,12 +290,12 @@ func BenchmarkSlicesHaveSameElementsIntFail(b *testing.B) {
 	}
 }
 
-func BenchmarkSlicesHaveSameElementsOrderedIntFail(b *testing.B) {
+func BenchmarkSlicesHaveSameElementsOrderedTypeIntFail(b *testing.B) {
 	slice1 := []int{1, 2, 3, 3}
 	slice2 := []int{2, 1, 3}
 
 	// Run the slice tester on strings
 	for n := 0; n < b.N; n++ {
-		SlicesHaveSameElementsOrdered(slice1, slice2)
+		SlicesHaveSameElementsOrderedType(slice1, slice2)
 	}
 }

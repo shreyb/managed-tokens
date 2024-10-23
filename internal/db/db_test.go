@@ -434,7 +434,7 @@ func checkSchema(m *ManagedTokensDatabase) error {
 			}
 		}
 	}
-	if !testUtils.SlicesHaveSameElementsOrdered[string](schemaRows, migrationsSql) {
+	if !testUtils.SlicesHaveSameElementsOrderedType[string](schemaRows, migrationsSql) {
 		return fmt.Errorf(
 			"Schema for database does not match expected schema.  Expected %s, got %s.",
 			migrationsSql,
