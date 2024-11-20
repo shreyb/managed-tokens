@@ -37,6 +37,12 @@ var serviceConfigPath string = "experiments.myexperiment.roles.myrole"
 
 func serviceOverrideKey(key string) string { return serviceConfigPath + "." + key + "Override" }
 
+func skipForCI(t *testing.T) {
+	if val, ok := os.LookupEnv("CI"); ok && val != "" {
+		t.Skipf("Skipping test in CI environment.  CI=%s", val)
+	}
+}
+
 // TestGetServiceConfigOverrideKeyOrGlobalKey checks that we properly return the configuration path for a given set of configuration
 // entries.  We want to ensure that if there is a service-level override of a global key, that we properly return that service-level
 // override path
@@ -450,7 +456,7 @@ func TestGetScheddsAndCollectorHostFromConfigurationFallback(t *testing.T) {
 func TestGetVaultServer(t *testing.T) {
 	type testCase struct {
 		description         string
-		CISkipFunc          func(*testing.T) // We want to skip certain tests if it's in the CI env
+		skipIfCI            bool // We want to skip certain tests if it's in the CI env
 		envSettingFunc      func()
 		configSettingFunc   func()
 		expectedVaultServer func() string
@@ -463,7 +469,7 @@ func TestGetVaultServer(t *testing.T) {
 	testCases := []testCase{
 		{
 			"Everything set - should give us env var",
-			func(t *testing.T) {},
+			false,
 			func() { os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", fmt.Sprintf("-a %s", vaultServerEnv)) },
 			func() { viper.Set("vaultServer", vaultServerConfig) },
 			func() string { return vaultServerEnv },
@@ -475,7 +481,7 @@ func TestGetVaultServer(t *testing.T) {
 		},
 		{
 			"Env set, config not - should give us env var",
-			func(t *testing.T) {},
+			false,
 			func() { os.Setenv("_condor_SEC_CREDENTIAL_GETTOKEN_OPTS", fmt.Sprintf("-a %s", vaultServerEnv)) },
 			func() {},
 			func() string { return vaultServerEnv },
@@ -484,7 +490,7 @@ func TestGetVaultServer(t *testing.T) {
 		},
 		{
 			"Config set, env not - should give us config setting",
-			func(t *testing.T) {},
+			false,
 			func() {},
 			func() { viper.Set("vaultServer", vaultServerConfig) },
 			func() string { return vaultServerConfig },
@@ -493,11 +499,7 @@ func TestGetVaultServer(t *testing.T) {
 		},
 		{
 			"Nothing set - should just read condor_config_val",
-			func(t *testing.T) {
-				if os.Getenv("CI") != "" {
-					t.Skipf("Skipping test in CI environment.  CI=%s", os.Getenv("CI"))
-				}
-			},
+			true,
 			func() {},
 			func() {},
 			func() string {
@@ -513,7 +515,10 @@ func TestGetVaultServer(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.description,
 			func(t *testing.T) {
-				testCase.CISkipFunc(t)
+				if testCase.skipIfCI {
+					skipForCI(t)
+				}
+
 				testCase.envSettingFunc()
 				testCase.configSettingFunc()
 				result, err := GetVaultServer("")
@@ -530,13 +535,10 @@ func TestGetVaultServer(t *testing.T) {
 			},
 		)
 	}
-
 }
 
 func TestGetSecCredentialGettokenOptsFromCondor(t *testing.T) {
-	if val, ok := os.LookupEnv("CI"); ok && val != "" {
-		t.Skipf("Skipping condor-dependent test in CI environment.  CI=%s", val)
-	}
+	skipForCI(t)
 
 	// Override condor config file to test
 	answer := "blahblahblah"
