@@ -534,8 +534,8 @@ func TestGetVaultServer(t *testing.T) {
 }
 
 func TestGetSecCredentialGettokenOptsFromCondor(t *testing.T) {
-	if os.Getenv("CI") != "" {
-		t.Skipf("Skipping test in CI environment.  CI=%s", os.Getenv("CI"))
+	if val, ok := os.LookupEnv("CI"); ok && val != "" {
+		t.Skipf("Skipping condor-dependent test in CI environment.  CI=%s", val)
 	}
 
 	// Override condor config file to test
