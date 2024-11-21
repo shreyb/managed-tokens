@@ -121,7 +121,7 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
 // and send notification.Notifications on, and sends *worker.Configs to the worker
 func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
-	serviceConfigs map[string]*worker.Config, timeoutCheckKey string) worker.ChannelsForWorkers {
+	serviceConfigs map[string]*worker.Config, timeoutCheckKey timeoutKey) worker.ChannelsForWorkers {
 	// Channels, context, and worker for getting kerberos tickets
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startServiceConfigWorkerForProcessing")
 	span.SetAttributes(

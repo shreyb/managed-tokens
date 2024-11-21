@@ -258,12 +258,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 
 func timeoutsReset() {
 	reset()
-	timeouts = map[string]time.Duration{
-		"global":      time.Duration(300 * time.Second),
-		"kerberos":    time.Duration(20 * time.Second),
-		"vaultstorer": time.Duration(60 * time.Second),
-		"ping":        time.Duration(10 * time.Second),
-		"push":        time.Duration(30 * time.Second),
+	timeouts = map[timeoutKey]time.Duration{
+		timeoutGlobal:      time.Duration(300 * time.Second),
+		timeoutKerberos:    time.Duration(20 * time.Second),
+		timeoutVaultStorer: time.Duration(60 * time.Second),
+		timeoutPing:        time.Duration(10 * time.Second),
+		timeoutPush:        time.Duration(30 * time.Second),
 	}
 }
 
