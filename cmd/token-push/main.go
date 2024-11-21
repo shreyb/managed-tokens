@@ -62,6 +62,8 @@ var devEnvironmentLabel string
 
 const devEnvironmentLabelDefault string = "production"
 
+// TODO These keys should be type aliased so there's only certain keys that are
+// valid
 // Supported timeouts and their default values
 var timeouts = map[string]time.Duration{
 	"global":      time.Duration(300 * time.Second),
@@ -139,8 +141,6 @@ func setup() error {
 	disableNotifyFlagWorkaround()
 	// END TODO
 
-	devEnvironmentLabel = getDevEnvironmentLabel()
-
 	// If user wants to list all services, do that and exit
 	if viper.GetBool("list-services") {
 		allServices := make([]string, 0)
@@ -153,6 +153,14 @@ func setup() error {
 		fmt.Println(strings.Join(allServices, "\n"))
 		return errExitOK
 	}
+
+	if err := checkRunOnboardingFlags(); err != nil {
+		setupLogger.Error(err)
+		return err
+	}
+
+	devEnvironmentLabel = getDevEnvironmentLabel()
+
 	initLogs()
 	initServices()
 	if err := initTimeouts(); err != nil {
@@ -170,16 +178,18 @@ func initFlags() {
 	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
 
 	// Flags
-	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
+	pflag.String("admin", "", "Override the config file admin email")
 	pflag.StringP("configfile", "c", "", "Specify alternate config file")
-	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
-	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
-	pflag.Bool("version", false, "Version of Managed Tokens library")
 	pflag.Bool("disable-notifications", false, "Turn off all notifications for this run")
 	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
-	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
-	pflag.String("admin", "", "Override the config file admin email")
+	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
 	pflag.Bool("list-services", false, "List all configured services in config file")
+	pflag.BoolP("push-tokens", "p", false, "Push tokens to nodes after onboarding a service. If -r/--run-onboarding is set, this flag must be set to push tokens.  Otherwise, it is ignored")
+	pflag.BoolP("run-onboarding", "r", false, "Run onboarding for a given service.  Must be used with -s/--service, optionally can be used with -p/--push-tokens")
+	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
+	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
+	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -219,6 +229,13 @@ func disableNotifyFlagWorkaround() {
 		viper.Set("disableNotifications", true)
 		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
 	}
+}
+
+func checkRunOnboardingFlags() error {
+	if viper.GetBool("run-onboarding") && viper.GetString("service") == "" {
+		return errors.New("run-onboarding flag set without a service to run onboarding for")
+	}
+	return nil
 }
 
 // Environment variables to read into Viper config
@@ -760,7 +777,12 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
 	startCondorVault := time.Now()
 	span.AddEvent("Start obtain and store vault tokens")
-	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
+
+	workerFunc := worker.StoreAndGetTokenWorker
+	if viper.GetBool("run-onboarding") {
+		workerFunc = worker.StoreAndGetTokenInteractiveWorker
+	}
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, workerFunc, serviceConfigs, "vaultstorer")
 
 	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
 	// and then begin transferring to nodes
@@ -786,7 +808,15 @@ func run(ctx context.Context) error {
 	// If we're in test mode, stop here
 	if viper.GetBool("test") {
 		exeLogger.Info("Test mode.  Cleaning up now")
+		for service := range serviceConfigs {
+			successfulServices[service] = true
+		}
+		return nil
+	}
 
+	// If we're onboarding a service but not pushing their tokens, stop here
+	if viper.GetBool("run-onboarding") && !viper.GetBool("push-tokens") {
+		exeLogger.Info("Onboarding mode.  Cleaning up now")
 		for service := range serviceConfigs {
 			successfulServices[service] = true
 		}

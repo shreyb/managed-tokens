@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path"
 	"reflect"
@@ -389,4 +390,42 @@ func TestDisableNotifyFlagWorkaround(t *testing.T) {
 	disableNotifyFlagWorkaround()
 	assert.Equal(t, cmdUtils.DISABLED_BY_FLAG, notificationsDisabledBy)
 	assert.Equal(t, true, viper.GetBool("disableNotifications"))
+}
+
+func TestCheckRunOnboardingFlags(t *testing.T) {
+	type testCase struct {
+		runOnboarding bool
+		service       string
+		expectedErr   error
+	}
+
+	testCases := map[string]testCase{
+		"Run onboarding flag set without service": {
+			true,
+			"",
+			errors.New("run-onboarding flag set without a service to run onboarding for"),
+		},
+
+		"Run onboarding flag set with service": {
+			true,
+			"some_service",
+			nil,
+		},
+		"Run onboarding flag not set": {
+			false,
+			"",
+			nil,
+		},
+	}
+
+	for label, tc := range testCases {
+		t.Run(label, func(t *testing.T) {
+			reset()
+			viper.Set("run-onboarding", tc.runOnboarding)
+			viper.Set("service", tc.service)
+
+			err := checkRunOnboardingFlags()
+			assert.Equal(t, tc.expectedErr, err)
+		})
+	}
 }
