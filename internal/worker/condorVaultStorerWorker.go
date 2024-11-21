@@ -159,12 +159,19 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 }
 
-// StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will
-// display all the stdout from the underlying executables to screen.
-func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetRefreshAndVaultTokens")
-	span.SetAttributes(attribute.String("service", sc.ServiceNameFromExperimentAndRole()))
+// TODO Document this as a simple wrapper around StoreAndGetRefreshVaultTokens
+// Can we eventually make this so that it's just a function that takes in a service
+// config and context and returns an error?  Maybe interface on the cmd side?
+func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans ChannelsForWorkers) {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenInteractiveWorker")
 	defer span.End()
+
+	// Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
+	defer close(chans.GetSuccessChan())
+	defer func() {
+		close(chans.GetNotificationsChan()) // TODO Want to get rid of this
+		log.Debug("Closed StoreAndGetTokenInteractiveWorker Notifications Chan")
+	}()
 
 	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
@@ -172,16 +179,49 @@ func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
 		log.Fatal("Could not parse vault storer timeout")
 	}
 
-	vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
-	defer vaultStorerCancel()
+	sc := <-chans.GetServiceConfigChan()
+	success := &vaultStorerSuccess{
+		Service: sc.Service,
+	}
+
+	configLogger := log.WithFields(log.Fields{
+		"experiment": sc.Service.Experiment(),
+		"role":       sc.Service.Role(),
+		"service":    sc.Name(),
+	})
 
 	tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
 	for _, schedd := range sc.Schedds {
 		tokenStorers = append(tokenStorers, vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
 	}
 
-	return StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...)
+	vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
+	defer vaultStorerCancel()
+
+	err = StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...)
+	if err != nil {
+		tracing.LogErrorWithTrace(span, configLogger, "could not store and get vault tokens")
+	} else {
+		success.success = true
+		tracing.LogSuccessWithTrace(span, configLogger, "Successfully got and stored vault tokens")
+	}
+	chans.GetSuccessChan() <- success
 }
+
+// // StoreAndGetRefreshAndVaultTokens stores a refresh token in the configured vault, and obtain vault and bearer tokens.  It will
+// // display all the stdout from the underlying executables to screen.
+// func StoreAndGetRefreshAndVaultTokens(ctx context.Context, sc *Config) error {
+// 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetRefreshAndVaultTokens")
+// 	span.SetAttributes(attribute.String("service", sc.ServiceNameFromExperimentAndRole()))
+// 	defer span.End()
+
+// 	tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
+// 	for _, schedd := range sc.Schedds {
+// 		tokenStorers = append(tokenStorers, vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
+// 	}
+
+// 	return StoreAndGetTokensForSchedds(ctx, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...)
+// }
 
 // StoreAndGetTokensForSchedds will store a refresh token on the condor-configured vault server, obtain vault and bearer tokens for a service
 // using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
