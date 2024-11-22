@@ -756,7 +756,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for getting kerberos ticekts
 	startKerberos := time.Now()
 	span.AddEvent("Starting get kerberos tickets")
-	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, timeoutKerberos)
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, timeoutKerberos, viper.GetBool("disableNotifications"))
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
@@ -832,7 +832,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for pinging service nodes
 	startPing := time.Now()
 	span.AddEvent("Start ping nodes")
-	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, timeoutPing)
+	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, timeoutPing, viper.GetBool("disableNotifications"))
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
@@ -850,7 +850,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for pushing tokens to service nodes
 	startPush := time.Now()
 	span.AddEvent("Start push tokens")
-	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, timeoutPush)
+	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, timeoutPush, viper.GetBool("disableNotifications"))
 
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
