@@ -81,7 +81,7 @@ func (v *kinitSuccess) GetSuccess() bool {
 // GetKerberosTicketsWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
 // obtains kerberos tickets from the configured kerberos principals.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
-func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
+func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketsWorker")
 	defer span.End()
 

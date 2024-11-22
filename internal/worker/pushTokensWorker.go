@@ -108,7 +108,7 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 // PushTokenWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
 // pushes vault tokens to all the configured destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
-func PushTokensWorker(ctx context.Context, chans ChannelsForWorkers) {
+func PushTokensWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker")
 	defer span.End()
 
