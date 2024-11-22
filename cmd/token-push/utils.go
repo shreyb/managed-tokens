@@ -120,8 +120,8 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
 // and send notification.Notifications on, and sends *worker.Configs to the worker
-func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(context.Context, worker.ChannelsForWorkers),
-	serviceConfigs map[string]*worker.Config, timeoutCheckKey timeoutKey) worker.ChannelsForWorkers {
+func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc worker.Worker,
+	serviceConfigs map[string]*worker.Config, timeoutCheckKey timeoutKey, disableNotifications bool) chansForWorkers {
 	// Channels, context, and worker for getting kerberos tickets
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startServiceConfigWorkerForProcessing")
 	span.SetAttributes(
@@ -135,7 +135,11 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc func(
 	var useCtx context.Context
 
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
-	startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
+
+	if !disableNotifications {
+		startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
+	}
+
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {
 		useCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
 	} else {
@@ -163,7 +167,7 @@ func loadServiceConfigsIntoChannel(chanToLoad chan<- *worker.Config, serviceConf
 // removeFailedServiceConfigs reads the worker.SuccessReporter chan from the passed in worker.ChannelsForWorkers object, and
 // removes any *worker.Config objects from the passed in serviceConfigs map.  It returns a slice of the *worker.Configs that
 // were removed
-func removeFailedServiceConfigs(chans worker.ChannelsForWorkers, serviceConfigs map[string]*worker.Config) []*worker.Config {
+func removeFailedServiceConfigs(chans chansForWorkers, serviceConfigs map[string]*worker.Config) []*worker.Config {
 	failedConfigs := make([]*worker.Config, 0, len(serviceConfigs))
 	for workerSuccess := range chans.GetSuccessChan() {
 		if !workerSuccess.GetSuccess() {
@@ -223,3 +227,16 @@ func getPrometheusJobName() string {
 	}
 	return fmt.Sprintf("%s_%s", jobName, devEnvironmentLabel)
 }
+
+// chansForWorkers is an interface that defines methods for obtaining channels
+// used by worker.Workers. It includes methods to get channels for service
+// configurations and success reporting.
+type chansForWorkers interface {
+	GetServiceConfigChan() chan *worker.Config
+	GetSuccessChan() chan worker.SuccessReporter
+}
+
+// type chansForWorkersWithNotifications interface {
+// 	chansForWorkers
+// 	GetNotificationsChan() chan notifications.Notification
+// }
