@@ -99,7 +99,7 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 // StoreAndGetTokenWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
 // stores a refresh token in the configured vault and obtains vault and bearer tokens.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
-func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
+func StoreAndGetTokenWorker[T tokenStorer](ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenWorker")
 	defer span.End()
 
@@ -129,9 +129,9 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 
 		vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 
-		tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
+		tokenStorers := make([]T, 0, len(sc.Schedds))
 		for _, schedd := range sc.Schedds {
-			tokenStorers = append(tokenStorers, vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
+			tokenStorers = append(tokenStorers, T(vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer)))
 		}
 
 		if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...); err != nil {
@@ -162,7 +162,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans ChannelsForWorkers) {
 // TODO Document this as a simple wrapper around StoreAndGetRefreshVaultTokens
 // Can we eventually make this so that it's just a function that takes in a service
 // config and context and returns an error?  Maybe interface on the cmd side?
-func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans ChannelsForWorkers) {
+func StoreAndGetTokenInteractiveWorker[T tokenStorer](ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenInteractiveWorker")
 	defer span.End()
 
@@ -190,9 +190,9 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans ChannelsForWor
 		"service":    sc.Name(),
 	})
 
-	tokenStorers := make([]vaultToken.TokenStorer, 0, len(sc.Schedds))
+	tokenStorers := make([]T, 0, len(sc.Schedds))
 	for _, schedd := range sc.Schedds {
-		tokenStorers = append(tokenStorers, vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
+		tokenStorers = append(tokenStorers, T(vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer)))
 	}
 
 	vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
@@ -226,7 +226,7 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans ChannelsForWor
 // StoreAndGetTokensForSchedds will store a refresh token on the condor-configured vault server, obtain vault and bearer tokens for a service
 // using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
 // If there was an error with ANY of the schedds, StoreAndGetTokensForSchedds will return an error
-func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.CommandEnvironment, tokenRootPath string, tokenStorers ...vaultToken.TokenStorer) error {
+func StoreAndGetTokensForSchedds[T tokenStorer](ctx context.Context, environ *environment.CommandEnvironment, tokenRootPath string, tokenStorers ...T) error {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokensForSchedds")
 	span.SetAttributes(attribute.String("tokenRootPath", tokenRootPath))
 	defer span.End()
@@ -239,17 +239,17 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 
 	// If we get any errors here, we mark the whole operation as having failed.  Also, if we see any authentication errors,
 	// we want to make sure the error we return from this func wraps that error.
-	for _, tokenStorer := range tokenStorers {
-		func(tokenStorer vaultToken.TokenStorer) {
+	for _, t := range tokenStorers {
+		func(ts T) {
 			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokensForSchedds_anonFunc")
-			span.SetAttributes(attribute.String("service", tokenStorer.GetServiceName()))
-			span.SetAttributes(attribute.String("credd", tokenStorer.GetCredd()))
+			span.SetAttributes(attribute.String("service", ts.GetServiceName()))
+			span.SetAttributes(attribute.String("credd", ts.GetCredd()))
 			defer span.End()
 
-			services[tokenStorer.GetServiceName()] = struct{}{}
+			services[ts.GetServiceName()] = struct{}{}
 			funcLogger := log.WithFields(log.Fields{
-				"service": tokenStorer.GetServiceName(),
-				"credd":   tokenStorer.GetCredd(),
+				"service": ts.GetServiceName(),
+				"credd":   ts.GetCredd(),
 			})
 			start := time.Now()
 
@@ -261,9 +261,9 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			}
 
 			// Stage prior vault token, if it exists
-			restorePriorTokenFunc, err := backupCondorVaultToken(tokenStorer.GetServiceName())
+			restorePriorTokenFunc, err := backupCondorVaultToken(ts.GetServiceName())
 			if err != nil {
-				funcLogger.Errorf("Error backing up current vault token at %s.  Will overwrite this with a new vault token.", getCondorVaultTokenLocation(tokenStorer.GetServiceName()))
+				funcLogger.Errorf("Error backing up current vault token at %s.  Will overwrite this with a new vault token.", getCondorVaultTokenLocation(ts.GetServiceName()))
 			}
 			defer func() {
 				if err := restorePriorTokenFunc(); err != nil {
@@ -271,7 +271,7 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 				}
 			}()
 
-			if err = stageStoredTokenFile(tokenRootPath, tokenStorer.GetServiceName(), tokenStorer.GetCredd()); err != nil {
+			if err = stageStoredTokenFile(tokenRootPath, ts.GetServiceName(), ts.GetCredd()); err != nil {
 				switch {
 				case errors.Is(err, errNoServiceCreddToken):
 					funcLogger.Info("No prior vault token exists for this service/credd combination.  Will get a new vault token")
@@ -290,7 +290,7 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			// needed.
 			defer func() {
 				if success {
-					if err = storeServiceTokenForCreddFile(tokenRootPath, tokenStorer.GetServiceName(), tokenStorer.GetCredd()); err != nil {
+					if err = storeServiceTokenForCreddFile(tokenRootPath, ts.GetServiceName(), ts.GetCredd()); err != nil {
 						funcLogger.Error("Could not store condor vault token for credd for future runs.  Please investigate")
 					}
 				}
@@ -304,21 +304,21 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 			}
 
 			// Store vault token on credd
-			err = vaultToken.StoreAndValidateToken(ctx, tokenStorer, environ)
+			err = vaultToken.StoreAndValidateToken(ctx, ts, environ)
 			if err != nil {
 				success = false
 				if errors.As(err, &authNeededErrorPtr) {
 					authErr = err
 				}
-				storeFailureCount.WithLabelValues(tokenStorer.GetServiceName(), tokenStorer.GetCredd()).Inc()
+				storeFailureCount.WithLabelValues(ts.GetServiceName(), ts.GetCredd()).Inc()
 				span.SetStatus(codes.Error, "could not store or validate vault token")
 				return
 			}
 
 			dur := time.Since(start).Seconds()
-			tokenStoreTimestamp.WithLabelValues(tokenStorer.GetServiceName(), tokenStorer.GetCredd()).SetToCurrentTime()
-			tokenStoreDuration.WithLabelValues(tokenStorer.GetServiceName(), tokenStorer.GetCredd()).Set(dur)
-		}(tokenStorer)
+			tokenStoreTimestamp.WithLabelValues(ts.GetServiceName(), ts.GetCredd()).SetToCurrentTime()
+			tokenStoreDuration.WithLabelValues(ts.GetServiceName(), ts.GetCredd()).Set(dur)
+		}(t)
 	}
 
 	if !success {
@@ -342,4 +342,13 @@ func StoreAndGetTokensForSchedds(ctx context.Context, environ *environment.Comma
 
 	span.SetStatus(codes.Ok, "Successfully stored and obtained vault tokens for schedds")
 	return nil
+}
+
+// tokenStorer contains the methods needed to store a vault token in the condor credd and a hashicorp vault.  It should be passed into
+// StoreAndValidateTokens so that any token that is stored is also validated
+type tokenStorer interface {
+	*vaultToken.InteractiveTokenStorer | *vaultToken.NonInteractiveTokenStorer
+	GetServiceName() string
+	GetCredd() string
+	GetVaultServer() string
 }

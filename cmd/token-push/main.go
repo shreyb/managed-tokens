@@ -778,11 +778,12 @@ func run(ctx context.Context) error {
 	startCondorVault := time.Now()
 	span.AddEvent("Start obtain and store vault tokens")
 
-	workerFunc := worker.StoreAndGetTokenWorker
+	var w worker.Worker
+	w = worker.StoreAndGetTokenWorker[*vaultToken.NonInteractiveTokenStorer]
 	if viper.GetBool("run-onboarding") {
-		workerFunc = worker.StoreAndGetTokenInteractiveWorker
+		w = worker.StoreAndGetTokenInteractiveWorker[*vaultToken.InteractiveTokenStorer]
 	}
-	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, workerFunc, serviceConfigs, timeoutVaultStorer)
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, w, serviceConfigs, timeoutVaultStorer, viper.GetBool("disableNotifications"))
 
 	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
 	// and then begin transferring to nodes
