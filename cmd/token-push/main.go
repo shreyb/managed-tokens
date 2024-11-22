@@ -779,9 +779,9 @@ func run(ctx context.Context) error {
 	span.AddEvent("Start obtain and store vault tokens")
 
 	var w worker.Worker
-	w = worker.StoreAndGetTokenWorker[*vaultToken.NonInteractiveTokenStorer]
+	w = worker.StoreAndGetTokenWorker
 	if viper.GetBool("run-onboarding") {
-		w = worker.StoreAndGetTokenInteractiveWorker[*vaultToken.InteractiveTokenStorer]
+		w = worker.StoreAndGetTokenInteractiveWorker
 	}
 	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, w, serviceConfigs, timeoutVaultStorer, viper.GetBool("disableNotifications"))
 

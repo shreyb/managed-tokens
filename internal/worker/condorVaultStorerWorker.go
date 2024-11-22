@@ -99,7 +99,7 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 // StoreAndGetTokenWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
 // stores a refresh token in the configured vault and obtains vault and bearer tokens.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
-func StoreAndGetTokenWorker[T tokenStorer](ctx context.Context, chans channelGroup) {
+func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenWorker")
 	defer span.End()
 
@@ -129,9 +129,9 @@ func StoreAndGetTokenWorker[T tokenStorer](ctx context.Context, chans channelGro
 
 		vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
 
-		tokenStorers := make([]T, 0, len(sc.Schedds))
+		tokenStorers := make([]*vaultToken.NonInteractiveTokenStorer, 0, len(sc.Schedds))
 		for _, schedd := range sc.Schedds {
-			tokenStorers = append(tokenStorers, T(vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer)))
+			tokenStorers = append(tokenStorers, vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
 		}
 
 		if err := StoreAndGetTokensForSchedds(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, tokenStorers...); err != nil {
@@ -162,7 +162,7 @@ func StoreAndGetTokenWorker[T tokenStorer](ctx context.Context, chans channelGro
 // TODO Document this as a simple wrapper around StoreAndGetRefreshVaultTokens
 // Can we eventually make this so that it's just a function that takes in a service
 // config and context and returns an error?  Maybe interface on the cmd side?
-func StoreAndGetTokenInteractiveWorker[T tokenStorer](ctx context.Context, chans channelGroup) {
+func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenInteractiveWorker")
 	defer span.End()
 
@@ -190,9 +190,9 @@ func StoreAndGetTokenInteractiveWorker[T tokenStorer](ctx context.Context, chans
 		"service":    sc.Name(),
 	})
 
-	tokenStorers := make([]T, 0, len(sc.Schedds))
+	tokenStorers := make([]*vaultToken.InteractiveTokenStorer, 0, len(sc.Schedds))
 	for _, schedd := range sc.Schedds {
-		tokenStorers = append(tokenStorers, T(vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer)))
+		tokenStorers = append(tokenStorers, vaultToken.NewInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer))
 	}
 
 	vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
