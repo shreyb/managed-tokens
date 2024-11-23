@@ -146,7 +146,7 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 		description      string
 		timeoutsConfig   string
 		expectedErrNil   bool
-		expectedTimeouts map[string]time.Duration
+		expectedTimeouts map[timeoutKey]time.Duration
 	}
 
 	testCases := []testCase{
@@ -154,12 +154,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 			"No timeouts given",
 			"",
 			true,
-			map[string]time.Duration{
-				"global":      time.Duration(300 * time.Second),
-				"kerberos":    time.Duration(20 * time.Second),
-				"vaultstorer": time.Duration(60 * time.Second),
-				"ping":        time.Duration(10 * time.Second),
-				"push":        time.Duration(30 * time.Second),
+			map[timeoutKey]time.Duration{
+				timeoutGlobal:      time.Duration(300 * time.Second),
+				timeoutKerberos:    time.Duration(20 * time.Second),
+				timeoutVaultStorer: time.Duration(60 * time.Second),
+				timeoutPing:        time.Duration(10 * time.Second),
+				timeoutPush:        time.Duration(30 * time.Second),
 			},
 		},
 		{
@@ -174,12 +174,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 }
 			`,
 			true,
-			map[string]time.Duration{
-				"global":      time.Duration(360 * time.Second),
-				"kerberos":    time.Duration(15 * time.Second),
-				"vaultstorer": time.Duration(15 * time.Second),
-				"ping":        time.Duration(10 * time.Second),
-				"push":        time.Duration(30 * time.Second),
+			map[timeoutKey]time.Duration{
+				timeoutGlobal:      time.Duration(360 * time.Second),
+				timeoutKerberos:    time.Duration(15 * time.Second),
+				timeoutVaultStorer: time.Duration(15 * time.Second),
+				timeoutPing:        time.Duration(10 * time.Second),
+				timeoutPush:        time.Duration(30 * time.Second),
 			},
 		},
 		{
@@ -208,12 +208,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 }
 			`,
 			true,
-			map[string]time.Duration{
-				"global":      time.Duration(300 * time.Second),
-				"kerberos":    time.Duration(20 * time.Second),
-				"vaultstorer": time.Duration(60 * time.Second),
-				"ping":        time.Duration(10 * time.Second),
-				"push":        time.Duration(30 * time.Second),
+			map[timeoutKey]time.Duration{
+				timeoutGlobal:      time.Duration(300 * time.Second),
+				timeoutKerberos:    time.Duration(20 * time.Second),
+				timeoutVaultStorer: time.Duration(60 * time.Second),
+				timeoutPing:        time.Duration(10 * time.Second),
+				timeoutPush:        time.Duration(30 * time.Second),
 			},
 		},
 	}
