@@ -115,71 +115,75 @@ func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 	}
 
 	for sc := range chans.serviceConfigChan {
-		success := &vaultStorerSuccess{
-			Service: sc.Service,
-			success: true,
-		}
+		func(sc *Config) {
+			success := &vaultStorerSuccess{
+				Service: sc.Service,
+				success: true,
+			}
 
-		configLogger := log.WithFields(log.Fields{
-			"experiment": sc.Service.Experiment(),
-			"role":       sc.Service.Role(),
-			"service":    sc.Name(),
-		})
+			defer func(s *vaultStorerSuccess) {
+				chans.successChan <- s
+			}(success)
 
-		errsToReport := make([]error, 0) // slice of errors we need to specifically highlight
-		for _, schedd := range sc.Schedds {
-			func(ctx context.Context, schedd string) {
-				ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenWorker_anonFunc")
-				span.SetAttributes(attribute.String("service", sc.ServiceNameFromExperimentAndRole()))
-				span.SetAttributes(attribute.String("schedd", schedd))
-				defer span.End()
+			configLogger := log.WithFields(log.Fields{
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+				"service":    sc.Name(),
+			})
 
-				scheddLogger := configLogger.WithField("schedd", schedd)
+			errsToReport := make([]error, 0) // slice of errors we need to specifically highlight
+			for _, schedd := range sc.Schedds {
+				func(ctx context.Context, schedd string) {
+					ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenWorker_anonFunc")
+					span.SetAttributes(attribute.String("service", sc.ServiceNameFromExperimentAndRole()))
+					span.SetAttributes(attribute.String("schedd", schedd))
+					defer span.End()
 
-				ts := vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer)
+					scheddLogger := configLogger.WithField("schedd", schedd)
 
-				vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
-				defer vaultStorerCancel()
+					ts := vaultToken.NewNonInteractiveTokenStorer(sc.Service.Name(), schedd, sc.VaultServer)
 
-				if err := StoreAndGetTokensForSchedd(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, ts); err != nil {
-					success.success = false
+					vaultStorerContext, vaultStorerCancel := context.WithTimeout(ctx, vaultStorerTimeout)
+					defer vaultStorerCancel()
 
-					// Check to see if we need to report a specific error
-					var msg string
-					if errors.Is(err, context.DeadlineExceeded) {
-						msg = "timeout error"
-						errsToReport = append(errsToReport, fmt.Errorf("%s: %s", schedd, msg))
-					} else {
-						msg = "could not store and get vault tokens for schedd"
-						unwrappedErr := errors.Unwrap(err)
-						if unwrappedErr != nil {
-							// Check to see if authorization is needed.  This is an error condition for non-interactive token storing
-							var authNeededErrorPtr *vaultToken.ErrAuthNeeded
-							if errors.As(unwrappedErr, &authNeededErrorPtr) {
-								msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
-								errsToReport = append(errsToReport, fmt.Errorf("%s: %w", schedd, unwrappedErr))
+					if err := StoreAndGetTokensForSchedd(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, ts); err != nil {
+						success.success = false
+
+						// Check to see if we need to report a specific error
+						var msg string
+						if errors.Is(err, context.DeadlineExceeded) {
+							msg = "timeout error"
+							errsToReport = append(errsToReport, fmt.Errorf("%s: %s", schedd, msg))
+						} else {
+							msg = "could not store and get vault tokens for schedd"
+							unwrappedErr := errors.Unwrap(err)
+							if unwrappedErr != nil {
+								// Check to see if authorization is needed.  This is an error condition for non-interactive token storing
+								var authNeededErrorPtr *vaultToken.ErrAuthNeeded
+								if errors.As(unwrappedErr, &authNeededErrorPtr) {
+									msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
+									errsToReport = append(errsToReport, fmt.Errorf("%s: %w", schedd, unwrappedErr))
+								}
 							}
 						}
+						tracing.LogErrorWithTrace(span, scheddLogger, msg)
+						return
 					}
-					tracing.LogErrorWithTrace(span, scheddLogger, msg)
-					return
-				}
-				tracing.LogSuccessWithTrace(span, scheddLogger, "Successfully got and stored vault token for schedd")
-			}(ctx, schedd)
-		}
-
-		if !success.success {
-			msg := "Could not store and get vault tokens"
-			for _, err := range errsToReport {
-				msg = fmt.Sprintf("%s; %s", msg, err.Error())
+					tracing.LogSuccessWithTrace(span, scheddLogger, "Successfully got and stored vault token for schedd")
+				}(ctx, schedd)
 			}
-			tracing.LogErrorWithTrace(span, configLogger, msg)
-			chans.notificationsChan <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
-		} else {
-			tracing.LogSuccessWithTrace(span, configLogger, "Successfully got and stored vault tokens for all schedds")
-		}
 
-		chans.successChan <- success
+			if !success.success {
+				msg := "Could not store and get vault tokens"
+				for _, err := range errsToReport {
+					msg = fmt.Sprintf("%s; %s", msg, err.Error())
+				}
+				tracing.LogErrorWithTrace(span, configLogger, msg)
+				chans.notificationsChan <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
+				return
+			}
+			tracing.LogSuccessWithTrace(span, configLogger, "Successfully got and stored vault tokens for all schedds")
+		}(sc)
 	}
 }
 
@@ -208,6 +212,10 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 		Service: sc.Service,
 		success: true,
 	}
+
+	defer func(s *vaultStorerSuccess) {
+		chans.successChan <- s
+	}(success)
 
 	configLogger := log.WithFields(log.Fields{
 		"experiment": sc.Service.Experiment(),
@@ -242,12 +250,9 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 	if !success.success {
 		msg := "Could not store and get vault tokens"
 		tracing.LogErrorWithTrace(span, configLogger, msg)
-	} else {
-		msg := "Successfully stored and got all vault tokens"
-		tracing.LogSuccessWithTrace(span, configLogger, msg)
+		return
 	}
-
-	chans.successChan <- success
+	tracing.LogSuccessWithTrace(span, configLogger, "Successfully stored and got all vault tokens")
 }
 
 // StoreAndGetTokensForSchedds will store a refresh token on the condor-configured vault server, obtain vault and bearer tokens for a service
