@@ -68,7 +68,7 @@ func TestPingAllNodes(t *testing.T) {
 	extraPingOpts := make([]string, 0)
 	pingChannel := pingAllNodes(ctx, extraPingOpts, goodNode(""), badNode(badhost), goodNode(""))
 	for n := range pingChannel {
-		if n.Err != nil {
+		if n.err != nil {
 			failureCount++
 		} else {
 			successCount++
@@ -89,8 +89,8 @@ func TestPingAllNodesTimeout(t *testing.T) {
 	extraArgs := make([]string, 0)
 	pingChannel := pingAllNodes(timeoutCtx, extraArgs, badNode(""), badNode(badhost))
 	for n := range pingChannel {
-		if n.Err != nil {
-			lowerErr := strings.ToLower(n.Err.Error())
+		if n.err != nil {
+			lowerErr := strings.ToLower(n.err.Error())
 			expectedMsg := "context deadline exceeded"
 			if lowerErr != expectedMsg {
 				t.Errorf("Expected error message to be %s.  Got %s instead", expectedMsg, lowerErr)
