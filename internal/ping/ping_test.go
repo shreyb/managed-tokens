@@ -17,7 +17,6 @@ package ping
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -31,38 +30,6 @@ const (
 
 var ctx context.Context = context.Background()
 
-type goodNode string
-
-func (g goodNode) PingNode(ctx context.Context, extraArgs []string) error {
-	time.Sleep(1 * time.Microsecond)
-	if e := ctx.Err(); e != nil {
-		return e
-	}
-	fmt.Println("Running fake PingNode")
-	return nil
-}
-
-func (g goodNode) String() string { return string(g) }
-
-type badNode string
-
-func (b badNode) PingNode(ctx context.Context, extraArgs []string) error {
-	for _, arg := range extraArgs {
-		if arg == "--invalidextraarg" {
-			return fmt.Errorf("invalid argument")
-		}
-	}
-	time.Sleep(1 * time.Microsecond)
-	if e := ctx.Err(); e != nil {
-		return e
-	}
-	return fmt.Errorf("exit status 2 ping: unknown host %s", b)
-}
-
-func (b badNode) String() string { return string(b) }
-
-// Tests
-// TestPingNodeGood pings a PingNoder and makes sure we get no error
 func TestPingNode(t *testing.T) {
 	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, time.Duration(1*time.Nanosecond))
 	t.Cleanup(timeoutCancel)
@@ -70,7 +37,7 @@ func TestPingNode(t *testing.T) {
 	type testCase struct {
 		description string
 		c           context.Context
-		PingNoder
+		Node
 		extraArgs      []string
 		expectedErrNil bool
 	}
@@ -79,35 +46,35 @@ func TestPingNode(t *testing.T) {
 		{
 			"Good node",
 			ctx,
-			goodNode(goodhost),
+			NewNode(goodhost),
 			[]string{},
 			true,
 		},
 		{
 			"Bad node",
 			ctx,
-			badNode(badhost),
+			NewNode(badhost),
 			[]string{},
 			false,
 		},
 		{
-			"Bad node, timeout",
+			"Good node, timeout",
 			timeoutCtx,
-			badNode(badhost),
+			NewNode(goodhost),
 			[]string{},
 			false,
 		},
 		{
 			"Good node, good extra args",
 			ctx,
-			goodNode(goodhost),
+			NewNode(goodhost),
 			[]string{"-4"},
 			true,
 		},
 		{
 			"bad extra args",
 			ctx,
-			badNode(goodhost),
+			NewNode(goodhost),
 			[]string{"--invalidextraarg"},
 			false,
 		},
@@ -117,7 +84,7 @@ func TestPingNode(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				err := test.PingNoder.PingNode(test.c, test.extraArgs)
+				err := test.Node.Ping(test.c, test.extraArgs)
 				errNil := (err == nil)
 				assert.Equal(t, test.expectedErrNil, errNil)
 			},

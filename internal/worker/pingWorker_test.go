@@ -32,7 +32,7 @@ var ctx context.Context = context.Background()
 
 type goodNode string
 
-func (g goodNode) PingNode(ctx context.Context, extraPingOpts []string) error {
+func (g goodNode) Ping(ctx context.Context, extraPingOpts []string) error {
 	time.Sleep(1 * time.Microsecond)
 	if e := ctx.Err(); e != nil {
 		return e
@@ -45,7 +45,7 @@ func (g goodNode) String() string { return string(g) }
 
 type badNode string
 
-func (b badNode) PingNode(ctx context.Context, extraPingOpts []string) error {
+func (b badNode) Ping(ctx context.Context, extraPingOpts []string) error {
 	time.Sleep(1 * time.Microsecond)
 	if e := ctx.Err(); e != nil {
 		return e
