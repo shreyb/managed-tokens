@@ -678,6 +678,7 @@ func run(ctx context.Context) error {
 			// Worker-specific config to be passed to the worker.Config constructor
 			getKerberosTicketsRetries := cmdUtils.GetWorkerConfigInt("getKerberosTickets", "numRetries")
 			storeAndGetTokenRetries := cmdUtils.GetWorkerConfigInt("storeAndGetToken", "numRetries")
+			storeAndGetTokenInteractiveRetries := cmdUtils.GetWorkerConfigInt("storeAndGetTokenInteractive", "numRetries")
 			pingAggregatorRetries := cmdUtils.GetWorkerConfigInt("pingAggregator", "numRetries")
 			pushTokensRetries := cmdUtils.GetWorkerConfigInt("pushTokens", "numRetries")
 
@@ -698,6 +699,7 @@ func run(ctx context.Context) error {
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
 				worker.SetWorkerRetryValue(worker.GetKerberosTicketsWorkerType, uint(getKerberosTicketsRetries)),
 				worker.SetWorkerRetryValue(worker.StoreAndGetTokenWorkerType, uint(storeAndGetTokenRetries)),
+				worker.SetWorkerRetryValue(worker.StoreAndGetTokenInteractiveWorkerType, uint(storeAndGetTokenInteractiveRetries)),
 				worker.SetWorkerRetryValue(worker.PingAggregatorWorkerType, uint(pingAggregatorRetries)),
 				worker.SetWorkerRetryValue(worker.PushTokensWorkerType, uint(pushTokensRetries)),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),

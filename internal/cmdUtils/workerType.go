@@ -26,6 +26,7 @@ import (
 var validWorkerTypes = []worker.WorkerType{
 	worker.GetKerberosTicketsWorkerType,
 	worker.StoreAndGetTokenWorkerType,
+	worker.StoreAndGetTokenInteractiveWorkerType,
 	worker.PingAggregatorWorkerType,
 	worker.PushTokensWorkerType,
 }

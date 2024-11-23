@@ -150,6 +150,10 @@ func TestIsValidWorkerTypeString(t *testing.T) {
 			expected: true,
 		},
 		{
+			input:    "StoreAndGetTokenInteractive",
+			expected: true,
+		},
+		{
 			input:    "StoreAndGetToken",
 			expected: true,
 		},
