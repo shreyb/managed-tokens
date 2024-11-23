@@ -21,24 +21,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/stretchr/testify/assert"
 )
-
-// TestNewSSHFileCopier asserts that the type of the returned object from NewSSHFileCopier
-// is an *rsyncSetup
-func TestNewSSHFileCopier(t *testing.T) {
-	environ := environment.CommandEnvironment{}
-	testCopier := NewSSHFileCopier("", "", "", "", []string{}, []string{}, environ)
-
-	if _, ok := testCopier.(*rsyncSetup); !ok {
-		t.Errorf(
-			"Got wrong type for NewSSHFileCopier.  Expected %T",
-			&rsyncSetup{},
-		)
-	}
-
-}
 
 type fakeCopierProtocolSetup struct {
 	err error

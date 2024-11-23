@@ -40,13 +40,13 @@ var fileCopierExecutables map[string]string = map[string]string{
 	"ssh":   "",
 }
 
-// FileCopier is an exported interface for objects that manage the copying of a file
-type FileCopier interface {
+// fileCopier is an interface for objects that manage the copying of a file
+type fileCopier interface {
 	copyToDestination(ctx context.Context) error
 }
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
-func NewSSHFileCopier(source, account, node, destination string, fileCopierOptions []string, sshOptions []string, env environment.CommandEnvironment) FileCopier {
+func NewSSHFileCopier(source, account, node, destination string, fileCopierOptions []string, sshOptions []string, env environment.CommandEnvironment) *rsyncSetup {
 	// Default ssh options
 	sshOpts := mergeSshOpts(sshOptions)
 	sshOptsString := strings.Join(sshOpts, " ")
@@ -66,7 +66,7 @@ func NewSSHFileCopier(source, account, node, destination string, fileCopierOptio
 }
 
 // CopyToDestination wraps a FileCopier's copyToDestination method
-func CopyToDestination(ctx context.Context, f FileCopier) error {
+func CopyToDestination(ctx context.Context, f fileCopier) error {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.CopyToDestination")
 	defer span.End()
 	return f.copyToDestination(ctx)
