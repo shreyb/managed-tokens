@@ -49,14 +49,19 @@ type channelGroup struct {
 	notificationsChan chan notifications.Notification
 }
 
-func (c channelGroup) GetServiceConfigChan() chan *Config {
+func (c channelGroup) GetServiceConfigChan() chan<- *Config {
 	return c.serviceConfigChan
 }
 
-func (c channelGroup) GetSuccessChan() chan SuccessReporter {
+func (c channelGroup) GetSuccessChan() <-chan SuccessReporter {
 	return c.successChan
 }
 
-func (c channelGroup) GetNotificationsChan() chan notifications.Notification {
+func (c channelGroup) GetNotificationsChan() <-chan notifications.Notification {
 	return c.notificationsChan
+}
+
+func (c channelGroup) closeWorkerSendChans() {
+	close(c.notificationsChan)
+	close(c.successChan)
 }

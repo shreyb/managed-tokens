@@ -105,7 +105,7 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 // notifications.Notification chan (nChan) for worker notifications, sending notifications along to directNotificationsToManagers.
 // This func is meant for external callers to register their own notifications channel so that any passed in notifications can
 // be routed appropriately.
-func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan notifications.Notification) {
+func startListenerOnWorkerNotificationChans(ctx context.Context, nChan <-chan notifications.Notification) {
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startListenerOnWorkerNotificationChans")
 	defer span.End()
 

@@ -232,8 +232,8 @@ func getPrometheusJobName() string {
 // used by worker.Workers. It includes methods to get channels for service
 // configurations and success reporting.
 type chansForWorkers interface {
-	GetServiceConfigChan() chan *worker.Config
-	GetSuccessChan() chan worker.SuccessReporter
+	GetServiceConfigChan() chan<- *worker.Config
+	GetSuccessChan() <-chan worker.SuccessReporter
 }
 
 // type chansForWorkersWithNotifications interface {

@@ -86,10 +86,9 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PingAggregatorWorker")
 	defer span.End()
 
-	defer close(chans.GetSuccessChan())
 	defer func() {
-		close(chans.GetNotificationsChan())
-		log.Debug("Closed PingAggregatorWorker Notifications Chan")
+		chans.closeWorkerSendChans()
+		log.Debug("Closed PingAggregatorWorker Notifications and Success Chans")
 	}()
 	var wg sync.WaitGroup
 	defer wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
@@ -99,7 +98,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 		log.Fatal("Could not parse ping timeout")
 	}
 
-	for sc := range chans.GetServiceConfigChan() {
+	for sc := range chans.serviceConfigChan {
 		wg.Add(1)
 		go func(sc *Config) {
 			defer wg.Done()
@@ -116,7 +115,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 			serviceLogger := log.WithField("service", sc.Service.Name())
 
 			defer func(p *pingSuccess) {
-				chans.GetSuccessChan() <- p
+				chans.successChan <- p
 			}(success)
 
 			// Prepare slice of PingNoders
@@ -160,7 +159,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 				}
 				msg := "Could not ping the following nodes: " + strings.Join(failedNodesStrings, ", ")
 				tracing.LogErrorWithTrace(span, serviceLogger, msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(
+				chans.notificationsChan <- notifications.NewSetupError(
 					msg,
 					sc.ServiceNameFromExperimentAndRole(),
 				)

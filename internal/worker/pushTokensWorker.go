@@ -112,10 +112,9 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker")
 	defer span.End()
 
-	defer close(chans.GetSuccessChan())
 	defer func() {
-		close(chans.GetNotificationsChan())
-		log.Debug("Closed PushTokensWorker Notifications Chan")
+		chans.closeWorkerSendChans()
+		log.Debug("Closed PushTokensWorker Notifications and Success Chans")
 	}()
 
 	pushTimeout, err := utils.GetProperTimeoutFromContext(ctx, pushDefaultTimeoutStr)
@@ -124,7 +123,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 	}
 
 	var configWg sync.WaitGroup
-	for sc := range chans.GetServiceConfigChan() {
+	for sc := range chans.serviceConfigChan {
 		var successNodes, failNodes sync.Map
 		serviceLogger := log.WithFields(log.Fields{
 			"experiment": sc.Service.Experiment(),
@@ -147,7 +146,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 
 			func() {
 				defer func(p *pushTokenSuccess) {
-					chans.GetSuccessChan() <- p
+					chans.successChan <- p
 				}(pushSuccess)
 
 				// Prepare default role file for the service
@@ -179,7 +178,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 					msg := "Could not find suitable vault token to push.  Will not push any vault tokens for this service."
 					tracing.LogErrorWithTrace(span, serviceLogger, msg)
 					pushSuccess.changeSuccessValue(false)
-					chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.Service.Name())
+					chans.notificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
 					return
 				}
 
@@ -298,7 +297,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 							var once sync.Once
 							sendNotificationFunc := func(n notifications.Notification) func() {
 								return func() {
-									chans.GetNotificationsChan() <- n
+									chans.notificationsChan <- n
 								}
 							}
 							for n := range nChan {
