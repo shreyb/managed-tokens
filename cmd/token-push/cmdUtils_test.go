@@ -100,7 +100,7 @@ func TestGetServiceConfigOverrideKeyOrGlobalKey(t *testing.T) {
 				testKey := test.setupTestFunc()
 				expectedConfigPath := test.expectedConfigPathFunc(test.expectedOverridden, testKey)
 
-				configPath, overridden := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, testKey)
+				configPath, overridden := getServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, testKey)
 				viper.Reset()
 				if overridden != test.expectedOverridden {
 					t.Errorf("Got unexpected overridden bool.  Expected %t, got %t", test.expectedOverridden, overridden)
@@ -147,7 +147,7 @@ func TestGetCondorCollectorHostFromConfiguration(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				test.setupTestFunc()
-				value := GetCondorCollectorHostFromConfiguration(serviceConfigPath)
+				value := getCondorCollectorHostFromConfiguration(serviceConfigPath)
 				viper.Reset()
 				if value != test.expectedValue {
 					t.Errorf("Got wrong value for condorCollectorHost.  Expected %s, got %s", test.expectedValue, value)
@@ -197,7 +197,7 @@ func TestGetUserPrincipalFromConfiguration(t *testing.T) {
 			func(t *testing.T) {
 				test.setupTestFunc()
 
-				value := GetUserPrincipalFromConfiguration(serviceConfigPath)
+				value := getUserPrincipalFromConfiguration(serviceConfigPath)
 				viper.Reset()
 				if value != test.expectedValue {
 					t.Errorf("Got wrong user principal.  Expected %s, got %s", test.expectedValue, value)
@@ -281,7 +281,7 @@ func TestGetUserPrincipalAndHtgettokenoptsFromConfiguration(t *testing.T) {
 				setFunc("ORIG_HTGETTOKENOPTS", test.htgettokenOptsInEnv)
 				setFunc("minTokenLifetime", test.minTokenLifetimeSetting)
 
-				userPrincipal, htgettokenOpts := GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
+				userPrincipal, htgettokenOpts := getUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 				viper.Reset()
 				if userPrincipal != test.expectedUserPrincipal {
 					t.Errorf("Got wrong user principal.  Expected %s, got %s", test.expectedUserPrincipal, userPrincipal)
@@ -321,7 +321,7 @@ func TestGetKeytabOverrideFromConfiguration(t *testing.T) {
 		t.Run(test.description,
 			func(t *testing.T) {
 				test.setupTestFunc()
-				keytabPath := GetKeytabFromConfiguration(serviceConfigPath)
+				keytabPath := getKeytabFromConfiguration(serviceConfigPath)
 				viper.Reset()
 
 				if keytabPath != test.expectedKeytabPath {
@@ -335,13 +335,13 @@ func TestGetKeytabOverrideFromConfiguration(t *testing.T) {
 func TestGetScheddsAndColllectorHostFromConfigurationNoCollectors(t *testing.T) {
 	viper.Reset()
 	ctx := context.Background()
-	collector, schedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "")
+	collector, schedds, err := getScheddsAndCollectorHostFromConfiguration(ctx, "")
 	assert.Equal(t, "", collector)
 	assert.Nil(t, schedds)
 	assert.ErrorContains(t, err, "no collector hosts found")
 }
 
-// TestGetScheddsFromConfigurationOverride only tests the override case, since GetScheddsFromConfiguration has a fallthrough that
+// TestGetScheddsFromConfigurationOverride only tests the override case, since getScheddsFromConfiguration has a fallthrough that
 // relies on running in a condor cluster.  So here we just make sure that the override works right
 func TestGetScheddsAndColllectorHostFromConfigurationOverride(t *testing.T) {
 	type testCase struct {
@@ -376,7 +376,7 @@ func TestGetScheddsAndColllectorHostFromConfigurationOverride(t *testing.T) {
 			func(t *testing.T) {
 				ctx := context.Background()
 				test.setupTestFunc()
-				_, schedds, _ := GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
+				_, schedds, _ := getScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 				viper.Reset()
 
 				if !testUtils.SlicesHaveSameElementsOrderedType[string](test.expectedSchedds, schedds) {
@@ -409,7 +409,7 @@ func TestGetScheddsAndCollectorHostFromConfigurationCached(t *testing.T) {
 	globalScheddCache.mu.Unlock()
 
 	// test
-	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "fakeservicepath")
+	resultCollector, resultSchedds, err := getScheddsAndCollectorHostFromConfiguration(ctx, "fakeservicepath")
 	if err != nil {
 		t.Errorf("Expected nil error. Got %v", err)
 	}
@@ -445,7 +445,7 @@ func TestGetScheddsAndCollectorHostFromConfigurationFallback(t *testing.T) {
 	globalScheddCache.mu.Unlock()
 
 	// test
-	resultCollector, resultSchedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, "")
+	resultCollector, resultSchedds, err := getScheddsAndCollectorHostFromConfiguration(ctx, "")
 	assert.Nil(t, err)
 	assert.Equal(t, "myCollectorHost2", resultCollector)
 	assert.Equal(t, schedds, resultSchedds)
@@ -519,7 +519,7 @@ func TestGetVaultServer(t *testing.T) {
 
 				testCase.envSettingFunc()
 				testCase.configSettingFunc()
-				result, err := GetVaultServer("")
+				result, err := getVaultServer("")
 				if err != nil && testCase.expectedErrNil {
 					t.Errorf("Expected nil error, got %s", err)
 				}
@@ -823,7 +823,7 @@ func TestGetExtraPingOptsFromConfig(t *testing.T) {
 			func(t *testing.T) {
 				test.viperSetupFunc()
 				defer viper.Reset()
-				pingOpts := GetPingOptsFromConfig(configPath)
+				pingOpts := getPingOptsFromConfig(configPath)
 				assert.Equal(t, test.expectedPingOpts, pingOpts)
 			},
 		)
@@ -861,7 +861,7 @@ func TestGetExtraSSHOptsFromConfig(t *testing.T) {
 			func(t *testing.T) {
 				test.viperSetupFunc()
 				defer viper.Reset()
-				sshOpts := GetSSHOptsFromConfig(configPath)
+				sshOpts := getSSHOptsFromConfig(configPath)
 				assert.Equal(t, test.expectedSSHOpts, sshOpts)
 			},
 		)

@@ -237,7 +237,7 @@ func resolveDisableNotifications(services []service.Service) (bool, []string) {
 	// Check each service's override
 	for _, s := range services {
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-		disableNotificationsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "disableNotifications")
+		disableNotificationsPath, _ := getServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "disableNotifications")
 		serviceDisableNotifications := viper.GetBool(disableNotificationsPath)
 
 		// If global setting is to disable notifications (true), but any one of the experiments wants to have notifications sent (false),

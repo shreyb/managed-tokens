@@ -52,12 +52,12 @@ func init() {
 
 // Functional options for initialization of service Config
 
-// GetUserPrincipalFromConfiguration gets the configured kerberos principal
-func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
-	if userPrincipalOverrideConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "userPrincipal"); ok {
+// getUserPrincipalFromConfiguration gets the configured kerberos principal
+func getUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
+	if userPrincipalOverrideConfigPath, ok := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "userPrincipal"); ok {
 		return viper.GetString(userPrincipalOverrideConfigPath)
 	} else {
-		kerberosPrincipalPattern, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "kerberosPrincipalPattern")
+		kerberosPrincipalPattern, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "kerberosPrincipalPattern")
 		userPrincipalTemplate, err := template.New("userPrincipal").Parse(viper.GetString(kerberosPrincipalPattern))
 		if err != nil {
 			log.Errorf("Error parsing Kerberos Principal Template, %s", err)
@@ -75,8 +75,8 @@ func GetUserPrincipalFromConfiguration(checkServiceConfigPath string) string {
 	}
 }
 
-// GetUserPrincipalAndHtgettokenoptsFromConfiguration gets a worker.Config's kerberos principal and with it, the value for the HTGETTOKENOPTS environment variable
-func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath string) (userPrincipal string, htgettokenOpts string) {
+// getUserPrincipalAndHtgettokenoptsFromConfiguration gets a worker.Config's kerberos principal and with it, the value for the HTGETTOKENOPTS environment variable
+func getUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath string) (userPrincipal string, htgettokenOpts string) {
 	htgettokenOptsPtr := &htgettokenOpts
 	defer func() {
 		if htgettokenOptsPtr != nil {
@@ -84,7 +84,7 @@ func GetUserPrincipalAndHtgettokenoptsFromConfiguration(checkServiceConfigPath s
 		}
 	}()
 
-	userPrincipal = GetUserPrincipalFromConfiguration(checkServiceConfigPath)
+	userPrincipal = getUserPrincipalFromConfiguration(checkServiceConfigPath)
 	if userPrincipal == "" {
 		log.WithField("caller", "setUserPrincipalAndHtgettokenopts").Error("User principal is blank.  Cannot determine credkey and thus HTGETTOKENOPTS.")
 		return
@@ -141,10 +141,10 @@ func getTokenLifetimeStringFromConfiguration() string {
 	return defaultLifetimeString
 }
 
-// GetKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the kerberos keytab.
+// getKeytabFromConfiguration checks the configuration at the checkServiceConfigPath for an override for the path to the kerberos keytab.
 // If the override does not exist, it uses the configuration to calculate the default path to the keytab
-func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
-	if keytabConfigPath, ok := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "keytabPath"); ok {
+func getKeytabFromConfiguration(checkServiceConfigPath string) string {
+	if keytabConfigPath, ok := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "keytabPath"); ok {
 		return viper.GetString(keytabConfigPath)
 	} else {
 		// Default keytab location
@@ -158,16 +158,16 @@ func GetKeytabFromConfiguration(checkServiceConfigPath string) string {
 	}
 }
 
-// GetScheddsAndCollectorHostFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
+// getScheddsAndCollectorHostFromConfiguration gets the schedd names that match the configured constraint by querying the condor collector.  It can be overridden
 // by setting the checkServiceConfigPath's condorCreddHostOverride field, in which case that value will be set as the schedd. It returns
 // the collector host used, and the list of schedds that were found.  If no valid collector host or schedds are found, an error is returned.
-func GetScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServiceConfigPath string) (string, []string, error) {
+func getScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServiceConfigPath string) (string, []string, error) {
 	funcLogger := log.WithField("serviceConfigPath", checkServiceConfigPath)
-	ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration")
+	ctx, span := otel.Tracer("managed-tokens").Start(ctx, "getScheddsFromConfiguration")
 	span.SetAttributes(attribute.KeyValue{Key: "checkServiceConfigPath", Value: attribute.StringValue(checkServiceConfigPath)})
 	defer span.End()
 
-	collectorHostString := GetCondorCollectorHostFromConfiguration(checkServiceConfigPath)
+	collectorHostString := getCondorCollectorHostFromConfiguration(checkServiceConfigPath)
 	if collectorHostString == "" {
 		msg := "no collector hosts found"
 		span.SetStatus(codes.Error, msg)
@@ -216,7 +216,7 @@ func GetScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServi
 			func() {
 				// 3.  Query collector
 				// At this point, we haven't queried this collector yet.  Do so, and store its schedds in the global store/cache
-				ctx, span := otel.Tracer("managed-tokens").Start(ctx, "cmdUtils.GetScheddsFromConfiguration.queryCollAnonFunc")
+				ctx, span := otel.Tracer("managed-tokens").Start(ctx, "getScheddsFromConfiguration.queryCollAnonFunc")
 				span.SetAttributes(attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHostEntry)})
 				defer span.End()
 
@@ -255,19 +255,19 @@ func GetScheddsAndCollectorHostFromConfiguration(ctx context.Context, checkServi
 	return "", nil, errors.New(msg)
 }
 
-// GetCondorCollectorHostFromConfiguration gets the condor collector host from the Viper configuration which will be used to populate
+// getCondorCollectorHostFromConfiguration gets the condor collector host from the Viper configuration which will be used to populate
 // the _condor_COLLECTOR_HOST environment variable.
-// It is preferred to use GetScheddsAndCollectorHostFromConfiguration to get the collector host, as it will also populate the schedd cache
+// It is preferred to use getScheddsAndCollectorHostFromConfiguration to get the collector host, as it will also populate the schedd cache
 // and handle failovers
-func GetCondorCollectorHostFromConfiguration(checkServiceConfigPath string) string {
-	condorCollectorHostPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCollectorHost")
+func getCondorCollectorHostFromConfiguration(checkServiceConfigPath string) string {
+	condorCollectorHostPath, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCollectorHost")
 	return viper.GetString(condorCollectorHostPath)
 }
 
 // checkScheddsOverride checks the global and service-level configurations for the condorCreddHost key.  If that key exists, the value
 // is returned, along with a bool indicating that the key was found in the configuration.
 func checkScheddsOverride(checkServiceConfigPath string) (schedds []string, found bool) {
-	creddOverrideVar, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
+	creddOverrideVar, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorCreddHost")
 	if viper.IsSet(creddOverrideVar) {
 		schedds = append(schedds, viper.GetString(creddOverrideVar))
 		log.WithFields(log.Fields{
@@ -283,7 +283,7 @@ func checkScheddsOverride(checkServiceConfigPath string) (schedds []string, foun
 // If the override does not exist, it returns the globally-configured condor constraint.
 func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 	var constraint string
-	constraintKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
+	constraintKey, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "condorScheddConstraint")
 	if viper.IsSet(constraintKey) {
 		constraint = viper.GetString(constraintKey)
 		log.WithField("constraint", constraint).Debug("Found constraint for condor collector query (condor_status)")
@@ -294,7 +294,7 @@ func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 // getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
 func getScheddsFromCondor(ctx context.Context, collectorHost, constraint string) ([]string, error) {
 	funcLogger := log.WithField("collector", collectorHost)
-	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "cmdUtils.getScheddsFromCondor")
+	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getScheddsFromCondor")
 	span.SetAttributes(
 		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
 		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},
@@ -325,20 +325,20 @@ func getScheddsFromCondor(ctx context.Context, collectorHost, constraint string)
 	return schedds, nil
 }
 
-// GetVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
+// getVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
 // needs to store the refresh token in a vault server.  The order of precedence is:
 //
 // 1. Environment variable _condor_SEC_CREDENTIAL_GETTOKEN_OPTS
 // 2. Configuration file for managed tokens
 // 3. Condor configuration file SEC_CREDENTIAL_GETTOKEN_OPTS value
-func GetVaultServer(checkServiceConfigPath string) (string, error) {
+func getVaultServer(checkServiceConfigPath string) (string, error) {
 	// Check environment
 	if val := os.Getenv(environment.CondorSecCredentialGettokenOpts.EnvVarKey()); val != "" {
 		return parseVaultServerFromEnvSetting(val)
 	}
 
 	// Check config
-	if vaultServerConfigKey, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "vaultServer"); viper.IsSet(vaultServerConfigKey) {
+	if vaultServerConfigKey, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "vaultServer"); viper.IsSet(vaultServerConfigKey) {
 		return viper.GetString(vaultServerConfigKey), nil
 	}
 
@@ -393,38 +393,38 @@ func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
 	return *vaultServerPtr, nil
 }
 
-// GetServiceCreddVaultTokenPathRoot checks the configuration at the checkServiceConfigPath for an override for the path to the directory
+// getServiceCreddVaultTokenPathRoot checks the configuration at the checkServiceConfigPath for an override for the path to the directory
 // where the condorVaultStorer worker should look for and store service/credd-specific vault tokens.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
-func GetServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
-	serviceCreddVaultTokenPathRootPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "serviceCreddVaultTokenPathRoot")
+func getServiceCreddVaultTokenPathRoot(checkServiceConfigPath string) string {
+	serviceCreddVaultTokenPathRootPath, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "serviceCreddVaultTokenPathRoot")
 	return viper.GetString(serviceCreddVaultTokenPathRootPath)
 }
 
-// GetFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions
+// getFileCopierOptionsFromConfig gets the fileCopierOptions from the configuration.  If fileCopierOptions
 // is overridden at the service configuration level, then the global configuration value is ignored.
-func GetFileCopierOptionsFromConfig(serviceConfigPath string) []string {
-	fileCopierOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
+func getFileCopierOptionsFromConfig(serviceConfigPath string) []string {
+	fileCopierOptsPath, _ := getServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "fileCopierOptions")
 	fileCopierOptsString := viper.GetString(fileCopierOptsPath)
 	fileCopierOpts, _ := shlex.Split(fileCopierOptsString)
 	return fileCopierOpts
 }
 
-// GetPingOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
+// getPingOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
 // extra args to pass to the ping worker.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
-func GetPingOptsFromConfig(checkServiceConfigPath string) []string {
-	pingOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingOptions")
+func getPingOptsFromConfig(checkServiceConfigPath string) []string {
+	pingOptsPath, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "pingOptions")
 	pingOptsString := viper.GetString(pingOptsPath)
 	pingOpts, _ := shlex.Split(pingOptsString)
 	return pingOpts
 }
 
-// GetSSHOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
+// getSSHOptsFromConfig checks the configuration at the checkServiceConfigPath for an override for
 // extra args to pass to the fileCopier worker.  If the override does not exist,
 // it uses the configuration to calculate the default path to the relevant directory
-func GetSSHOptsFromConfig(checkServiceConfigPath string) []string {
-	sshOptsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "sshOptions")
+func getSSHOptsFromConfig(checkServiceConfigPath string) []string {
+	sshOptsPath, _ := getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, "sshOptions")
 	sshOptsString := viper.GetString(sshOptsPath)
 	sshOpts, _ := shlex.Split(sshOptsString)
 	return sshOpts
@@ -449,10 +449,10 @@ func SetHtgettokenOptsInCommandEnvironment(htgettokenopts string) func(*environm
 
 // Utility functions
 
-// GetServiceConfigOverrideKeyOrGlobalKey checks to see if key + "Override" is defined at the checkServiceConfigPath in the configuration.
+// getServiceConfigOverrideKeyOrGlobalKey checks to see if key + "Override" is defined at the checkServiceConfigPath in the configuration.
 // If so, the full configuration path is returned, and the overridden bool is set to true.
 // If not, the original key is returned, and the overridden bool is set to false
-func GetServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) (configPath string, overridden bool) {
+func getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) (configPath string, overridden bool) {
 	configPath = key
 	overrideConfigPath := checkServiceConfigPath + "." + key + "Override"
 	if viper.IsSet(overrideConfigPath) {
