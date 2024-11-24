@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// cmdUtils provides utilities that are meant to be used by multiple executables that use the
+// managed tokens libraries
 package cmdUtils
 
 // Here we define all the possible ways to disable notifications
