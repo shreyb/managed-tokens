@@ -137,6 +137,9 @@ func setup() error {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
 		return err
 	}
+
+	initEnvironment()
+
 	// TODO Remove this after bug detailed in initFlags() is fixed upstream
 	disableNotifyFlagWorkaround()
 	// END TODO
@@ -162,7 +165,13 @@ func setup() error {
 	devEnvironmentLabel = getDevEnvironmentLabel()
 
 	initLogs()
+
+	if viper.GetBool("run-onboarding") {
+		setupLogger.Infof("Running onboarding for service %s", viper.GetString("service"))
+	}
+
 	initServices()
+
 	if err := initTimeouts(); err != nil {
 		setupLogger.Error("Fatal error setting up timeouts")
 		return err
@@ -233,7 +242,7 @@ func disableNotifyFlagWorkaround() {
 
 func checkRunOnboardingFlags() error {
 	if viper.GetBool("run-onboarding") && viper.GetString("service") == "" {
-		return errors.New("run-onboarding flag set without a service to run onboarding for")
+		return errors.New("run-onboarding flag set without a service for which to run onboarding")
 	}
 	return nil
 }
