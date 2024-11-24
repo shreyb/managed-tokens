@@ -28,7 +28,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
@@ -238,7 +237,7 @@ func resolveDisableNotifications(services []service.Service) (bool, []string) {
 	// Check each service's override
 	for _, s := range services {
 		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
-		disableNotificationsPath, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "disableNotifications")
+		disableNotificationsPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "disableNotifications")
 		serviceDisableNotifications := viper.GetBool(disableNotificationsPath)
 
 		// If global setting is to disable notifications (true), but any one of the experiments wants to have notifications sent (false),

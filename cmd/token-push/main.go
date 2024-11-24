@@ -647,19 +647,19 @@ func run(ctx context.Context) error {
 				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
-			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
+			userPrincipal, htgettokenopts := GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal. Skipping service")
 				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
-			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
+			vaultServer, err := GetVaultServer(serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
 				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
-			collectorHost, schedds, err := cmdUtils.GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
+			collectorHost, schedds, err := GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
 				collectFailedServiceSetups <- getServiceName(s)
@@ -667,13 +667,13 @@ func run(ctx context.Context) error {
 			}
 
 			// Service-level configuration items that can be defined either in configuration file or on system/environment or have library defaults
-			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
+			keytabPath := GetKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
-			serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
+			serviceCreddVaultTokenPathRoot := GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
 			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
-			fileCopierOptions := cmdUtils.GetFileCopierOptionsFromConfig(serviceConfigPath)
-			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
-			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
+			fileCopierOptions := GetFileCopierOptionsFromConfig(serviceConfigPath)
+			extraPingOpts := GetPingOptsFromConfig(serviceConfigPath)
+			sshOpts := GetSSHOptsFromConfig(serviceConfigPath)
 
 			// Worker-specific config to be passed to the worker.Config constructor
 			getKerberosTicketsRetries := getWorkerConfigInt("getKerberosTickets", "numRetries")

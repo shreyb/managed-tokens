@@ -24,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/worker"
@@ -67,7 +66,7 @@ func getDesiredUIDByOverrideOrLookup(ctx context.Context, serviceConfigPath stri
 // getDefaultRoleFileDestinationTemplate gets the template that the pushTokenWorker should use when
 // deriving the default role file path on the destination node.
 func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
-	defaultRoleFileDestinationTmplPath, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "defaultRoleFileDestinationTemplate")
+	defaultRoleFileDestinationTmplPath, _ := GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "defaultRoleFileDestinationTemplate")
 	if !viper.IsSet(defaultRoleFileDestinationTmplPath) {
 		return "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
 	}

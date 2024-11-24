@@ -15,7 +15,7 @@
 
 // cmdUtils provides utilities that are meant to be used by the various executables that the
 // managed tokens library provides
-package cmdUtils
+package main
 
 import (
 	"context"
