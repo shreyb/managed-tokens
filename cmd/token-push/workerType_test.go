@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmdUtils
+package main
 
 import (
 	"fmt"
@@ -33,7 +33,7 @@ func TestGetWorkerConfigStringSlice(t *testing.T) {
 	viper.Set("workerType."+workerType+"."+key, expectedValue)
 
 	// Call the function
-	result := GetWorkerConfigStringSlice(workerType, key)
+	result := getWorkerConfigStringSlice(workerType, key)
 
 	// Check the result
 	assert.Equal(t, expectedValue, result)
@@ -49,7 +49,7 @@ func TestGetWorkerConfigInt(t *testing.T) {
 	viper.Set("workerType."+workerType+"."+key, expectedValue)
 
 	// Call the function being tested
-	value := GetWorkerConfigInt(workerType, key)
+	value := getWorkerConfigInt(workerType, key)
 
 	// Check if the returned value matches the expected value
 	if value != expectedValue {
@@ -69,7 +69,7 @@ func TestGetWorkerConfigString(t *testing.T) {
 	viper.Set("workerType."+workerType+"."+key, expectedValue)
 
 	// Call the function
-	value := GetWorkerConfigString(workerType, key)
+	value := getWorkerConfigString(workerType, key)
 
 	// Check the result
 	if value != expectedValue {
@@ -129,7 +129,7 @@ func TestGetWorkerConfigValue(t *testing.T) {
 			}
 
 			// Call the function
-			result := GetWorkerConfigValue(tc.workerType, tc.key)
+			result := getWorkerConfigValue(tc.workerType, tc.key)
 
 			// Check the result
 			assert.Equal(t, tc.expected, result)
