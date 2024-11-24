@@ -79,7 +79,7 @@ func (e *experimentOverriddenService) configName() string { return e.configServi
 
 // GetServiceName type checks the service.Service passed in, and returns the appropriate service name for registration
 // and logging purposes.
-func GetServiceName(s service.Service) string {
+func getServiceName(s service.Service) string {
 	if serv, ok := s.(*experimentOverriddenService); ok {
 		return serv.configName()
 	}
@@ -88,7 +88,7 @@ func GetServiceName(s service.Service) string {
 
 // CheckExperimentOverride checks the configuration for a given experiment to see if it has an "experimentOverride" key defined.
 // If it does, it will return that override value.  Else, it will return the passed in experiment string
-func CheckExperimentOverride(experiment string) string {
+func checkExperimentOverride(experiment string) string {
 	if override := viper.GetString("experiments." + experiment + ".experimentOverride"); override != "" {
 		return override
 	}

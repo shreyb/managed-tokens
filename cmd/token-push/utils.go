@@ -227,10 +227,10 @@ type chansForWorkers interface {
 	GetSuccessChan() <-chan worker.SuccessReporter
 }
 
-// ResolveDisableNotifications checks each service's configuration to determine if notifications should be disabled.
+// resolveDisableNotifications checks each service's configuration to determine if notifications should be disabled.
 // It takes a slice of service objects as input and returns a boolean indicating whether admin notifications should be disabled,
 // and a slice of strings containing the names of services for which notifications should be disabled.
-func ResolveDisableNotifications(services []service.Service) (bool, []string) {
+func resolveDisableNotifications(services []service.Service) (bool, []string) {
 	serviceNotificationsToDisable := make([]string, 0, len(services))
 	globalDisableNotifications := viper.GetBool("disableNotifications")
 	finalDisableAdminNotifications := globalDisableNotifications
