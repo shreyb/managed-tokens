@@ -156,17 +156,10 @@ func (c *Config) IsNodeUnpingable(node string) bool {
 func initializeWorkerSpecificConfigDefaults() map[WorkerType]map[workerSpecificConfigOption]any {
 	m := make(map[WorkerType]map[workerSpecificConfigOption]any, 0)
 
-	m[GetKerberosTicketsWorkerType] = make(map[workerSpecificConfigOption]any, 0)
-	m[GetKerberosTicketsWorkerType][numRetriesOption] = retryDefault
-
-	m[StoreAndGetTokenWorkerType] = make(map[workerSpecificConfigOption]any, 0)
-	m[StoreAndGetTokenWorkerType][numRetriesOption] = retryDefault
-
-	m[PingAggregatorWorkerType] = make(map[workerSpecificConfigOption]any, 0)
-	m[PingAggregatorWorkerType][numRetriesOption] = retryDefault
-
-	m[PushTokensWorkerType] = make(map[workerSpecificConfigOption]any, 0)
-	m[PushTokensWorkerType][numRetriesOption] = retryDefault
+	for i := WorkerType(0); i < invalidWorkerType; i++ {
+		m[i] = make(map[workerSpecificConfigOption]any, 0)
+		m[i][numRetriesOption] = retryDefault
+	}
 
 	return m
 }
