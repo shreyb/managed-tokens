@@ -78,7 +78,7 @@ func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
 // return a NOOP func, or if the service is a cmdUtils.ExperimentOverriddenService,
 // a func(*worker.Config) that sets the vault token store holdoff for the passed in Config
 func getVaultTokenStoreHoldoffFuncOpt(s service.Service) func(*worker.Config) error {
-	if _, ok := s.(*cmdUtils.ExperimentOverriddenService); ok {
+	if _, ok := s.(*experimentOverriddenService); ok {
 		return worker.SetVaultTokenStoreHoldoff()
 	}
 	return func(c *worker.Config) error { return nil } // NOOP

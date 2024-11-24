@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmdUtils_test
+package main
 
 import (
 	"fmt"
@@ -21,7 +21,6 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/service"
 )
 
@@ -35,7 +34,7 @@ func TestGetServiceName(t *testing.T) {
 	}
 
 	standardService := service.NewService("experiment_role")
-	overriddenService := &cmdUtils.ExperimentOverriddenService{standardService, "overrideKey", "overrideKey_role"}
+	overriddenService := &experimentOverriddenService{standardService, "overrideKey", "overrideKey_role"}
 
 	testCases := []testCase{
 		{
@@ -54,7 +53,7 @@ func TestGetServiceName(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				if result := cmdUtils.GetServiceName(test.s); result != test.expectedName {
+				if result := getServiceName(test.s); result != test.expectedName {
 					t.Errorf("Got unexpected service name.  Expected %s, got %s", test.expectedName, result)
 				}
 			},
@@ -100,7 +99,7 @@ func TestNewExperimentOverriddenService(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				s := cmdUtils.NewExperimentOverriddenService(test.serviceName, test.configKey)
+				s := newExperimentOverriddenService(test.serviceName, test.configKey)
 				if test.expectedResult.experiment != s.Experiment() {
 					t.Errorf("Got wrong result.  Expected %s, got %s", test.expectedResult.experiment, s.Experiment())
 				}
@@ -110,8 +109,8 @@ func TestNewExperimentOverriddenService(t *testing.T) {
 				if test.expectedResult.name != s.Name() {
 					t.Errorf("Got wrong result.  Expected %s, got %s", test.expectedResult.name, s.Name())
 				}
-				if test.expectedResult.configName != s.ConfigName() {
-					t.Errorf("Got wrong result.  Expected %s, got %s", test.expectedResult.configName, s.ConfigName())
+				if test.expectedResult.configName != s.configName() {
+					t.Errorf("Got wrong result.  Expected %s, got %s", test.expectedResult.configName, s.configName())
 				}
 
 			},
@@ -179,7 +178,7 @@ func TestCheckExperimentOverride(t *testing.T) {
 			func(t *testing.T) {
 				defer viper.Reset()
 				test.setupConfigFunc()
-				if result := cmdUtils.CheckExperimentOverride(test.experiment); result != test.expectedResult {
+				if result := checkExperimentOverride(test.experiment); result != test.expectedResult {
 					t.Errorf("Got wrong return value for experiment.  Expected %s, got %s", test.expectedResult, result)
 				}
 			},

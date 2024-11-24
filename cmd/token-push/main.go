@@ -405,7 +405,7 @@ func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase
 
 	servicesToAddToDatabase := make([]string, 0, len(services))
 	for _, s := range services {
-		servicesToAddToDatabase = append(servicesToAddToDatabase, cmdUtils.GetServiceName(s))
+		servicesToAddToDatabase = append(servicesToAddToDatabase, getServiceName(s))
 	}
 
 	if err := database.UpdateServices(ctx, servicesToAddToDatabase); err != nil {
@@ -489,11 +489,11 @@ func run(ctx context.Context) error {
 	if notificationsDisabledBy == cmdUtils.DISABLED_BY_FLAG {
 		blockAdminNotifications = true
 		for _, s := range services {
-			blockServiceNotificationsSlice = append(blockServiceNotificationsSlice, cmdUtils.GetServiceName(s))
+			blockServiceNotificationsSlice = append(blockServiceNotificationsSlice, getServiceName(s))
 		}
 	} else {
 		// Otherwise, look at the configuration to see if we should block notifications
-		blockAdminNotifications, blockServiceNotificationsSlice = cmdUtils.ResolveDisableNotifications(services)
+		blockAdminNotifications, blockServiceNotificationsSlice = resolveDisableNotifications(services)
 	}
 
 	noServiceNotifications := make(map[string]struct{})
@@ -592,7 +592,7 @@ func run(ctx context.Context) error {
 		go func() {
 			defer _wg.Done()
 			for serviceConfig := range collectServiceConfigs {
-				serviceName := cmdUtils.GetServiceName(serviceConfig.Service)
+				serviceName := getServiceName(serviceConfig.Service)
 				serviceConfigs[serviceName] = serviceConfig
 				_mux.Lock()
 				successfulServices[serviceName] = false
@@ -621,7 +621,7 @@ func run(ctx context.Context) error {
 		go func(s service.Service) {
 			funcLogger := exeLogger.WithFields(log.Fields{
 				"caller":  "token-push.run",
-				"service": cmdUtils.GetServiceName(s),
+				"service": getServiceName(s),
 			})
 
 			// Setup the configs
@@ -635,7 +635,7 @@ func run(ctx context.Context) error {
 			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 
@@ -644,25 +644,25 @@ func run(ctx context.Context) error {
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Error obtaining UID for service. Skipping service.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal. Skipping service")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			collectorHost, schedds, err := cmdUtils.GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 
@@ -676,11 +676,11 @@ func run(ctx context.Context) error {
 			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
 
 			// Worker-specific config to be passed to the worker.Config constructor
-			getKerberosTicketsRetries := cmdUtils.GetWorkerConfigInt("getKerberosTickets", "numRetries")
-			storeAndGetTokenRetries := cmdUtils.GetWorkerConfigInt("storeAndGetToken", "numRetries")
-			storeAndGetTokenInteractiveRetries := cmdUtils.GetWorkerConfigInt("storeAndGetTokenInteractive", "numRetries")
-			pingAggregatorRetries := cmdUtils.GetWorkerConfigInt("pingAggregator", "numRetries")
-			pushTokensRetries := cmdUtils.GetWorkerConfigInt("pushTokens", "numRetries")
+			getKerberosTicketsRetries := getWorkerConfigInt("getKerberosTickets", "numRetries")
+			storeAndGetTokenRetries := getWorkerConfigInt("storeAndGetToken", "numRetries")
+			storeAndGetTokenInteractiveRetries := getWorkerConfigInt("storeAndGetTokenInteractive", "numRetries")
+			pingAggregatorRetries := getWorkerConfigInt("pingAggregator", "numRetries")
+			pushTokensRetries := getWorkerConfigInt("pushTokens", "numRetries")
 
 			c, err := worker.NewConfig(
 				s,
@@ -710,13 +710,13 @@ func run(ctx context.Context) error {
 			)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Could not create config for service")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
+				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			collectServiceConfigs <- c
 
 			// If notifications are not disabled for this service, register the service for notifications
-			if _, ok := noServiceNotifications[cmdUtils.GetServiceName(s)]; !ok && (admNotMgr != nil) {
+			if _, ok := noServiceNotifications[getServiceName(s)]; !ok && (admNotMgr != nil) {
 				registerServiceNotificationsChan(ctx, s, admNotMgr)
 			}
 
@@ -840,7 +840,7 @@ func run(ctx context.Context) error {
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
 			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
-			exeLogger.WithField("service", cmdUtils.GetServiceName(pingSuccess.GetService())).Error(msg)
+			exeLogger.WithField("service", getServiceName(pingSuccess.GetService())).Error(msg)
 		}
 	}
 
@@ -858,7 +858,7 @@ func run(ctx context.Context) error {
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
 		if pushSuccess.GetSuccess() {
-			successfulServices[cmdUtils.GetServiceName(pushSuccess.GetService())] = true
+			successfulServices[getServiceName(pushSuccess.GetService())] = true
 		}
 	}
 

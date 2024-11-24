@@ -25,7 +25,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
 )
@@ -62,7 +61,7 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "registerServiceNotificationsChan")
 	defer span.End()
 
-	serviceName := cmdUtils.GetServiceName(s)
+	serviceName := getServiceName(s)
 	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(serviceName)})
 
 	toEmails := viper.GetStringSlice("experiments." + s.Experiment() + ".emails")

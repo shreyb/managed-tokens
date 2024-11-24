@@ -172,22 +172,13 @@ func removeFailedServiceConfigs(chans chansForWorkers, serviceConfigs map[string
 	for workerSuccess := range chans.GetSuccessChan() {
 		if !workerSuccess.GetSuccess() {
 			exeLogger.WithField(
-				"service", cmdUtils.GetServiceName(workerSuccess.GetService()),
+				"service", getServiceName(workerSuccess.GetService()),
 			).Debug("Removing serviceConfig from list of configs to use")
-			failedConfigs = append(failedConfigs, serviceConfigs[cmdUtils.GetServiceName(workerSuccess.GetService())])
-			delete(serviceConfigs, cmdUtils.GetServiceName(workerSuccess.GetService()))
+			failedConfigs = append(failedConfigs, serviceConfigs[getServiceName(workerSuccess.GetService())])
+			delete(serviceConfigs, getServiceName(workerSuccess.GetService()))
 		}
 	}
 	return failedConfigs
-}
-
-// checkExperimentOverride checks the configuration for a given experiment to see if it has an "experimentOverride" key defined.
-// If it does, it will return that override value.  Else, it will return the passed in experiment string
-func checkExperimentOverride(experiment string) string {
-	if override := viper.GetString("experiments." + experiment + ".experimentOverride"); override != "" {
-		return override
-	}
-	return experiment
 }
 
 // addServiceToServicesSlice checks to see if, for an experiment and its entry in the configuration, a normal service.Service can be added
@@ -197,7 +188,7 @@ func addServiceToServicesSlice(services []service.Service, configExperiment, rea
 	var serv service.Service
 	serviceName := realExperiment + "_" + role
 	if configExperiment != realExperiment {
-		serv = cmdUtils.NewExperimentOverriddenService(serviceName, configExperiment)
+		serv = newExperimentOverriddenService(serviceName, configExperiment)
 	} else {
 		serv = service.NewService(serviceName)
 	}
@@ -236,7 +227,31 @@ type chansForWorkers interface {
 	GetSuccessChan() <-chan worker.SuccessReporter
 }
 
-// type chansForWorkersWithNotifications interface {
-// 	chansForWorkers
-// 	GetNotificationsChan() chan notifications.Notification
-// }
+// ResolveDisableNotifications checks each service's configuration to determine if notifications should be disabled.
+// It takes a slice of service objects as input and returns a boolean indicating whether admin notifications should be disabled,
+// and a slice of strings containing the names of services for which notifications should be disabled.
+func ResolveDisableNotifications(services []service.Service) (bool, []string) {
+	serviceNotificationsToDisable := make([]string, 0, len(services))
+	globalDisableNotifications := viper.GetBool("disableNotifications")
+	finalDisableAdminNotifications := globalDisableNotifications
+
+	// Check each service's override
+	for _, s := range services {
+		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
+		disableNotificationsPath, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "disableNotifications")
+		serviceDisableNotifications := viper.GetBool(disableNotificationsPath)
+
+		// If global setting is to disable notifications (true), but any one of the experiments wants to have notifications sent (false),
+		// we need to send admin notifications for that service too, so override the global setting
+		if (!serviceDisableNotifications) && globalDisableNotifications {
+			finalDisableAdminNotifications = false
+		}
+
+		// If the service wants to disable notifications, either through override or from the global setting, add it to the list
+		if serviceDisableNotifications {
+			serviceNotificationsToDisable = append(serviceNotificationsToDisable, getServiceName(s))
+		}
+	}
+
+	return finalDisableAdminNotifications, serviceNotificationsToDisable
+}
