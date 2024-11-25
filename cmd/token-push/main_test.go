@@ -402,7 +402,7 @@ func TestCheckRunOnboardingFlags(t *testing.T) {
 		"Run onboarding flag set without service": {
 			true,
 			"",
-			errors.New("run-onboarding flag set without a service to run onboarding for"),
+			errors.New("run-onboarding flag set without a service for which to run onboarding"),
 		},
 
 		"Run onboarding flag set with service": {
