@@ -13,9 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// cmdUtils provides utilities that are meant to be used by the various executables that the
-// managed tokens library provides
 package main
+
+// config.go provides utilities that are meant to be used by token-push to interact with the configuration
 
 import (
 	"context"
@@ -29,7 +29,6 @@ import (
 	"sync"
 
 	"github.com/google/shlex"
-	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -291,40 +290,6 @@ func getConstraintFromConfiguration(checkServiceConfigPath string) string {
 	return constraint
 }
 
-// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
-func getScheddsFromCondor(ctx context.Context, collectorHost, constraint string) ([]string, error) {
-	funcLogger := log.WithField("collector", collectorHost)
-	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getScheddsFromCondor")
-	span.SetAttributes(
-		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
-		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},
-	)
-	defer span.End()
-
-	funcLogger.Debug("Querying collector for schedds")
-	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
-	if constraint != "" {
-		statusCmd = statusCmd.WithConstraint(constraint)
-	}
-
-	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
-	classads, err := statusCmd.Run()
-	if err != nil {
-		msg := "Could not run condor_status to get cluster schedds"
-		span.SetStatus(codes.Error, msg)
-		funcLogger.WithField("command", statusCmd.Cmd().String()).Error(msg)
-		return nil, err
-	}
-
-	schedds := make([]string, 0)
-	for _, classad := range classads {
-		name := classad["Name"].String()
-		schedds = append(schedds, name)
-	}
-	span.SetStatus(codes.Ok, "Schedds successfully retrieved from condor")
-	return schedds, nil
-}
-
 // getVaultServer queries various sources to get the correct vault server or SEC_CREDENTIAL_GETTOKEN_OPTS setting, which condor_vault_storer
 // needs to store the refresh token in a vault server.  The order of precedence is:
 //
@@ -365,32 +330,6 @@ func getSecCredentialGettokenOptsFromCondor() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
-}
-
-// parseVaultServerFromEnvSetting takes an environment setting meant for htgettoken to parse (for example "-a vaultserver.domain"),
-// and returns the vaultServer from that setting (in the above example, "vaultserver.domain", nil would be returned)
-func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
-	envSettingArgs, err := shlex.Split(envSetting)
-	if err != nil {
-		log.Errorf("Could not split environment setting according to shlex rules, %s", err)
-		return "", err
-	}
-
-	envSettingFlagSet := pflag.NewFlagSet("envSetting", pflag.ContinueOnError)
-	envSettingFlagSet.ParseErrorsWhitelist.UnknownFlags = true // We're ok with unknown flags - just skip them
-	var vaultServerPtr *string = envSettingFlagSet.StringP("vaultserver", "a", "", "")
-	envSettingFlagSet.Parse(envSettingArgs)
-
-	noVaultServerErr := errors.New("no vault server was stored in the environment")
-
-	if vaultServerPtr == nil {
-		return "", noVaultServerErr
-	}
-	if *vaultServerPtr == "" {
-		return "", noVaultServerErr
-	}
-
-	return *vaultServerPtr, nil
 }
 
 // getServiceCreddVaultTokenPathRoot checks the configuration at the checkServiceConfigPath for an override for the path to the directory
@@ -452,4 +391,30 @@ func getServiceConfigOverrideKeyOrGlobalKey(checkServiceConfigPath, key string) 
 		return overrideConfigPath, true
 	}
 	return
+}
+
+// parseVaultServerFromEnvSetting takes an environment setting meant for htgettoken to parse (for example "-a vaultserver.domain"),
+// and returns the vaultServer from that setting (in the above example, "vaultserver.domain", nil would be returned)
+func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
+	envSettingArgs, err := shlex.Split(envSetting)
+	if err != nil {
+		log.Errorf("Could not split environment setting according to shlex rules, %s", err)
+		return "", err
+	}
+
+	envSettingFlagSet := pflag.NewFlagSet("envSetting", pflag.ContinueOnError)
+	envSettingFlagSet.ParseErrorsWhitelist.UnknownFlags = true // We're ok with unknown flags - just skip them
+	var vaultServerPtr *string = envSettingFlagSet.StringP("vaultserver", "a", "", "")
+	envSettingFlagSet.Parse(envSettingArgs)
+
+	noVaultServerErr := errors.New("no vault server was stored in the environment")
+
+	if vaultServerPtr == nil {
+		return "", noVaultServerErr
+	}
+	if *vaultServerPtr == "" {
+		return "", noVaultServerErr
+	}
+
+	return *vaultServerPtr, nil
 }
