@@ -37,7 +37,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
@@ -51,7 +50,7 @@ var (
 	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger               *log.Entry
-	notificationsDisabledBy cmdUtils.DisableNotificationsOption = cmdUtils.DISABLED_BY_CONFIGURATION
+	notificationsDisabledBy disableNotificationsOption = DISABLED_BY_CONFIGURATION
 )
 
 var devEnvironmentLabel string
@@ -169,7 +168,7 @@ func initFlags() {
 func disableNotifyFlagWorkaround() {
 	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
 		viper.Set("disableNotifications", true)
-		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
+		notificationsDisabledBy = DISABLED_BY_FLAG
 	}
 }
 

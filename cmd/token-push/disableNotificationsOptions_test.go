@@ -13,26 +13,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// cmdUtils provides utilities that are meant to be used by multiple executables that use the
-// managed tokens libraries
-package cmdUtils
+package main
 
-// Here we define all the possible ways to disable notifications
+import (
+	"testing"
 
-type DisableNotificationsOption uint
-
-const (
-	DISABLED_BY_CONFIGURATION DisableNotificationsOption = iota
-	DISABLED_BY_FLAG
+	"github.com/stretchr/testify/assert"
 )
 
-func (d DisableNotificationsOption) String() string {
-	switch d {
-	case DISABLED_BY_CONFIGURATION:
-		return "configuration"
-	case DISABLED_BY_FLAG:
-		return "flag"
-	default:
-		return "unknown"
+func TestDisableNotificationsOptionString(t *testing.T) {
+	testCases := []struct {
+		option   disableNotificationsOption
+		expected string
+	}{
+		{
+			option:   DISABLED_BY_CONFIGURATION,
+			expected: "configuration",
+		},
+		{
+			option:   DISABLED_BY_FLAG,
+			expected: "flag",
+		},
+		{
+			option:   disableNotificationsOption(999),
+			expected: "unknown",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expected, func(t *testing.T) {
+			result := tc.option.String()
+			assert.Equal(t, tc.expected, result)
+		})
 	}
 }

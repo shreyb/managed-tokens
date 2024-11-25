@@ -37,7 +37,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
@@ -54,7 +53,7 @@ var (
 	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger               *log.Entry
-	notificationsDisabledBy cmdUtils.DisableNotificationsOption = cmdUtils.DISABLED_BY_CONFIGURATION
+	notificationsDisabledBy disableNotificationsOption = DISABLED_BY_CONFIGURATION
 )
 
 // devEnvironmentLabel can be set via config or environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
@@ -236,7 +235,7 @@ func initConfig() error {
 func disableNotifyFlagWorkaround() {
 	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
 		viper.Set("disableNotifications", true)
-		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
+		notificationsDisabledBy = DISABLED_BY_FLAG
 	}
 }
 
@@ -495,7 +494,7 @@ func run(ctx context.Context) error {
 	blockServiceNotificationsSlice := make([]string, 0, len(services))
 
 	// If we have disabled the notifications via a flag, we need to always block the notifications irrespective of the configuration
-	if notificationsDisabledBy == cmdUtils.DISABLED_BY_FLAG {
+	if notificationsDisabledBy == DISABLED_BY_FLAG {
 		blockAdminNotifications = true
 		for _, s := range services {
 			blockServiceNotificationsSlice = append(blockServiceNotificationsSlice, getServiceName(s))

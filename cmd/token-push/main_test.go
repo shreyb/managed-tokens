@@ -367,7 +367,7 @@ func TestOpenDatabaseAndLoadServices(t *testing.T) {
 
 func TestDisableNotifyFlagWorkaround(t *testing.T) {
 	// Reset everything
-	notificationsDisabledBy = cmdUtils.DISABLED_BY_CONFIGURATION
+	notificationsDisabledBy = DISABLED_BY_CONFIGURATION
 	viper.Reset()
 
 	// Save previous os.Args, and restore it at the end of this test
