@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/service"
 )
 
 var (
@@ -377,6 +378,35 @@ func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
 		return "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
 	}
 	return viper.GetString(defaultRoleFileDestinationTmplPath)
+}
+
+// resolveDisableNotifications checks each service's configuration to determine if notifications should be disabled.
+// It takes a slice of service objects as input and returns a boolean indicating whether admin notifications should be disabled,
+// and a slice of strings containing the names of services for which notifications should be disabled.
+func resolveDisableNotifications(services []service.Service) (bool, []string) {
+	serviceNotificationsToDisable := make([]string, 0, len(services))
+	globalDisableNotifications := viper.GetBool("disableNotifications")
+	finalDisableAdminNotifications := globalDisableNotifications
+
+	// Check each service's override
+	for _, s := range services {
+		serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
+		disableNotificationsPath, _ := getServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "disableNotifications")
+		serviceDisableNotifications := viper.GetBool(disableNotificationsPath)
+
+		// If global setting is to disable notifications (true), but any one of the experiments wants to have notifications sent (false),
+		// we need to send admin notifications for that service too, so override the global setting
+		if (!serviceDisableNotifications) && globalDisableNotifications {
+			finalDisableAdminNotifications = false
+		}
+
+		// If the service wants to disable notifications, either through override or from the global setting, add it to the list
+		if serviceDisableNotifications {
+			serviceNotificationsToDisable = append(serviceNotificationsToDisable, getServiceName(s))
+		}
+	}
+
+	return finalDisableAdminNotifications, serviceNotificationsToDisable
 }
 
 // Utility functions
