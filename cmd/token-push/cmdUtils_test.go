@@ -867,3 +867,49 @@ func TestGetExtraSSHOptsFromConfig(t *testing.T) {
 		)
 	}
 }
+func TestGetDefaultRoleFileDestinationTemplate(t *testing.T) {
+	type testCase struct {
+		description       string
+		configSetupFunc   func()
+		serviceConfigPath string
+		expectedResult    string
+	}
+
+	testCases := []testCase{
+		{
+			"No template in configuration",
+			func() {},
+			"myexpt",
+			"/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}",
+		},
+		{
+			"Template at global level for config",
+			func() {
+				viper.Set("defaultRoleFileDestinationTemplate", "/custom/path/{{.Experiment}}_{{.DesiredUID}}")
+			},
+			"myexpt",
+			"/custom/path/{{.Experiment}}_{{.DesiredUID}}",
+		},
+		{
+			"Template set at override level",
+			func() {
+				viper.Set("myexpt.defaultRoleFileDestinationTemplateOverride", "/override/path/{{.Experiment}}_{{.DesiredUID}}")
+			},
+			"myexpt",
+			"/override/path/{{.Experiment}}_{{.DesiredUID}}",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				reset()
+				test.configSetupFunc()
+				if result := getDefaultRoleFileDestinationTemplate(test.serviceConfigPath); result != test.expectedResult {
+					t.Errorf("Did not get expected result. Expected %s, got %s", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}

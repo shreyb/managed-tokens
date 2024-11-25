@@ -430,21 +430,14 @@ func getSSHOptsFromConfig(checkServiceConfigPath string) []string {
 	return sshOpts
 }
 
-// Functions to set environment.CommandEnvironment inside worker.Config
-
-// Setkrb5ccname returns a function that sets the KRB5CCNAME directory environment variable in an environment.CommandEnvironment
-func Setkrb5ccnameInCommandEnvironment(krb5ccname string) func(*environment.CommandEnvironment) {
-	return func(e *environment.CommandEnvironment) { e.SetKrb5ccname(krb5ccname, environment.DIR) }
-}
-
-// SetCondorCollectorHostInCommandEnvironment returns a function that sets the _condor_COLLECTOR_HOST environment variable in an environment.CommandEnvironment
-func SetCondorCollectorHostInCommandEnvironment(collector string) func(*environment.CommandEnvironment) {
-	return func(e *environment.CommandEnvironment) { e.SetCondorCollectorHost(collector) }
-}
-
-// SetHtgettokenOptsInCommandEnvironment returns a function that sets the HTGETTOKENOPTS environment variable in an environment.CommandEnvironment
-func SetHtgettokenOptsInCommandEnvironment(htgettokenopts string) func(*environment.CommandEnvironment) {
-	return func(e *environment.CommandEnvironment) { e.SetHtgettokenOpts(htgettokenopts) }
+// getDefaultRoleFileDestinationTemplate gets the template that the pushTokenWorker should use when
+// deriving the default role file path on the destination node.
+func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
+	defaultRoleFileDestinationTmplPath, _ := getServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "defaultRoleFileDestinationTemplate")
+	if !viper.IsSet(defaultRoleFileDestinationTmplPath) {
+		return "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
+	}
+	return viper.GetString(defaultRoleFileDestinationTmplPath)
 }
 
 // Utility functions

@@ -29,7 +29,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
@@ -388,7 +387,7 @@ func TestDisableNotifyFlagWorkaround(t *testing.T) {
 	viper.ReadConfig(strings.NewReader(fakeViperConfig))
 
 	disableNotifyFlagWorkaround()
-	assert.Equal(t, cmdUtils.DISABLED_BY_FLAG, notificationsDisabledBy)
+	assert.Equal(t, DISABLED_BY_FLAG, notificationsDisabledBy)
 	assert.Equal(t, true, viper.GetBool("disableNotifications"))
 }
 
