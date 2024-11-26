@@ -113,6 +113,11 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	)
 	defer span.End()
 
+	// Check if our context is expired before we try to do anything
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	utils.CheckForExecutables(fileCopierExecutables)
 
 	funcLogger := log.WithFields(log.Fields{

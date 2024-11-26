@@ -117,6 +117,9 @@ func registerDummyServiceNotificationsChan(ctx context.Context, s service.Servic
 		for {
 			select {
 			case <-ctx.Done():
+				for range dummyChan {
+					// Drain the channel
+				}
 				return
 			case _, chanOpen := <-dummyChan:
 				if !chanOpen {
@@ -151,6 +154,9 @@ func startListenerOnWorkerNotificationChans(ctx context.Context, nChan <-chan no
 		for {
 			select {
 			case <-ctx.Done():
+				for range nChan {
+					// Drain the channel
+				}
 				return
 			case n, chanOpen := <-nChan:
 				if !chanOpen {
