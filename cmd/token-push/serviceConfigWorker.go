@@ -49,36 +49,29 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc worke
 	)
 	defer span.End()
 
-	var useCtx context.Context
-
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
 
 	if !disableNotifications {
 		startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
 	}
 
+	var useCtx context.Context
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {
 		useCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
 	} else {
 		useCtx = ctx
 	}
-	go workerFunc(useCtx, channels)
-	if len(serviceConfigs) > 0 { // We add this check because if there are no serviceConfigs, don't load them into any channel
-		serviceConfigSlice := make([]*worker.Config, 0, len(serviceConfigs))
-		for _, sc := range serviceConfigs {
-			serviceConfigSlice = append(serviceConfigSlice, sc)
-		}
-		loadServiceConfigsIntoChannel(channels.GetServiceConfigChan(), serviceConfigSlice)
-	}
-	return channels
-}
 
-// loadServiceConfigsIntoChannel loads *worker.Config objects into a channel, usually for use by a worker, and then closes the channel
-func loadServiceConfigsIntoChannel(chanToLoad chan<- *worker.Config, serviceConfigSlice []*worker.Config) {
-	defer close(chanToLoad)
-	for _, sc := range serviceConfigSlice {
-		chanToLoad <- sc
+	// Start the work!
+	go workerFunc(useCtx, channels)
+
+	// Send our serviceConfigs to the worker
+	for _, sc := range serviceConfigs {
+		channels.GetServiceConfigChan() <- sc
 	}
+	close(channels.GetServiceConfigChan())
+
+	return channels
 }
 
 // removeFailedServiceConfigs reads the worker.SuccessReporter chan from the passed in worker.ChannelsForWorkers object, and
