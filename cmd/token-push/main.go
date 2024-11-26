@@ -314,51 +314,12 @@ func run(ctx context.Context) error {
 		}()
 	}
 
-	serviceConfigs := make(map[string]*worker.Config) // Running map of the service configurations to pass to workers
-
-	// This block launches a goroutine that listens for successfully-setup service configs (*worker.Config) objects
-	// and then populates a map of those Config objects and a map to store the overall success status of each
-	// service's token-push operations.  We also concurrently listen for failed service setups and populate the same
-	// map so they can be reported at the end of the run as failures.
-	//
-	// It is synchronized by the collectServiceConfigs and serviceInitDone chans and execution of the program
-	// is blocked until the serviceInitDone chan is closed.
-	collectServiceConfigs := make(chan *worker.Config, len(services))
-	collectFailedServiceSetups := make(chan string, len(services))
-	serviceInitDone := make(chan struct{})
-	go func() {
-		var _wg sync.WaitGroup
-		var _mux sync.Mutex
-
-		defer close(serviceInitDone)
-
-		_, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "collectServiceConfigs_anonFunc")
-		defer span.End()
-
-		_wg.Add(1)
-		go func() {
-			defer _wg.Done()
-			for serviceConfig := range collectServiceConfigs {
-				serviceName := getServiceName(serviceConfig.Service)
-				serviceConfigs[serviceName] = serviceConfig
-				_mux.Lock()
-				successfulServices[serviceName] = false
-				_mux.Unlock()
-			}
-		}()
-
-		_wg.Add(1)
-		go func() {
-			defer _wg.Done()
-			for failedService := range collectFailedServiceSetups {
-				_mux.Lock()
-				successfulServices[failedService] = false // These services will remain false throughout the main() run, and will be reported as failures at the end
-				_mux.Unlock()
-			}
-		}()
-
-		_wg.Wait()
-	}()
+	// Concurrently collect service configs, and after collection is done, signal to run() that it
+	// can proceed with processing
+	serviceConfigs := make(map[string]*worker.Config) // Running map of service configs to pass to workers
+	// Since our worker configs are getting set up concurrently, protect our service maps with these mutexes
+	var _serviceConfigsMux sync.Mutex
+	var _successfulServicesMux sync.Mutex
 
 	// Set up our serviceConfigs and load them into various collection channels
 	// Execution of this program is blocked until the serviceConfigSetupWg waitgroup reaches zero.
@@ -378,11 +339,16 @@ func run(ctx context.Context) error {
 			span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(s.Name())})
 			defer span.End()
 
+			// Add every service to our successfulServices map.  The value will be set to true later if we
+			// successfully complete all the operations for that service
+			_successfulServicesMux.Lock()
+			successfulServices[getServiceName(s)] = false
+			_successfulServicesMux.Unlock()
+
 			// Create kerberos cache for this service
 			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
-				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 
@@ -391,25 +357,21 @@ func run(ctx context.Context) error {
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Error obtaining UID for service. Skipping service.")
-				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			userPrincipal, htgettokenopts := getUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal. Skipping service")
-				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			vaultServer, err := getVaultServer(serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
-				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 			collectorHost, schedds, err := getScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
-				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
 
@@ -457,10 +419,12 @@ func run(ctx context.Context) error {
 			)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Could not create config for service")
-				collectFailedServiceSetups <- getServiceName(s)
 				return
 			}
-			collectServiceConfigs <- c
+
+			_serviceConfigsMux.Lock()
+			serviceConfigs[getServiceName(s)] = c
+			_serviceConfigsMux.Unlock()
 
 			// If notifications are not disabled for this service, register the service for notifications
 			if _, ok := noServiceNotifications[getServiceName(s)]; !ok && (admNotMgr != nil) {
@@ -471,9 +435,6 @@ func run(ctx context.Context) error {
 		}(s)
 	}
 	serviceConfigSetupWg.Wait()
-	close(collectServiceConfigs)
-	close(collectFailedServiceSetups)
-	<-serviceInitDone // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
 
 	if len(serviceConfigs) == 0 {
 		msg := "no serviceConfigs to operate on"
