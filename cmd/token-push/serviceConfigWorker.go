@@ -51,7 +51,7 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc worke
 
 	channels := worker.NewChannelsForWorkers(len(serviceConfigs))
 
-	startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan(), disableNotifications)
+	startListenerOnWorkerNotificationChans(ctx, channels.GetNotificationsChan())
 
 	var useCtx context.Context
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {

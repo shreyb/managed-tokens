@@ -429,6 +429,9 @@ func run(ctx context.Context) error {
 			// If notifications are not disabled for this service, register the service for notifications
 			if _, ok := noServiceNotifications[getServiceName(s)]; !ok && (admNotMgr != nil) {
 				registerServiceNotificationsChan(ctx, s, admNotMgr)
+			} else {
+				// If notifications are disabled for this service, register a dummy channel so that notifications get thrown away
+				registerDummyServiceNotificationsChan(ctx, s)
 			}
 
 			span.SetStatus(codes.Ok, "Service config setup")
