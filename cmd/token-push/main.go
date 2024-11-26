@@ -195,6 +195,8 @@ func setup() error {
 
 	if viper.GetBool("run-onboarding") {
 		setupLogger.Infof("Running onboarding for service %s", viper.GetString("service"))
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = DISABLED_BY_FLAG
 	}
 
 	initServices()
@@ -472,6 +474,12 @@ func run(ctx context.Context) error {
 	close(collectServiceConfigs)
 	close(collectFailedServiceSetups)
 	<-serviceInitDone // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
+
+	if len(serviceConfigs) == 0 {
+		msg := "no serviceConfigs to operate on"
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
+		return errors.New(msg)
+	}
 
 	span.AddEvent("Service configs setup complete")
 
