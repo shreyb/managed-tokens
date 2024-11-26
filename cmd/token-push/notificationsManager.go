@@ -102,9 +102,10 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 
 // startListenerOnWorkerNotificationChans starts up directNotificationsToManagrs exactly once.  It then listens on the
 // notifications.Notification chan (nChan) for worker notifications, sending notifications along to directNotificationsToManagers.
+// If notifications are disabled, it will throw away the notifications so the channel is drained.
 // This func is meant for external callers to register their own notifications channel so that any passed in notifications can
 // be routed appropriately.
-func startListenerOnWorkerNotificationChans(ctx context.Context, nChan <-chan notifications.Notification) {
+func startListenerOnWorkerNotificationChans(ctx context.Context, nChan <-chan notifications.Notification, disableNotifications bool) {
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startListenerOnWorkerNotificationChans")
 	defer span.End()
 
@@ -125,6 +126,10 @@ func startListenerOnWorkerNotificationChans(ctx context.Context, nChan <-chan no
 			case n, chanOpen := <-nChan:
 				if !chanOpen {
 					return
+				}
+				if disableNotifications {
+					// Throw away the notification
+					continue
 				}
 				notificationsFromWorkersChan <- n
 			}
