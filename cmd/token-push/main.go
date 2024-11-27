@@ -476,7 +476,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for getting kerberos ticekts
 	startKerberos := time.Now()
 	span.AddEvent("Starting get kerberos tickets")
-	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, timeoutKerberos, viper.GetBool("disableNotifications"))
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, timeoutKerberos)
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
@@ -503,7 +503,7 @@ func run(ctx context.Context) error {
 	if viper.GetBool("run-onboarding") {
 		w = worker.StoreAndGetTokenInteractiveWorker
 	}
-	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, w, serviceConfigs, timeoutVaultStorer, viper.GetBool("disableNotifications"))
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, w, serviceConfigs, timeoutVaultStorer)
 
 	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
 	// and then begin transferring to nodes
@@ -553,7 +553,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for pinging service nodes
 	startPing := time.Now()
 	span.AddEvent("Start ping nodes")
-	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, timeoutPing, viper.GetBool("disableNotifications"))
+	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, timeoutPing)
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
@@ -571,7 +571,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for pushing tokens to service nodes
 	startPush := time.Now()
 	span.AddEvent("Start push tokens")
-	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, timeoutPush, viper.GetBool("disableNotifications"))
+	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, timeoutPush)
 
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {

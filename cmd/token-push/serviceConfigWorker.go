@@ -38,8 +38,7 @@ type chansForWorkers interface {
 // startServiceConfigWorkerForProcessing starts up a worker using the provided workerFunc, gives it a set of channels to receive *worker.Configs
 // and send notification.Notifications on, and sends *worker.Configs to the worker
 func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc worker.Worker,
-	serviceConfigs map[string]*worker.Config, timeoutCheckKey timeoutKey, disableNotifications bool) chansForWorkers {
-	// Channels, context, and worker for getting kerberos tickets
+	serviceConfigs map[string]*worker.Config, timeoutCheckKey timeoutKey) chansForWorkers {
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startServiceConfigWorkerForProcessing")
 	span.SetAttributes(
 		attribute.KeyValue{
