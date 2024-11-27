@@ -195,6 +195,7 @@ func setup() error {
 
 	if viper.GetBool("run-onboarding") {
 		setupLogger.Infof("Running onboarding for service %s", viper.GetString("service"))
+		setupLogger.Info("Will disable notifications because run-onboarding flag is set")
 		viper.Set("disableNotifications", true)
 		notificationsDisabledBy = DISABLED_BY_FLAG
 	}
