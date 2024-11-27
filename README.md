@@ -9,11 +9,12 @@ Managed Tokens service for Condor/Hashicorp Vault Token Distribution
 The Managed Tokens Service stores and distributes HashiCorp Vault tokens for stakeholders to use in their automated grid computing activities. Specifically, the Managed Tokens service enables stakeholders to automate grid activities such as job submission and file transfers by ensuring that the valid credentials (Vault Tokens) always exist on submit nodes, ready to be used.
 
 # Executables
-The Managed Tokens Service consists of three executables:
+The Managed Tokens Service consists of two executables:
 
 * `token-push`: Executable that uses the service keytabs to generate vault tokens, store them on [HTCondor](https://htcondor.org/) credd machines, and push the vault tokens to the experiment interactive nodes. By default, this runs every hour.
 * `refresh-uids-from-ferry`: Executable that queries FERRY (the credentials and grid mapping registry service at Fermilab) to pull down the applicable UIDs for the configured UNIX accounts. By default, this runs daily each morning.
-* `run-onboarding-managed-tokens`: A lightweight wrapper around condor_vault_storer that must be run when onboarding a new experiment or experiment account to the Managed Tokens Service. In lieu of this, the operator may run condor_vault_storer [experiment]_[role].
+
+The first time the operator of a Managed Tokens service deployment runs `token-push` for a given service (experiment-role combination), the operator needs to pass the `-r/--run-onboarding` flag, with `-s <SERVICE>` also specified.  This will enable the operator to authenticate with the token issuer and generate the refresh token that will eventually be used to generate new bearer tokens and vault tokens.
 
 The `token-push` executable will copy the vault token to the destination nodes at two locations:
 
