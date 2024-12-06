@@ -20,16 +20,8 @@ import (
 	"github.com/fermitools/managed-tokens/internal/service"
 )
 
-// ChannelsForWorkers provides an interface to types that bundle a chan *Config, chan SuccessReporter, and chan notifications.Notification
-// This is meant to be the primary value passed around between functions and packages to orchestrate communication
-type ChannelsForWorkers interface {
-	GetServiceConfigChan() chan *Config
-	GetSuccessChan() chan SuccessReporter
-	GetNotificationsChan() chan notifications.Notification
-}
-
 // NewChannelsForWorkers returns a ChannelsForWorkers that is initialized and ready to pass to workers and listen on
-func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
+func NewChannelsForWorkers(bufferSize int) channelGroup {
 	var useBufferSize int
 	if bufferSize == 0 {
 		useBufferSize = 1
@@ -37,7 +29,7 @@ func NewChannelsForWorkers(bufferSize int) ChannelsForWorkers {
 		useBufferSize = bufferSize
 	}
 
-	return &channelGroup{
+	return channelGroup{
 		serviceConfigChan: make(chan *Config, useBufferSize),
 		successChan:       make(chan SuccessReporter, useBufferSize),
 		notificationsChan: make(chan notifications.Notification, useBufferSize),
@@ -57,14 +49,19 @@ type channelGroup struct {
 	notificationsChan chan notifications.Notification
 }
 
-func (c *channelGroup) GetServiceConfigChan() chan *Config {
+func (c channelGroup) GetServiceConfigChan() chan<- *Config {
 	return c.serviceConfigChan
 }
 
-func (c *channelGroup) GetSuccessChan() chan SuccessReporter {
+func (c channelGroup) GetSuccessChan() <-chan SuccessReporter {
 	return c.successChan
 }
 
-func (c *channelGroup) GetNotificationsChan() chan notifications.Notification {
+func (c channelGroup) GetNotificationsChan() <-chan notifications.Notification {
 	return c.notificationsChan
+}
+
+func (c channelGroup) closeWorkerSendChans() {
+	close(c.notificationsChan)
+	close(c.successChan)
 }

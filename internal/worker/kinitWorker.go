@@ -81,14 +81,13 @@ func (v *kinitSuccess) GetSuccess() bool {
 // GetKerberosTicketsWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
 // obtains kerberos tickets from the configured kerberos principals.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
-func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
+func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketsWorker")
 	defer span.End()
 
-	defer close(chans.GetSuccessChan())
 	defer func() {
-		close(chans.GetNotificationsChan())
-		log.Debug("Closed Kerberos Tickets Worker Notifications Chan")
+		chans.closeWorkerSendChans()
+		log.Debug("Closed Kerberos Tickets Worker Notifications and Success Chan")
 	}()
 
 	kerberosTimeout, err := utils.GetProperTimeoutFromContext(ctx, kerberosDefaultTimeoutStr)
@@ -97,7 +96,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 	}
 
 	var wg sync.WaitGroup
-	for sc := range chans.GetServiceConfigChan() {
+	for sc := range chans.serviceConfigChan {
 		wg.Add(1)
 		go func(sc *Config) {
 			defer wg.Done()
@@ -113,7 +112,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 				Service: sc.Service,
 			}
 			defer func(k *kinitSuccess) {
-				chans.GetSuccessChan() <- k
+				chans.successChan <- k
 			}(success)
 
 			kerbContext, kerbCancel := context.WithTimeout(ctx, kerberosTimeout)
@@ -131,7 +130,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans ChannelsForWorkers) {
 					"role":       sc.Service.Role(),
 					"account":    sc.Account,
 				}), msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
+				chans.notificationsChan <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 				return
 			}
 			span.SetStatus(codes.Ok, "Kerberos ticket obtained and verified")

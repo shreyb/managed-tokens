@@ -39,10 +39,6 @@ func TestNewChannelsForWorkers(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.description, func(t *testing.T) {
 			n := NewChannelsForWorkers(test.userInputBufferSize)
-			if _, ok := n.(*channelGroup); !ok {
-				t.Errorf("Got wrong return type for NewChannelsForWorkers.  Wanted %T, got %T", &channelGroup{}, n)
-			}
-
 			if size := cap(n.GetServiceConfigChan()); size != test.expectedBufferSize {
 				t.Errorf("Buffer size for GetServiceConfigChan() should be %d.  Got %d instead", test.expectedBufferSize, size)
 			}

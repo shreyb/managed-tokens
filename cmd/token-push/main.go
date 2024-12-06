@@ -37,7 +37,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
@@ -54,7 +53,7 @@ var (
 	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger               *log.Entry
-	notificationsDisabledBy cmdUtils.DisableNotificationsOption = cmdUtils.DISABLED_BY_CONFIGURATION
+	notificationsDisabledBy disableNotificationsOption = DISABLED_BY_CONFIGURATION
 )
 
 // devEnvironmentLabel can be set via config or environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
@@ -63,14 +62,15 @@ var devEnvironmentLabel string
 const devEnvironmentLabelDefault string = "production"
 
 // Supported timeouts and their default values
-var timeouts = map[string]time.Duration{
-	"global":      time.Duration(300 * time.Second),
-	"kerberos":    time.Duration(20 * time.Second),
-	"vaultstorer": time.Duration(60 * time.Second),
-	"ping":        time.Duration(10 * time.Second),
-	"push":        time.Duration(30 * time.Second),
+var timeouts = map[timeoutKey]time.Duration{
+	timeoutGlobal:      time.Duration(300 * time.Second),
+	timeoutKerberos:    time.Duration(20 * time.Second),
+	timeoutVaultStorer: time.Duration(60 * time.Second),
+	timeoutPing:        time.Duration(10 * time.Second),
+	timeoutPush:        time.Duration(30 * time.Second),
 }
 
+// Metrics-related variables
 var (
 	startSetup   time.Time
 	startCleanup time.Time
@@ -101,6 +101,35 @@ var (
 )
 
 var errExitOK = errors.New("exit 0")
+
+func main() {
+	if err := setup(); err != nil {
+		if errors.Is(err, errExitOK) {
+			os.Exit(0)
+		}
+		log.Fatal("Error running setup actions.  Exiting")
+	}
+
+	// Global context
+	var globalTimeout time.Duration
+	var ok bool
+	if globalTimeout, ok = timeouts[timeoutGlobal]; !ok {
+		exeLogger.Fatal("Could not obtain global timeout.")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
+	defer cancel()
+
+	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
+	if tracingShutdown, err := initTracing(ctx); err == nil {
+		defer tracingShutdown(ctx)
+	}
+
+	// Run our actual operation
+	if err := run(ctx); err != nil {
+		exeLogger.Fatal("Error running operations to push vault tokens.  Exiting")
+	}
+	exeLogger.Debug("Finished run")
+}
 
 // Initial setup.  Read flags, find config file
 func setup() error {
@@ -135,11 +164,12 @@ func setup() error {
 		fmt.Println("Fatal error setting up configuration.  Exiting now")
 		return err
 	}
+
+	initEnvironment()
+
 	// TODO Remove this after bug detailed in initFlags() is fixed upstream
 	disableNotifyFlagWorkaround()
 	// END TODO
-
-	devEnvironmentLabel = getDevEnvironmentLabel()
 
 	// If user wants to list all services, do that and exit
 	if viper.GetBool("list-services") {
@@ -153,8 +183,25 @@ func setup() error {
 		fmt.Println(strings.Join(allServices, "\n"))
 		return errExitOK
 	}
+
+	if err := checkRunOnboardingFlags(); err != nil {
+		setupLogger.Error(err)
+		return err
+	}
+
+	devEnvironmentLabel = getDevEnvironmentLabel()
+
 	initLogs()
+
+	if viper.GetBool("run-onboarding") {
+		setupLogger.Infof("Running onboarding for service %s", viper.GetString("service"))
+		setupLogger.Info("Will disable notifications because run-onboarding flag is set")
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = DISABLED_BY_FLAG
+	}
+
 	initServices()
+
 	if err := initTimeouts(); err != nil {
 		setupLogger.Error("Fatal error setting up timeouts")
 		return err
@@ -163,288 +210,6 @@ func setup() error {
 		setupLogger.Error("Error setting up metrics. Will still continue")
 	}
 	return nil
-}
-
-func initFlags() {
-	// Defaults
-	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
-
-	// Flags
-	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
-	pflag.StringP("configfile", "c", "", "Specify alternate config file")
-	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
-	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
-	pflag.Bool("version", false, "Version of Managed Tokens library")
-	pflag.Bool("disable-notifications", false, "Turn off all notifications for this run")
-	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
-	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
-	pflag.String("admin", "", "Override the config file admin email")
-	pflag.Bool("list-services", false, "List all configured services in config file")
-
-	pflag.Parse()
-	viper.BindPFlags(pflag.CommandLine)
-
-	// Aliases
-	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
-	//  viper.RegisterAlias("dont-notify", "disableNotifications")
-	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
-	// Instead, we have to work around this after we read in the config file (see setup())
-}
-
-func initConfig() error {
-	// Get config file
-	configFileName := "managedTokens"
-	// Check for override
-	if config := viper.GetString("configfile"); config != "" {
-		viper.SetConfigFile(config)
-	} else {
-		viper.SetConfigName(configFileName)
-	}
-
-	viper.AddConfigPath("/etc/managed-tokens/")
-	viper.AddConfigPath("$HOME/.managed-tokens/")
-	viper.AddConfigPath(".")
-
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
-		return err
-	}
-	return nil
-}
-
-// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
-func disableNotifyFlagWorkaround() {
-	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
-		viper.Set("disableNotifications", true)
-		notificationsDisabledBy = cmdUtils.DISABLED_BY_FLAG
-	}
-}
-
-// Environment variables to read into Viper config
-// Note: In keeping with best practices, these can be overridden by command line flags or direct
-// in-code overrides.  This only sets the initial state of the given viper keys.
-func initEnvironment() {
-	viper.BindEnv("collectorHost", environment.CondorCollectorHost.EnvVarKey())
-}
-
-// Set up logs
-func initLogs() {
-	log.SetLevel(log.DebugLevel)
-	debugLogConfigLookup := "logs.token-push.debugfile"
-	logConfigLookup := "logs.token-push.logfile"
-	// Debug log
-	log.AddHook(lfshook.NewHook(lfshook.PathMap{
-		log.DebugLevel: viper.GetString(debugLogConfigLookup),
-		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
-		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
-		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
-		log.FatalLevel: viper.GetString(debugLogConfigLookup),
-		log.PanicLevel: viper.GetString(debugLogConfigLookup),
-	}, &log.TextFormatter{FullTimestamp: true}))
-
-	// Info log file
-	log.AddHook(lfshook.NewHook(lfshook.PathMap{
-		log.InfoLevel:  viper.GetString(logConfigLookup),
-		log.WarnLevel:  viper.GetString(logConfigLookup),
-		log.ErrorLevel: viper.GetString(logConfigLookup),
-		log.FatalLevel: viper.GetString(logConfigLookup),
-		log.PanicLevel: viper.GetString(logConfigLookup),
-	}, &log.TextFormatter{FullTimestamp: true}))
-
-	// Loki.  Example here taken from README: https://github.com/YuKitsune/lokirus/blob/main/README.md
-	lokiOpts := lokirus.NewLokiHookOptions().
-		// Grafana doesn't have a "panic" level, but it does have a "critical" level
-		// https://grafana.com/docs/grafana/latest/explore/logs-integration/
-		WithLevelMap(lokirus.LevelMap{log.PanicLevel: "critical"}).
-		WithFormatter(&log.JSONFormatter{}).
-		WithStaticLabels(lokirus.Labels{
-			"app":         "managed-tokens",
-			"command":     currentExecutable,
-			"environment": devEnvironmentLabel,
-		})
-	lokiHook := lokirus.NewLokiHookWithOpts(
-		viper.GetString("loki.host"),
-		lokiOpts,
-		log.InfoLevel,
-		log.WarnLevel,
-		log.ErrorLevel,
-		log.FatalLevel)
-
-	log.AddHook(lokiHook)
-
-	exeLogger = log.WithField("executable", currentExecutable)
-	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
-
-	if viper.GetBool("test") {
-		exeLogger.Info("Running in test mode")
-	}
-}
-
-// Setup of timeouts, if they're set
-func initTimeouts() error {
-	// Save supported timeouts into timeouts map
-	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
-		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
-		// Only save the timeout if it's supported, otherwise ignore it
-		if _, ok := timeouts[timeoutKey]; ok {
-			timeout, err := time.ParseDuration(timeoutString)
-			if err != nil {
-				exeLogger.WithField("timeoutKey", timeoutKey).Warn("Could not parse configured timeout.  Using default")
-				continue
-			}
-			timeouts[timeoutKey] = timeout
-			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
-		}
-	}
-
-	// Verify that individual timeouts don't add to more than total timeout
-	now := time.Now()
-	timeForComponentCheck := now
-
-	for timeoutKey, timeout := range timeouts {
-		if timeoutKey != "global" {
-			timeForComponentCheck = timeForComponentCheck.Add(timeout)
-		}
-	}
-
-	timeForGlobalCheck := now.Add(timeouts["global"])
-	if timeForComponentCheck.After(timeForGlobalCheck) {
-		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
-		exeLogger.Error(msg)
-		return errors.New(msg)
-	}
-	return nil
-}
-
-// Set up prometheus metrics
-func initMetrics() error {
-	// Set up prometheus metrics
-	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
-		exeLogger.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
-			"To limit error noise, "+
-			"these failures at the experiment level will be registered as warnings in the log, "+
-			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
-		prometheusUp = false
-		return err
-	}
-	metrics.MetricsRegistry.MustRegister(promDuration)
-	metrics.MetricsRegistry.MustRegister(servicePushFailureCount)
-	return nil
-}
-
-// Setup of services
-func initServices() {
-	// Grab HTGETTOKENOPTS if it's there
-	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
-	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
-	switch {
-	case viper.GetString("experiment") != "":
-		// Running on a single experiment and all its roles
-		experimentConfigPath := "experiments." + viper.GetString("experiment")
-		experiment := checkExperimentOverride(viper.GetString("experiment"))
-		for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
-			services = addServiceToServicesSlice(services, viper.GetString("experiment"), experiment, role)
-		}
-	case viper.GetString("service") != "":
-		// Running on a single service
-		serviceExperiment, role := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
-		experiment := checkExperimentOverride(serviceExperiment)
-		services = addServiceToServicesSlice(services, serviceExperiment, experiment, role)
-	default:
-		// Running on every configured experiment and role
-		for configExperiment := range viper.GetStringMap("experiments") {
-			experimentConfigPath := "experiments." + configExperiment
-			experiment := checkExperimentOverride(configExperiment)
-			for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
-				services = addServiceToServicesSlice(services, configExperiment, experiment, role)
-			}
-		}
-	}
-}
-
-// openDatabaseAndLoadServices opens a db.ManagedTokensDatabase and loads the configured services into
-// the database.  If any of these operations fail, it returns a nil *db.ManagedTokensDatabase and an error.
-// Otherwise, it returns the pointer to the db.ManagedTokensDatabase
-func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase, error) {
-	var dbLocation string
-
-	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "openDatabaseAndLoadService")
-	defer span.End()
-
-	// Open connection to the SQLite database where notification info will be stored
-	if viper.IsSet("dbLocation") {
-		dbLocation = viper.GetString("dbLocation")
-	} else {
-		dbLocation = "/var/lib/managed-tokens/uid.db"
-	}
-	exeLogger.Debugf("Using db file at %s", dbLocation)
-
-	database, err := db.OpenOrCreateDatabase(dbLocation)
-	if err != nil {
-		tracing.LogErrorWithTrace(span, exeLogger, "Could not open or create ManagedTokensDatabase")
-		return nil, err
-	}
-
-	servicesToAddToDatabase := make([]string, 0, len(services))
-	for _, s := range services {
-		servicesToAddToDatabase = append(servicesToAddToDatabase, cmdUtils.GetServiceName(s))
-	}
-
-	if err := database.UpdateServices(ctx, servicesToAddToDatabase); err != nil {
-		exeLogger.Error("Could not update database with currently-configured services.  Future database-based operations may fail")
-	}
-
-	tracing.LogSuccessWithTrace(span, exeLogger, "Successfully opened database and loaded services")
-	return database, nil
-}
-
-// initTracing initializes the tracing configuration and returns a function to shutdown the
-// initialized TracerProvider and an error, if any.
-func initTracing(ctx context.Context) (func(context.Context), error) {
-	url := viper.GetString("tracing.url")
-	if url == "" {
-		msg := "no tracing url configured.  Continuing without tracing"
-		exeLogger.Error(msg)
-		return nil, errors.New(msg)
-	}
-	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, url, devEnvironmentLabel)
-	if err != nil {
-		exeLogger.Error("Could not obtain a TraceProvider.  Continuing without tracing")
-		return nil, err
-	}
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
-	return shutdown, nil
-}
-
-func main() {
-	if err := setup(); err != nil {
-		if errors.Is(err, errExitOK) {
-			os.Exit(0)
-		}
-		log.Fatal("Error running setup actions.  Exiting")
-	}
-
-	// Global context
-	var globalTimeout time.Duration
-	var ok bool
-	if globalTimeout, ok = timeouts["global"]; !ok {
-		exeLogger.Fatal("Could not obtain global timeout.")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
-	defer cancel()
-
-	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
-	if tracingShutdown, err := initTracing(ctx); err == nil {
-		defer tracingShutdown(ctx)
-	}
-
-	// Run our actual operation
-	if err := run(ctx); err != nil {
-		exeLogger.Fatal("Error running operations to push vault tokens.  Exiting")
-	}
-	exeLogger.Debug("Finished run")
 }
 
 func run(ctx context.Context) error {
@@ -469,14 +234,14 @@ func run(ctx context.Context) error {
 	blockServiceNotificationsSlice := make([]string, 0, len(services))
 
 	// If we have disabled the notifications via a flag, we need to always block the notifications irrespective of the configuration
-	if notificationsDisabledBy == cmdUtils.DISABLED_BY_FLAG {
+	if notificationsDisabledBy == DISABLED_BY_FLAG {
 		blockAdminNotifications = true
 		for _, s := range services {
-			blockServiceNotificationsSlice = append(blockServiceNotificationsSlice, cmdUtils.GetServiceName(s))
+			blockServiceNotificationsSlice = append(blockServiceNotificationsSlice, getServiceName(s))
 		}
 	} else {
 		// Otherwise, look at the configuration to see if we should block notifications
-		blockAdminNotifications, blockServiceNotificationsSlice = cmdUtils.ResolveDisableNotifications(services)
+		blockAdminNotifications, blockServiceNotificationsSlice = resolveDisableNotifications(services)
 	}
 
 	noServiceNotifications := make(map[string]struct{})
@@ -550,51 +315,12 @@ func run(ctx context.Context) error {
 		}()
 	}
 
-	serviceConfigs := make(map[string]*worker.Config) // Running map of the service configurations to pass to workers
-
-	// This block launches a goroutine that listens for successfully-setup service configs (*worker.Config) objects
-	// and then populates a map of those Config objects and a map to store the overall success status of each
-	// service's token-push operations.  We also concurrently listen for failed service setups and populate the same
-	// map so they can be reported at the end of the run as failures.
-	//
-	// It is synchronized by the collectServiceConfigs and serviceInitDone chans and execution of the program
-	// is blocked until the serviceInitDone chan is closed.
-	collectServiceConfigs := make(chan *worker.Config, len(services))
-	collectFailedServiceSetups := make(chan string, len(services))
-	serviceInitDone := make(chan struct{})
-	go func() {
-		var _wg sync.WaitGroup
-		var _mux sync.Mutex
-
-		defer close(serviceInitDone)
-
-		_, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "collectServiceConfigs_anonFunc")
-		defer span.End()
-
-		_wg.Add(1)
-		go func() {
-			defer _wg.Done()
-			for serviceConfig := range collectServiceConfigs {
-				serviceName := cmdUtils.GetServiceName(serviceConfig.Service)
-				serviceConfigs[serviceName] = serviceConfig
-				_mux.Lock()
-				successfulServices[serviceName] = false
-				_mux.Unlock()
-			}
-		}()
-
-		_wg.Add(1)
-		go func() {
-			defer _wg.Done()
-			for failedService := range collectFailedServiceSetups {
-				_mux.Lock()
-				successfulServices[failedService] = false // These services will remain false throughout the main() run, and will be reported as failures at the end
-				_mux.Unlock()
-			}
-		}()
-
-		_wg.Wait()
-	}()
+	// Concurrently collect service configs, and after collection is done, signal to run() that it
+	// can proceed with processing
+	serviceConfigs := make(map[string]*worker.Config) // Running map of service configs to pass to workers
+	// Since our worker configs are getting set up concurrently, protect our service maps with these mutexes
+	var _serviceConfigsMux sync.Mutex
+	var _successfulServicesMux sync.Mutex
 
 	// Set up our serviceConfigs and load them into various collection channels
 	// Execution of this program is blocked until the serviceConfigSetupWg waitgroup reaches zero.
@@ -604,7 +330,7 @@ func run(ctx context.Context) error {
 		go func(s service.Service) {
 			funcLogger := exeLogger.WithFields(log.Fields{
 				"caller":  "token-push.run",
-				"service": cmdUtils.GetServiceName(s),
+				"service": getServiceName(s),
 			})
 
 			// Setup the configs
@@ -614,11 +340,16 @@ func run(ctx context.Context) error {
 			span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(s.Name())})
 			defer span.End()
 
+			// Add every service to our successfulServices map.  The value will be set to true later if we
+			// successfully complete all the operations for that service
+			_successfulServicesMux.Lock()
+			successfulServices[getServiceName(s)] = false
+			_successfulServicesMux.Unlock()
+
 			// Create kerberos cache for this service
 			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 
@@ -627,42 +358,39 @@ func run(ctx context.Context) error {
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Error obtaining UID for service. Skipping service.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-			userPrincipal, htgettokenopts := cmdUtils.GetUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
+			userPrincipal, htgettokenopts := getUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal. Skipping service")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-			vaultServer, err := cmdUtils.GetVaultServer(serviceConfigPath)
+			vaultServer, err := getVaultServer(serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-			collectorHost, schedds, err := cmdUtils.GetScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
+			collectorHost, schedds, err := getScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
 
 			// Service-level configuration items that can be defined either in configuration file or on system/environment or have library defaults
-			keytabPath := cmdUtils.GetKeytabFromConfiguration(serviceConfigPath)
+			keytabPath := getKeytabFromConfiguration(serviceConfigPath)
 			defaultRoleFileDestinationTemplate := getDefaultRoleFileDestinationTemplate(serviceConfigPath)
-			serviceCreddVaultTokenPathRoot := cmdUtils.GetServiceCreddVaultTokenPathRoot(serviceConfigPath)
+			serviceCreddVaultTokenPathRoot := getServiceCreddVaultTokenPathRoot(serviceConfigPath)
 			vaultTokenStoreHoldoffFunc := getVaultTokenStoreHoldoffFuncOpt(s)
-			fileCopierOptions := cmdUtils.GetFileCopierOptionsFromConfig(serviceConfigPath)
-			extraPingOpts := cmdUtils.GetPingOptsFromConfig(serviceConfigPath)
-			sshOpts := cmdUtils.GetSSHOptsFromConfig(serviceConfigPath)
+			fileCopierOptions := getFileCopierOptionsFromConfig(serviceConfigPath)
+			extraPingOpts := getPingOptsFromConfig(serviceConfigPath)
+			sshOpts := getSSHOptsFromConfig(serviceConfigPath)
 
 			// Worker-specific config to be passed to the worker.Config constructor
-			getKerberosTicketsRetries := cmdUtils.GetWorkerConfigInt("getKerberosTickets", "numRetries")
-			storeAndGetTokenRetries := cmdUtils.GetWorkerConfigInt("storeAndGetToken", "numRetries")
-			pingAggregatorRetries := cmdUtils.GetWorkerConfigInt("pingAggregator", "numRetries")
-			pushTokensRetries := cmdUtils.GetWorkerConfigInt("pushTokens", "numRetries")
+			getKerberosTicketsRetries := getWorkerConfigInt("getKerberosTickets", "numRetries")
+			storeAndGetTokenRetries := getWorkerConfigInt("storeAndGetToken", "numRetries")
+			storeAndGetTokenInteractiveRetries := getWorkerConfigInt("storeAndGetTokenInteractive", "numRetries")
+			pingAggregatorRetries := getWorkerConfigInt("pingAggregator", "numRetries")
+			pushTokensRetries := getWorkerConfigInt("pushTokens", "numRetries")
 
 			c, err := worker.NewConfig(
 				s,
@@ -681,6 +409,7 @@ func run(ctx context.Context) error {
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
 				worker.SetWorkerRetryValue(worker.GetKerberosTicketsWorkerType, uint(getKerberosTicketsRetries)),
 				worker.SetWorkerRetryValue(worker.StoreAndGetTokenWorkerType, uint(storeAndGetTokenRetries)),
+				worker.SetWorkerRetryValue(worker.StoreAndGetTokenInteractiveWorkerType, uint(storeAndGetTokenInteractiveRetries)),
 				worker.SetWorkerRetryValue(worker.PingAggregatorWorkerType, uint(pingAggregatorRetries)),
 				worker.SetWorkerRetryValue(worker.PushTokensWorkerType, uint(pushTokensRetries)),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
@@ -691,23 +420,31 @@ func run(ctx context.Context) error {
 			)
 			if err != nil {
 				tracing.LogErrorWithTrace(span, funcLogger, "Could not create config for service")
-				collectFailedServiceSetups <- cmdUtils.GetServiceName(s)
 				return
 			}
-			collectServiceConfigs <- c
+
+			_serviceConfigsMux.Lock()
+			serviceConfigs[getServiceName(s)] = c
+			_serviceConfigsMux.Unlock()
 
 			// If notifications are not disabled for this service, register the service for notifications
-			if _, ok := noServiceNotifications[cmdUtils.GetServiceName(s)]; !ok && (admNotMgr != nil) {
+			if _, ok := noServiceNotifications[getServiceName(s)]; !ok && (admNotMgr != nil) {
 				registerServiceNotificationsChan(ctx, s, admNotMgr)
+			} else {
+				// If notifications are disabled for this service, register a dummy channel so that notifications get thrown away
+				registerDummyServiceNotificationsChan(ctx, s)
 			}
 
 			span.SetStatus(codes.Ok, "Service config setup")
 		}(s)
 	}
 	serviceConfigSetupWg.Wait()
-	close(collectServiceConfigs)
-	close(collectFailedServiceSetups)
-	<-serviceInitDone // Don't move on until our serviceConfigs map is populated and our successfulServices map initialized
+
+	if len(serviceConfigs) == 0 {
+		msg := "no serviceConfigs to operate on"
+		tracing.LogErrorWithTrace(span, exeLogger, msg)
+		return errors.New(msg)
+	}
 
 	span.AddEvent("Service configs setup complete")
 
@@ -739,7 +476,7 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for getting kerberos ticekts
 	startKerberos := time.Now()
 	span.AddEvent("Starting get kerberos tickets")
-	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, "kerberos")
+	kerberosChannels := startServiceConfigWorkerForProcessing(ctx, worker.GetKerberosTicketsWorker, serviceConfigs, timeoutKerberos)
 
 	// If we couldn't get a kerberos ticket for a service, we don't want to try to get vault
 	// tokens for that service
@@ -760,7 +497,13 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for getting and storing short-lived vault token (condor_vault_storer)
 	startCondorVault := time.Now()
 	span.AddEvent("Start obtain and store vault tokens")
-	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, worker.StoreAndGetTokenWorker, serviceConfigs, "vaultstorer")
+
+	var w worker.Worker
+	w = worker.StoreAndGetTokenWorker
+	if viper.GetBool("run-onboarding") {
+		w = worker.StoreAndGetTokenInteractiveWorker
+	}
+	condorVaultChans := startServiceConfigWorkerForProcessing(ctx, w, serviceConfigs, timeoutVaultStorer)
 
 	// Wait until all workers are done, remove any service configs that we couldn't get tokens for from Configs,
 	// and then begin transferring to nodes
@@ -786,7 +529,15 @@ func run(ctx context.Context) error {
 	// If we're in test mode, stop here
 	if viper.GetBool("test") {
 		exeLogger.Info("Test mode.  Cleaning up now")
+		for service := range serviceConfigs {
+			successfulServices[service] = true
+		}
+		return nil
+	}
 
+	// If we're onboarding a service but not pushing their tokens, stop here
+	if viper.GetBool("run-onboarding") && !viper.GetBool("push-tokens") {
+		exeLogger.Info("Onboarding mode.  Cleaning up now")
 		for service := range serviceConfigs {
 			successfulServices[service] = true
 		}
@@ -802,12 +553,12 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for pinging service nodes
 	startPing := time.Now()
 	span.AddEvent("Start ping nodes")
-	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, "ping")
+	pingChans := startServiceConfigWorkerForProcessing(ctx, worker.PingAggregatorWorker, serviceConfigs, timeoutPing)
 
 	for pingSuccess := range pingChans.GetSuccessChan() {
 		if !pingSuccess.GetSuccess() {
 			msg := "Could not ping all nodes for service.  We'll still try to push tokens to all configured nodes, but there may be failures.  See logs for details"
-			exeLogger.WithField("service", cmdUtils.GetServiceName(pingSuccess.GetService())).Error(msg)
+			exeLogger.WithField("service", getServiceName(pingSuccess.GetService())).Error(msg)
 		}
 	}
 
@@ -820,12 +571,12 @@ func run(ctx context.Context) error {
 	// Get channels and start worker for pushing tokens to service nodes
 	startPush := time.Now()
 	span.AddEvent("Start push tokens")
-	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, "push")
+	pushChans := startServiceConfigWorkerForProcessing(ctx, worker.PushTokensWorker, serviceConfigs, timeoutPush)
 
 	// Aggregate the successes
 	for pushSuccess := range pushChans.GetSuccessChan() {
 		if pushSuccess.GetSuccess() {
-			successfulServices[cmdUtils.GetServiceName(pushSuccess.GetService())] = true
+			successfulServices[getServiceName(pushSuccess.GetService())] = true
 		}
 	}
 
@@ -837,6 +588,235 @@ func run(ctx context.Context) error {
 	return nil
 }
 
+// Setup helper functions
+
+func initFlags() {
+	// Defaults
+	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
+
+	// Flags
+	pflag.String("admin", "", "Override the config file admin email")
+	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.Bool("disable-notifications", false, "Turn off all notifications for this run")
+	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
+	pflag.StringP("experiment", "e", "", "Name of single experiment to push tokens")
+	pflag.Bool("list-services", false, "List all configured services in config file")
+	pflag.BoolP("push-tokens", "p", false, "Push tokens to nodes after onboarding a service. If -r/--run-onboarding is set, this flag must be set to push tokens.  Otherwise, it is ignored")
+	pflag.BoolP("run-onboarding", "r", false, "Run onboarding for a given service.  Must be used with -s/--service, optionally can be used with -p/--push-tokens")
+	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
+	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
+	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
+
+	pflag.Parse()
+	viper.BindPFlags(pflag.CommandLine)
+
+	// Aliases
+	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
+	//  viper.RegisterAlias("dont-notify", "disableNotifications")
+	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
+	// Instead, we have to work around this after we read in the config file (see setup())
+}
+
+func initConfig() error {
+	// Get config file
+	configFileName := "managedTokens"
+	// Check for override
+	if config := viper.GetString("configfile"); config != "" {
+		viper.SetConfigFile(config)
+	} else {
+		viper.SetConfigName(configFileName)
+	}
+
+	viper.AddConfigPath("/etc/managed-tokens/")
+	viper.AddConfigPath("$HOME/.managed-tokens/")
+	viper.AddConfigPath(".")
+
+	err := viper.ReadInConfig()
+	if err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
+		return err
+	}
+	return nil
+}
+
+// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
+func disableNotifyFlagWorkaround() {
+	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = DISABLED_BY_FLAG
+	}
+}
+
+func checkRunOnboardingFlags() error {
+	if viper.GetBool("run-onboarding") && viper.GetString("service") == "" {
+		return errors.New("run-onboarding flag set without a service for which to run onboarding")
+	}
+	return nil
+}
+
+// Environment variables to read into Viper config
+// Note: In keeping with best practices, these can be overridden by command line flags or direct
+// in-code overrides.  This only sets the initial state of the given viper keys.
+func initEnvironment() {
+	viper.BindEnv("collectorHost", environment.CondorCollectorHost.EnvVarKey())
+}
+
+// Set up logs
+func initLogs() {
+	log.SetLevel(log.DebugLevel)
+	debugLogConfigLookup := "logs.token-push.debugfile"
+	logConfigLookup := "logs.token-push.logfile"
+	// Debug log
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.DebugLevel: viper.GetString(debugLogConfigLookup),
+		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
+		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
+		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
+		log.FatalLevel: viper.GetString(debugLogConfigLookup),
+		log.PanicLevel: viper.GetString(debugLogConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Info log file
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.InfoLevel:  viper.GetString(logConfigLookup),
+		log.WarnLevel:  viper.GetString(logConfigLookup),
+		log.ErrorLevel: viper.GetString(logConfigLookup),
+		log.FatalLevel: viper.GetString(logConfigLookup),
+		log.PanicLevel: viper.GetString(logConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Loki.  Example here taken from README: https://github.com/YuKitsune/lokirus/blob/main/README.md
+	lokiOpts := lokirus.NewLokiHookOptions().
+		// Grafana doesn't have a "panic" level, but it does have a "critical" level
+		// https://grafana.com/docs/grafana/latest/explore/logs-integration/
+		WithLevelMap(lokirus.LevelMap{log.PanicLevel: "critical"}).
+		WithFormatter(&log.JSONFormatter{}).
+		WithStaticLabels(lokirus.Labels{
+			"app":         "managed-tokens",
+			"command":     currentExecutable,
+			"environment": devEnvironmentLabel,
+		})
+	lokiHook := lokirus.NewLokiHookWithOpts(
+		viper.GetString("loki.host"),
+		lokiOpts,
+		log.InfoLevel,
+		log.WarnLevel,
+		log.ErrorLevel,
+		log.FatalLevel)
+
+	log.AddHook(lokiHook)
+
+	exeLogger = log.WithField("executable", currentExecutable)
+	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
+
+	if viper.GetBool("test") {
+		exeLogger.Info("Running in test mode")
+	}
+}
+
+// Setup of timeouts, if they're set
+func initTimeouts() error {
+	// Save supported timeouts into timeouts map
+	for key, timeoutString := range viper.GetStringMapString("timeouts") {
+		tKey := strings.TrimSuffix(key, "timeout")
+		// Only save the timeout if it's supported, otherwise ignore it
+		if validKey, ok := getTimeoutKeyFromString(tKey); ok {
+			timeout, err := time.ParseDuration(timeoutString)
+			if err != nil {
+				exeLogger.WithField("timeoutKey", validKey.String()).Warn("Could not parse configured timeout.  Using default")
+				continue
+			}
+			timeouts[validKey] = timeout
+			exeLogger.WithField(validKey.String(), timeoutString).Debug("Configured timeout")
+		}
+	}
+
+	// Verify that individual timeouts don't add to more than total timeout
+	now := time.Now()
+	timeForComponentCheck := now
+
+	for timeoutKey, timeout := range timeouts {
+		if timeoutKey != timeoutGlobal {
+			timeForComponentCheck = timeForComponentCheck.Add(timeout)
+		}
+	}
+
+	timeForGlobalCheck := now.Add(timeouts[timeoutGlobal])
+	if timeForComponentCheck.After(timeForGlobalCheck) {
+		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
+		exeLogger.Error(msg)
+		return errors.New(msg)
+	}
+	return nil
+}
+
+// Set up prometheus metrics
+func initMetrics() error {
+	// Set up prometheus metrics
+	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
+		exeLogger.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+			"To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
+		prometheusUp = false
+		return err
+	}
+	metrics.MetricsRegistry.MustRegister(promDuration)
+	metrics.MetricsRegistry.MustRegister(servicePushFailureCount)
+	return nil
+}
+
+// Setup of services
+func initServices() {
+	// Grab HTGETTOKENOPTS if it's there
+	viper.BindEnv("ORIG_HTGETTOKENOPTS", "HTGETTOKENOPTS")
+	// If experiment or service is passed in on command line, ONLY generate and push tokens for that experiment/service
+	switch {
+	case viper.GetString("experiment") != "":
+		// Running on a single experiment and all its roles
+		experimentConfigPath := "experiments." + viper.GetString("experiment")
+		experiment := checkExperimentOverride(viper.GetString("experiment"))
+		for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
+			services = addServiceToServicesSlice(services, viper.GetString("experiment"), experiment, role)
+		}
+	case viper.GetString("service") != "":
+		// Running on a single service
+		serviceExperiment, role := service.ExtractExperimentAndRoleFromServiceName(viper.GetString("service"))
+		experiment := checkExperimentOverride(serviceExperiment)
+		services = addServiceToServicesSlice(services, serviceExperiment, experiment, role)
+	default:
+		// Running on every configured experiment and role
+		for configExperiment := range viper.GetStringMap("experiments") {
+			experimentConfigPath := "experiments." + configExperiment
+			experiment := checkExperimentOverride(configExperiment)
+			for role := range viper.GetStringMap(experimentConfigPath + ".roles") {
+				services = addServiceToServicesSlice(services, configExperiment, experiment, role)
+			}
+		}
+	}
+}
+
+// initTracing initializes the tracing configuration and returns a function to shutdown the
+// initialized TracerProvider and an error, if any.
+func initTracing(ctx context.Context) (func(context.Context), error) {
+	url := viper.GetString("tracing.url")
+	if url == "" {
+		msg := "no tracing url configured.  Continuing without tracing"
+		exeLogger.Error(msg)
+		return nil, errors.New(msg)
+	}
+	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, url, devEnvironmentLabel)
+	if err != nil {
+		exeLogger.Error("Could not obtain a TraceProvider.  Continuing without tracing")
+		return nil, err
+	}
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
+	return shutdown, nil
+}
+
+// Cleanup helper functions
 func reportSuccessesAndFailures(successMap map[string]bool) error {
 	startCleanup = time.Now()
 	defer func() {
@@ -863,4 +843,80 @@ func reportSuccessesAndFailures(successMap map[string]bool) error {
 	exeLogger.Infof("Failures: %s", strings.Join(failures, ", "))
 
 	return nil
+}
+
+// General helper functions
+
+// openDatabaseAndLoadServices opens a db.ManagedTokensDatabase and loads the configured services into
+// the database.  If any of these operations fail, it returns a nil *db.ManagedTokensDatabase and an error.
+// Otherwise, it returns the pointer to the db.ManagedTokensDatabase
+func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase, error) {
+	var dbLocation string
+
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "openDatabaseAndLoadService")
+	defer span.End()
+
+	// Open connection to the SQLite database where notification info will be stored
+	if viper.IsSet("dbLocation") {
+		dbLocation = viper.GetString("dbLocation")
+	} else {
+		dbLocation = "/var/lib/managed-tokens/uid.db"
+	}
+	exeLogger.Debugf("Using db file at %s", dbLocation)
+
+	database, err := db.OpenOrCreateDatabase(dbLocation)
+	if err != nil {
+		tracing.LogErrorWithTrace(span, exeLogger, "Could not open or create ManagedTokensDatabase")
+		return nil, err
+	}
+
+	servicesToAddToDatabase := make([]string, 0, len(services))
+	for _, s := range services {
+		servicesToAddToDatabase = append(servicesToAddToDatabase, getServiceName(s))
+	}
+
+	if err := database.UpdateServices(ctx, servicesToAddToDatabase); err != nil {
+		exeLogger.Error("Could not update database with currently-configured services.  Future database-based operations may fail")
+	}
+
+	tracing.LogSuccessWithTrace(span, exeLogger, "Successfully opened database and loaded services")
+	return database, nil
+}
+
+// addServiceToServicesSlice checks to see if, for an experiment and its entry in the configuration, a normal service.Service can be added
+// to the services slice, or if an ExperimentOverriddenService should be added.  It then adds the resultant type that implements
+// service.Service to the services slice
+func addServiceToServicesSlice(services []service.Service, configExperiment, realExperiment, role string) []service.Service {
+	var serv service.Service
+	serviceName := realExperiment + "_" + role
+	if configExperiment != realExperiment {
+		serv = newExperimentOverriddenService(serviceName, configExperiment)
+	} else {
+		serv = service.NewService(serviceName)
+	}
+	services = append(services, serv)
+	return services
+}
+
+// getDevEnvironment first checks the environment variable MANAGED_TOKENS_DEV_ENVIRONMENT for the devEnvironment, then the configuration file.
+// If it finds neither are set, it returns the default global setting.  This logic is handled by the underlying logic in the
+// viper library
+func getDevEnvironmentLabel() string {
+	// For devs, this variable can be set to differentiate between dev and prod for metrics, for example
+	viper.SetDefault("devEnvironmentLabel", devEnvironmentLabelDefault)
+	viper.BindEnv("devEnvironmentLabel", "MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL")
+	return viper.GetString("devEnvironmentLabel")
+}
+
+// getPrometheusJobName gets the job name by parsing the configuration and the devEnvironment
+func getPrometheusJobName() string {
+	defaultJobName := "managed_tokens"
+	jobName := viper.GetString("prometheus.jobname")
+	if jobName == "" {
+		jobName = defaultJobName
+	}
+	if devEnvironmentLabel == devEnvironmentLabelDefault {
+		return jobName
+	}
+	return fmt.Sprintf("%s_%s", jobName, devEnvironmentLabel)
 }

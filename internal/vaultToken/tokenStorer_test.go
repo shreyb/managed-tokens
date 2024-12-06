@@ -45,7 +45,7 @@ func (t *MockTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ 
 func TestStoreAndValidateToken(t *testing.T) {
 	type testCase struct {
 		description string
-		TokenStorer
+		tokenStorer
 		expectedErr error
 	}
 
@@ -100,9 +100,9 @@ func TestStoreAndValidateToken(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				if err := StoreAndValidateToken(
+				if err := storeAndValidateToken(
 					context.Background(),
-					test.TokenStorer,
+					test.tokenStorer,
 					&environment.CommandEnvironment{},
 				); !errors.Is(test.expectedErr, err) {
 					t.Errorf("Expected error %s.  Got %s", test.expectedErr, err)

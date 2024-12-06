@@ -82,14 +82,13 @@ func (p *pingSuccess) GetSuccess() bool {
 // PingAggregatorWorker is a worker that listens on chans.GetServiceConfigChan(), and for the received worker.Config objects,
 // concurrently pings all of the Config's destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
-func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
+func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PingAggregatorWorker")
 	defer span.End()
 
-	defer close(chans.GetSuccessChan())
 	defer func() {
-		close(chans.GetNotificationsChan())
-		log.Debug("Closed PingAggregatorWorker Notifications Chan")
+		chans.closeWorkerSendChans()
+		log.Debug("Closed PingAggregatorWorker Notifications and Success Chans")
 	}()
 	var wg sync.WaitGroup
 	defer wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
@@ -99,7 +98,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 		log.Fatal("Could not parse ping timeout")
 	}
 
-	for sc := range chans.GetServiceConfigChan() {
+	for sc := range chans.serviceConfigChan {
 		wg.Add(1)
 		go func(sc *Config) {
 			defer wg.Done()
@@ -116,11 +115,11 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 			serviceLogger := log.WithField("service", sc.Service.Name())
 
 			defer func(p *pingSuccess) {
-				chans.GetSuccessChan() <- p
+				chans.successChan <- p
 			}(success)
 
-			// Prepare slice of PingNoders
-			nodes := make([]ping.PingNoder, 0, len(sc.Nodes))
+			// Prepare slice of nodes to ping
+			nodes := make([]nodePinger, 0, len(sc.Nodes))
 			for _, node := range sc.Nodes {
 				nodes = append(nodes, ping.NewNode(node))
 			}
@@ -135,19 +134,19 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 			defer pingCancel()
 			pingStatus := pingAllNodes(pingContext, extraPingOpts, nodes...)
 
-			failedNodes := make([]ping.PingNoder, 0, len(sc.Nodes))
+			failedNodes := make([]ping.Node, 0, len(sc.Nodes))
 			for status := range pingStatus {
-				nodeLogger := serviceLogger.WithField("node", status.PingNoder.String())
-				if status.Err != nil {
+				nodeLogger := serviceLogger.WithField("node", status.String())
+				if status.err != nil {
 					var msg string
-					if errors.Is(status.Err, context.DeadlineExceeded) {
+					if errors.Is(status.err, context.DeadlineExceeded) {
 						msg = "Timeout error"
 					} else {
 						msg = "Error pinging node"
 					}
 					nodeLogger.Error(msg)
-					failedNodes = append(failedNodes, status.PingNoder)
-					sc.RegisterUnpingableNode(status.PingNoder.String())
+					failedNodes = append(failedNodes, ping.Node(status.nodePinger.String()))
+					sc.RegisterUnpingableNode(status.nodePinger.String())
 				} else {
 					nodeLogger.Debug("Successfully pinged node")
 				}
@@ -160,7 +159,7 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 				}
 				msg := "Could not ping the following nodes: " + strings.Join(failedNodesStrings, ", ")
 				tracing.LogErrorWithTrace(span, serviceLogger, msg)
-				chans.GetNotificationsChan() <- notifications.NewSetupError(
+				chans.notificationsChan <- notifications.NewSetupError(
 					msg,
 					sc.ServiceNameFromExperimentAndRole(),
 				)
@@ -173,17 +172,17 @@ func PingAggregatorWorker(ctx context.Context, chans ChannelsForWorkers) {
 }
 
 // pingAllNodes will launch goroutines, which each ping a ping.PingNoder from the nodes variadic.  It returns a channel,
-// on which it reports the ping.pingNodeStatuses signifying success or error
-func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...ping.PingNoder) <-chan ping.PingNodeStatus {
+// on which it reports the pingNodeStatuses signifying success or error
+func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...nodePinger) <-chan pingNodeStatus {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pingAllNodes")
 	defer span.End()
 
 	// Buffered Channel to report on
-	c := make(chan ping.PingNodeStatus, len(nodes))
+	c := make(chan pingNodeStatus, len(nodes))
 	var wg sync.WaitGroup
 	wg.Add(len(nodes))
 	for _, n := range nodes {
-		go func(n ping.PingNoder) {
+		go func(n nodePinger) {
 			defer wg.Done()
 
 			start := time.Now()
@@ -191,11 +190,11 @@ func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...ping.Pin
 			span.SetAttributes(attribute.String("node", n.String()))
 			defer span.End()
 
-			p := ping.PingNodeStatus{
-				PingNoder: n,
-				Err:       n.PingNode(ctx, extraPingOpts),
+			p := pingNodeStatus{
+				nodePinger: n,
+				err:        n.Ping(ctx, extraPingOpts),
 			}
-			if p.Err != nil {
+			if p.err != nil {
 				span.SetStatus(codes.Error, "Failed to ping node")
 				pingFailureCount.WithLabelValues(n.String()).Inc()
 			} else {
@@ -214,4 +213,17 @@ func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...ping.Pin
 	}()
 
 	return c
+}
+
+// nodePinger is an interface that defines the Ping method, which should ping a node and return an error if the ping fails.
+// The String method should return a string representation of the node
+type nodePinger interface {
+	Ping(context.Context, []string) error
+	String() string
+}
+
+// pingNodeStatus conveys the status of a ping operation
+type pingNodeStatus struct {
+	nodePinger
+	err error
 }

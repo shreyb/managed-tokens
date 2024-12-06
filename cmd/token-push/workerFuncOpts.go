@@ -24,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/worker"
@@ -64,21 +63,11 @@ func getDesiredUIDByOverrideOrLookup(ctx context.Context, serviceConfigPath stri
 	return uint32(uid), nil
 }
 
-// getDefaultRoleFileDestinationTemplate gets the template that the pushTokenWorker should use when
-// deriving the default role file path on the destination node.
-func getDefaultRoleFileDestinationTemplate(serviceConfigPath string) string {
-	defaultRoleFileDestinationTmplPath, _ := cmdUtils.GetServiceConfigOverrideKeyOrGlobalKey(serviceConfigPath, "defaultRoleFileDestinationTemplate")
-	if !viper.IsSet(defaultRoleFileDestinationTmplPath) {
-		return "/tmp/default_role_{{.Experiment}}_{{.DesiredUID}}" // Default role file destination template
-	}
-	return viper.GetString(defaultRoleFileDestinationTmplPath)
-}
-
 // getVaultTokenStoreHoldoffFuncOpt examines the passed-in service to determine whether to
-// return a NOOP func, or if the service is a cmdUtils.ExperimentOverriddenService,
+// return a NOOP func, or if the service is a experimentOverriddenService,
 // a func(*worker.Config) that sets the vault token store holdoff for the passed in Config
 func getVaultTokenStoreHoldoffFuncOpt(s service.Service) func(*worker.Config) error {
-	if _, ok := s.(*cmdUtils.ExperimentOverriddenService); ok {
+	if _, ok := s.(*experimentOverriddenService); ok {
 		return worker.SetVaultTokenStoreHoldoff()
 	}
 	return func(c *worker.Config) error { return nil } // NOOP

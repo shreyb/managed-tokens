@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmdUtils
+package main
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ import (
 
 func TestDisableNotificationsOptionString(t *testing.T) {
 	testCases := []struct {
-		option   DisableNotificationsOption
+		option   disableNotificationsOption
 		expected string
 	}{
 		{
@@ -35,7 +35,7 @@ func TestDisableNotificationsOptionString(t *testing.T) {
 			expected: "flag",
 		},
 		{
-			option:   DisableNotificationsOption(999),
+			option:   disableNotificationsOption(999),
 			expected: "unknown",
 		},
 	}

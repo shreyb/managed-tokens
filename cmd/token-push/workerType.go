@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmdUtils
+package main
 
 import (
 	"strings"
@@ -26,12 +26,13 @@ import (
 var validWorkerTypes = []worker.WorkerType{
 	worker.GetKerberosTicketsWorkerType,
 	worker.StoreAndGetTokenWorkerType,
+	worker.StoreAndGetTokenInteractiveWorkerType,
 	worker.PingAggregatorWorkerType,
 	worker.PushTokensWorkerType,
 }
 
-// GetWorkerConfigValue retrieves the value of a worker-specific key from the configuration
-func GetWorkerConfigValue(workerType, key string) any {
+// getWorkerConfigValue retrieves the value of a worker-specific key from the configuration
+func getWorkerConfigValue(workerType, key string) any {
 	if !isValidWorkerTypeString(workerType) {
 		return nil
 	}
@@ -41,31 +42,31 @@ func GetWorkerConfigValue(workerType, key string) any {
 	return viper.Get(workerConfigPath)
 }
 
-// GetWorkerConfigString retrieves the configuration value for the given worker type and key,
+// getWorkerConfigString retrieves the configuration value for the given worker type and key,
 // and returns it as a string. If the value is not a string, an empty string is returned.
-func GetWorkerConfigString(workerType, key string) string {
-	val := GetWorkerConfigValue(workerType, key)
+func getWorkerConfigString(workerType, key string) string {
+	val := getWorkerConfigValue(workerType, key)
 	if v, ok := val.(string); ok {
 		return v
 	}
 	return ""
 }
 
-// GetWorkerConfigInt retrieves the configuration value for the given worker type and key,
+// getWorkerConfigInt retrieves the configuration value for the given worker type and key,
 // and returns it as a string. If the value is not a string, an empty string is returned.
-func GetWorkerConfigInt(workerType, key string) int {
-	val := GetWorkerConfigValue(workerType, key)
+func getWorkerConfigInt(workerType, key string) int {
+	val := getWorkerConfigValue(workerType, key)
 	if v, ok := val.(int); ok {
 		return v
 	}
 	return 0
 }
 
-// GetWorkerConfigStringSlice retrieves the configuration value for the given worker type and key,
+// getWorkerConfigStringSlice retrieves the configuration value for the given worker type and key,
 // and returns it as a slice of strings. If the value is not a []string, an empty slice is returned.
-func GetWorkerConfigStringSlice(workerType, key string) []string {
+func getWorkerConfigStringSlice(workerType, key string) []string {
 	empty := make([]string, 0)
-	val := GetWorkerConfigValue(workerType, key)
+	val := getWorkerConfigValue(workerType, key)
 	if v, ok := val.([]string); ok {
 		return v
 	}

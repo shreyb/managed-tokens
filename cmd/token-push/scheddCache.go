@@ -13,12 +13,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cmdUtils
+package main
 
 import (
 	"context"
 	"sync"
 
+	condor "github.com/retzkek/htcondor-go"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -59,4 +60,38 @@ func (s *scheddCacheEntry) populateFromCollector(ctx context.Context, collectorH
 	s.scheddCollection.storeSchedds(schedds)
 	span.SetStatus(codes.Ok, "Schedds populated from collector")
 	return nil
+}
+
+// getScheddsFromCondor queries the condor collector for the schedds in the cluster that satisfy the constraint
+func getScheddsFromCondor(ctx context.Context, collectorHost, constraint string) ([]string, error) {
+	funcLogger := log.WithField("collector", collectorHost)
+	_, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "getScheddsFromCondor")
+	span.SetAttributes(
+		attribute.KeyValue{Key: "collectorHost", Value: attribute.StringValue(collectorHost)},
+		attribute.KeyValue{Key: "constraint", Value: attribute.StringValue(constraint)},
+	)
+	defer span.End()
+
+	funcLogger.Debug("Querying collector for schedds")
+	statusCmd := condor.NewCommand("condor_status").WithPool(collectorHost).WithArg("-schedd")
+	if constraint != "" {
+		statusCmd = statusCmd.WithConstraint(constraint)
+	}
+
+	funcLogger.WithField("command", statusCmd.Cmd().String()).Debug("Running condor_status to get cluster schedds")
+	classads, err := statusCmd.Run()
+	if err != nil {
+		msg := "Could not run condor_status to get cluster schedds"
+		span.SetStatus(codes.Error, msg)
+		funcLogger.WithField("command", statusCmd.Cmd().String()).Error(msg)
+		return nil, err
+	}
+
+	schedds := make([]string, 0)
+	for _, classad := range classads {
+		name := classad["Name"].String()
+		schedds = append(schedds, name)
+	}
+	span.SetStatus(codes.Ok, "Schedds successfully retrieved from condor")
+	return schedds, nil
 }

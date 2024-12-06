@@ -35,6 +35,10 @@ func TestWorkerTypeString(t *testing.T) {
 			expected:   "StoreAndGetToken",
 		},
 		{
+			workerType: StoreAndGetTokenInteractiveWorkerType,
+			expected:   "StoreAndGetTokenInteractive",
+		},
+		{
 			workerType: PingAggregatorWorkerType,
 			expected:   "PingAggregator",
 		},
@@ -43,7 +47,7 @@ func TestWorkerTypeString(t *testing.T) {
 			expected:   "PushTokens",
 		},
 		{
-			workerType: 5, // UnknownWorkerType
+			workerType: invalidWorkerType, // UnknownWorkerType
 			expected:   "Unknown",
 		},
 	}
@@ -64,6 +68,10 @@ func TestIsValidWorkerType(t *testing.T) {
 		},
 		{
 			workerType: StoreAndGetTokenWorkerType,
+			expected:   true,
+		},
+		{
+			workerType: StoreAndGetTokenInteractiveWorkerType,
 			expected:   true,
 		},
 		{

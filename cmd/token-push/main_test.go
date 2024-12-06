@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path"
 	"reflect"
@@ -28,7 +29,6 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
@@ -145,7 +145,7 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 		description      string
 		timeoutsConfig   string
 		expectedErrNil   bool
-		expectedTimeouts map[string]time.Duration
+		expectedTimeouts map[timeoutKey]time.Duration
 	}
 
 	testCases := []testCase{
@@ -153,12 +153,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 			"No timeouts given",
 			"",
 			true,
-			map[string]time.Duration{
-				"global":      time.Duration(300 * time.Second),
-				"kerberos":    time.Duration(20 * time.Second),
-				"vaultstorer": time.Duration(60 * time.Second),
-				"ping":        time.Duration(10 * time.Second),
-				"push":        time.Duration(30 * time.Second),
+			map[timeoutKey]time.Duration{
+				timeoutGlobal:      time.Duration(300 * time.Second),
+				timeoutKerberos:    time.Duration(20 * time.Second),
+				timeoutVaultStorer: time.Duration(60 * time.Second),
+				timeoutPing:        time.Duration(10 * time.Second),
+				timeoutPush:        time.Duration(30 * time.Second),
 			},
 		},
 		{
@@ -173,12 +173,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 }
 			`,
 			true,
-			map[string]time.Duration{
-				"global":      time.Duration(360 * time.Second),
-				"kerberos":    time.Duration(15 * time.Second),
-				"vaultstorer": time.Duration(15 * time.Second),
-				"ping":        time.Duration(10 * time.Second),
-				"push":        time.Duration(30 * time.Second),
+			map[timeoutKey]time.Duration{
+				timeoutGlobal:      time.Duration(360 * time.Second),
+				timeoutKerberos:    time.Duration(15 * time.Second),
+				timeoutVaultStorer: time.Duration(15 * time.Second),
+				timeoutPing:        time.Duration(10 * time.Second),
+				timeoutPush:        time.Duration(30 * time.Second),
 			},
 		},
 		{
@@ -207,12 +207,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 }
 			`,
 			true,
-			map[string]time.Duration{
-				"global":      time.Duration(300 * time.Second),
-				"kerberos":    time.Duration(20 * time.Second),
-				"vaultstorer": time.Duration(60 * time.Second),
-				"ping":        time.Duration(10 * time.Second),
-				"push":        time.Duration(30 * time.Second),
+			map[timeoutKey]time.Duration{
+				timeoutGlobal:      time.Duration(300 * time.Second),
+				timeoutKerberos:    time.Duration(20 * time.Second),
+				timeoutVaultStorer: time.Duration(60 * time.Second),
+				timeoutPing:        time.Duration(10 * time.Second),
+				timeoutPush:        time.Duration(30 * time.Second),
 			},
 		},
 	}
@@ -257,12 +257,12 @@ func TestInitTimeoutsTooLargeTimeouts(t *testing.T) {
 
 func timeoutsReset() {
 	reset()
-	timeouts = map[string]time.Duration{
-		"global":      time.Duration(300 * time.Second),
-		"kerberos":    time.Duration(20 * time.Second),
-		"vaultstorer": time.Duration(60 * time.Second),
-		"ping":        time.Duration(10 * time.Second),
-		"push":        time.Duration(30 * time.Second),
+	timeouts = map[timeoutKey]time.Duration{
+		timeoutGlobal:      time.Duration(300 * time.Second),
+		timeoutKerberos:    time.Duration(20 * time.Second),
+		timeoutVaultStorer: time.Duration(60 * time.Second),
+		timeoutPing:        time.Duration(10 * time.Second),
+		timeoutPush:        time.Duration(30 * time.Second),
 	}
 }
 
@@ -366,7 +366,7 @@ func TestOpenDatabaseAndLoadServices(t *testing.T) {
 
 func TestDisableNotifyFlagWorkaround(t *testing.T) {
 	// Reset everything
-	notificationsDisabledBy = cmdUtils.DISABLED_BY_CONFIGURATION
+	notificationsDisabledBy = DISABLED_BY_CONFIGURATION
 	viper.Reset()
 
 	// Save previous os.Args, and restore it at the end of this test
@@ -387,6 +387,104 @@ func TestDisableNotifyFlagWorkaround(t *testing.T) {
 	viper.ReadConfig(strings.NewReader(fakeViperConfig))
 
 	disableNotifyFlagWorkaround()
-	assert.Equal(t, cmdUtils.DISABLED_BY_FLAG, notificationsDisabledBy)
+	assert.Equal(t, DISABLED_BY_FLAG, notificationsDisabledBy)
 	assert.Equal(t, true, viper.GetBool("disableNotifications"))
+}
+
+func TestCheckRunOnboardingFlags(t *testing.T) {
+	type testCase struct {
+		runOnboarding bool
+		service       string
+		expectedErr   error
+	}
+
+	testCases := map[string]testCase{
+		"Run onboarding flag set without service": {
+			true,
+			"",
+			errors.New("run-onboarding flag set without a service for which to run onboarding"),
+		},
+
+		"Run onboarding flag set with service": {
+			true,
+			"some_service",
+			nil,
+		},
+		"Run onboarding flag not set": {
+			false,
+			"",
+			nil,
+		},
+	}
+
+	for label, tc := range testCases {
+		t.Run(label, func(t *testing.T) {
+			reset()
+			viper.Set("run-onboarding", tc.runOnboarding)
+			viper.Set("service", tc.service)
+
+			err := checkRunOnboardingFlags()
+			assert.Equal(t, tc.expectedErr, err)
+		})
+	}
+}
+
+func TestGetPrometheusJobName(t *testing.T) {
+	type testCase struct {
+		description           string
+		jobNameSetting        string
+		devEnvironmentLabel   string
+		expectedJobNameResult string
+	}
+
+	testCases := []testCase{
+		{
+			"Completely default",
+			"",
+			devEnvironmentLabelDefault,
+			"managed_tokens",
+		},
+		{
+			"Set different jobname than default",
+			"myjobname",
+			devEnvironmentLabelDefault,
+			"myjobname",
+		},
+		{
+			"Set different devEnvLabel than default",
+			"",
+			"test",
+			"managed_tokens_test",
+		},
+		{
+			"Set different jobname and devEnvLabel than default",
+			"myjobname",
+			"test",
+			"myjobname_test",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				reset()
+				defer reset()
+				if test.jobNameSetting != "" {
+					viper.Set("prometheus.jobname", test.jobNameSetting)
+				}
+				if test.devEnvironmentLabel != "" {
+					devEnvironmentLabel = test.devEnvironmentLabel
+				}
+				if result := getPrometheusJobName(); result != test.expectedJobNameResult {
+					t.Errorf("Got wrong jobname.  Expected %s, got %s", test.expectedJobNameResult, result)
+				}
+			},
+		)
+	}
+}
+
+func reset() {
+	viper.Reset()
+	devEnvironmentLabel = ""
 }

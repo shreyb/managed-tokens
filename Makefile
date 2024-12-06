@@ -6,7 +6,7 @@ rpmVersion := $(subst v,,$(VERSION))
 buildTarName = $(NAME)-$(rpmVersion)
 buildTarPath = $(ROOTDIR)/$(buildTarName).tar.gz
 SOURCEDIR = $(ROOTDIR)/$(buildTarName)
-executables = refresh-uids-from-ferry run-onboarding-managed-tokens token-push
+executables = refresh-uids-from-ferry token-push
 specfile := $(ROOTDIR)/packaging/$(NAME).spec
 ifdef RACE
 raceflag := -race

@@ -54,9 +54,6 @@ logs:
   refresh-uids-from-ferry:
     logfile: "/var/log/managed-tokens/refresh-uids-from-ferry.log"
     debugfile: "/var/log/managed-tokens/refresh-uids-from-ferry.debug.log"
-  run-onboarding-managed-tokens:
-    logfile: "/var/log/managed-tokens/run-onboarding-managed-tokens.log"
-    debugfile: "/var/log/managed-tokens/run-onboarding-managed-tokens.debug.log"
   token-push:
     logfile: "/var/log/managed-tokens/token-push.log"
     debugfile: "/var/log/managed-tokens/token-push.debug.log"
@@ -89,6 +86,8 @@ workerType:
   getKerberosTickets:
     numRetries: 0
   storeAndGetToken:
+    numRetries: 0
+  storeAndGetTokenInteractive:
     numRetries: 0
   pingAggregator:
     numRetries: 0

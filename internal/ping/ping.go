@@ -40,12 +40,6 @@ var (
 	}
 )
 
-// PingNoder is an interface that wraps the PingNode method. It is meant to be used where pinging a node is necessary.  PingNoders also implement the Stringer interface.
-type PingNoder interface {
-	PingNode(context.Context, []string) error
-	String() string
-}
-
 // Node is an interactive node
 type Node string
 
@@ -53,7 +47,7 @@ type Node string
 func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
-func (n Node) PingNode(ctx context.Context, extraPingOpts []string) error {
+func (n Node) Ping(ctx context.Context, extraPingOpts []string) error {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "ping.Node.PingNode")
 	span.SetAttributes(attribute.String("node", string(n)))
 	defer span.End()
@@ -88,12 +82,6 @@ func (n Node) PingNode(ctx context.Context, extraPingOpts []string) error {
 
 // String converts a Node object into a string
 func (n Node) String() string { return string(n) }
-
-// PingNodeStatus stores information about an attempt to ping a Node.  If there was an error, it's stored in Err.
-type PingNodeStatus struct {
-	PingNoder
-	Err error
-}
 
 func init() {
 	if err := utils.CheckForExecutables(pingExecutables); err != nil {

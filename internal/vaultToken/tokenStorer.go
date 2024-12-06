@@ -48,18 +48,18 @@ func init() {
 	}
 }
 
-// TokenStorer contains the methods needed to store a vault token in the condor credd and a hashicorp vault.  It should be passed into
-// StoreAndValidateTokens so that any token that is stored is also validated
-type TokenStorer interface {
-	GetServiceName() string
-	GetCredd() string
-	GetVaultServer() string
-	getTokensAndStoreInVault(context.Context, *environment.CommandEnvironment) error
-	validateToken() error
+// StoreAndValidateToken stores a vault token in the passed in Hashicorp vault server and the passed in credd.
+func StoreAndValidateToken[T *InteractiveTokenStorer | *NonInteractiveTokenStorer](ctx context.Context, t T, environ *environment.CommandEnvironment) error {
+	switch val := any(t).(type) { // Workaround needed do type switch on constrained type
+	case *InteractiveTokenStorer:
+		return storeAndValidateToken(ctx, val, environ)
+	case *NonInteractiveTokenStorer:
+		return storeAndValidateToken(ctx, val, environ)
+	}
+	return errors.New("invalid token storer type")
 }
 
-// StoreAndValidateToken stores a vault token in the passed in Hashicorp vault server and the passed in credd.
-func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) error {
+func storeAndValidateToken(ctx context.Context, t tokenStorer, environ *environment.CommandEnvironment) error {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.StoreAndValidateToken")
 	span.SetAttributes(
 		attribute.String("service", t.GetServiceName()),
@@ -91,6 +91,15 @@ func StoreAndValidateToken(ctx context.Context, t TokenStorer, environ *environm
 	span.SetStatus(codes.Ok, "Stored and validated vault token")
 	funcLogger.Debug("Validated vault token")
 	return nil
+}
+
+// tokenStorer contains the methods needed to store a vault token in the condor credd and a hashicorp vault.
+type tokenStorer interface {
+	GetServiceName() string
+	GetCredd() string
+	GetVaultServer() string
+	getTokensAndStoreInVault(context.Context, *environment.CommandEnvironment) error
+	validateToken() error
 }
 
 // InteractiveTokenStorer is a type to use when it is anticipated that the token storing action will require user interaction
@@ -222,7 +231,7 @@ func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context
 	return nil
 }
 
-func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t TokenStorer, environ *environment.CommandEnvironment) *exec.Cmd {
+func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t tokenStorer, environ *environment.CommandEnvironment) *exec.Cmd {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.setupCmdWithEnvironmentForTokenStorer")
 	span.SetAttributes(
 		attribute.String("service", t.GetServiceName()),

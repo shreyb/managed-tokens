@@ -25,7 +25,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/fermitools/managed-tokens/internal/cmdUtils"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
 )
@@ -62,7 +61,7 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "registerServiceNotificationsChan")
 	defer span.End()
 
-	serviceName := cmdUtils.GetServiceName(s)
+	serviceName := getServiceName(s)
 	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(serviceName)})
 
 	toEmails := viper.GetStringSlice("experiments." + s.Experiment() + ".emails")
@@ -101,11 +100,44 @@ func registerServiceNotificationsChan(ctx context.Context, s service.Service, a 
 	serviceNotificationChanMap.Store(serviceName, m.ReceiveChan)                                         // Register the ServiceEmailManager's notification chan so we can route notifications later
 }
 
+// registerDummyServiceNotificationsChan starts up a dummy chan(notifications.Notification) for a worker to send
+// notifications.Notifications to; and registers that dummy channel in the serviceNotificationChanMap.
+// The dummy channel throws away the values it receives.
+func registerDummyServiceNotificationsChan(ctx context.Context, s service.Service) {
+	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "registerDummyServiceNotificationsChan")
+	defer span.End()
+
+	serviceName := getServiceName(s)
+	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(serviceName)})
+
+	serviceEmailManagersWg.Add(1)
+	dummyChan := make(chan notifications.Notification)
+	go func() {
+		defer serviceEmailManagersWg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				for range dummyChan {
+					// Drain the channel
+				}
+				return
+			case _, chanOpen := <-dummyChan:
+				if !chanOpen {
+					return
+				}
+				// Throw away the notification
+			}
+		}
+	}()
+	serviceNotificationChanMap.Store(serviceName, dummyChan)
+}
+
 // startListenerOnWorkerNotificationChans starts up directNotificationsToManagrs exactly once.  It then listens on the
 // notifications.Notification chan (nChan) for worker notifications, sending notifications along to directNotificationsToManagers.
+// If notifications are disabled, it will throw away the notifications so the channel is drained.
 // This func is meant for external callers to register their own notifications channel so that any passed in notifications can
 // be routed appropriately.
-func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan notifications.Notification) {
+func startListenerOnWorkerNotificationChans(ctx context.Context, nChan <-chan notifications.Notification) {
 	ctx, span := otel.GetTracerProvider().Tracer("token-push").Start(ctx, "startListenerOnWorkerNotificationChans")
 	defer span.End()
 
@@ -122,6 +154,9 @@ func startListenerOnWorkerNotificationChans(ctx context.Context, nChan chan noti
 		for {
 			select {
 			case <-ctx.Done():
+				for range nChan {
+					// Drain the channel
+				}
 				return
 			case n, chanOpen := <-nChan:
 				if !chanOpen {
