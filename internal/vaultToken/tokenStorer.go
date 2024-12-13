@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
@@ -267,9 +268,9 @@ func getCmdArgsForTokenStorer(ctx context.Context, serviceName string) []string 
 	funcLogger := log.WithField("service", serviceName)
 
 	cmdArgs := make([]string, 0, 2)
-	verbose, err := utils.GetVerboseFromContext(ctx)
+	verbose, err := contextStore.GetVerbose(ctx)
 	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
-	if !errors.Is(err, utils.ErrContextKeyNotStored) && err != nil {
+	if !errors.Is(err, contextStore.ErrContextKeyNotStored) && err != nil {
 		funcLogger.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
 	}
 	funcLogger.Debugf("Verbose is set to %t", verbose)
