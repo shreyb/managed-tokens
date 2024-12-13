@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package contextStore
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func TestGetOverrideTimeoutFromContext(t *testing.T) {
 	t.Run(
 		"Get a timeout value from passed in context",
 		func(t *testing.T) {
-			timeout, _ := GetOverrideTimeoutFromContext(useCtx)
+			timeout, _ := GetOverrideTimeout(useCtx)
 			if timeout != time.Duration(1*time.Second) {
 				t.Errorf("Did not get expected timeout.  Expected %s, got %s",
 					time.Duration(1*time.Second),
@@ -47,7 +47,7 @@ func TestContextWithOverrideTimeout(t *testing.T) {
 	t.Run(
 		"Make sure we get a context with overrideTimeout set",
 		func(t *testing.T) {
-			newCtx := ContextWithOverrideTimeout(ctx, time.Duration(1*time.Second))
+			newCtx := WithOverrideTimeout(ctx, time.Duration(1*time.Second))
 			timeout, ok := newCtx.Value(overrideTimeout).(time.Duration)
 			if !ok {
 				t.Error("Wrong type saved in context.  Expected time.Duration")
@@ -74,6 +74,7 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 		ctx                  context.Context
 		defaultDurationStr   string
 		expectedTimeDuration time.Duration
+		expectedDefaultUsed  bool
 		isNilError           bool
 	}
 
@@ -83,6 +84,7 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 			context.WithValue(ctx, overrideTimeout, time.Duration(1*time.Second)),
 			"20s",
 			time.Duration(1 * time.Second),
+			false,
 			true,
 		},
 		{
@@ -91,12 +93,14 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 			"20s",
 			time.Duration(20 * time.Second),
 			true,
+			true,
 		},
 		{
 			"Context has value set, defaultDuration not proper",
 			context.WithValue(ctx, overrideTimeout, time.Duration(1*time.Second)),
 			"12345qwerty",
 			time.Duration(1 * time.Second),
+			false,
 			true,
 		},
 		{
@@ -105,6 +109,7 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 			"12345qwerty",
 			nilTimeDuration,
 			false,
+			false,
 		},
 		{
 			"Context has value set of wrong type, defaultDuration proper",
@@ -112,12 +117,14 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 			"20s",
 			time.Duration(20 * time.Second),
 			true,
+			true,
 		},
 		{
 			"Context has value set of wrong type, defaultDuration not proper",
 			context.WithValue(ctx, badOverrideKey, time.Duration(1*time.Second)),
 			"12345qwerty",
 			nilTimeDuration,
+			false,
 			false,
 		},
 	}
@@ -127,12 +134,19 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 			test.description,
 			func(t *testing.T) {
 
-				timeout, err := GetProperTimeoutFromContext(test.ctx, test.defaultDurationStr)
+				timeout, defaultUsed, err := GetProperTimeout(test.ctx, test.defaultDurationStr)
 				if timeout != test.expectedTimeDuration {
 					t.Errorf(
 						"Got the wrong timeout from context.  Expected %s, got %s",
 						test.expectedTimeDuration,
 						timeout,
+					)
+				}
+				if defaultUsed != test.expectedDefaultUsed {
+					t.Errorf(
+						"Got the wrong defaultUsed value.  Expected %t, got %t",
+						test.expectedDefaultUsed,
+						defaultUsed,
 					)
 				}
 				if (err != nil) && test.isNilError {
@@ -141,4 +155,69 @@ func TestGetProperTimeoutFromContext(t *testing.T) {
 			},
 		)
 	}
+}
+
+// TestGetVerbose checks that GetVerbose properly retrieves the verbose value from a context
+func TestGetVerbose(t *testing.T) {
+	ctx := context.Background()
+	useCtx := context.WithValue(ctx, verbose, true)
+
+	t.Run(
+		"Get a verbose value from passed in context",
+		func(t *testing.T) {
+			verboseVal, err := GetVerbose(useCtx)
+			if err != nil {
+				t.Errorf("Unexpected error: %s", err)
+			}
+			if !verboseVal {
+				t.Errorf("Did not get expected verbose value. Expected true, got %t", verboseVal)
+			}
+		},
+	)
+
+	t.Run(
+		"Get a verbose value from context with no verbose key",
+		func(t *testing.T) {
+			verboseVal, err := GetVerbose(ctx)
+			if err != ErrContextKeyNotStored {
+				t.Errorf("Expected error: %s, got: %s", ErrContextKeyNotStored, err)
+			}
+			if verboseVal {
+				t.Errorf("Expected verbose value to be false, got %t", verboseVal)
+			}
+		},
+	)
+
+	t.Run(
+		"Get a verbose value from context with wrong type",
+		func(t *testing.T) {
+			wrongCtx := context.WithValue(ctx, verbose, "not a bool")
+			verboseVal, err := GetVerbose(wrongCtx)
+			if err != ErrContextKeyFailedTypeCheck {
+				t.Errorf("Expected error: %s, got: %s", ErrContextKeyFailedTypeCheck, err)
+			}
+			if verboseVal {
+				t.Errorf("Expected verbose value to be false, got %t", verboseVal)
+			}
+		},
+	)
+}
+
+// TestWithVerbose checks that WithVerbose properly sets a verbose value in a context
+func TestWithVerbose(t *testing.T) {
+	ctx := context.Background()
+	newCtx := WithVerbose(ctx)
+
+	t.Run(
+		"Make sure we get a context with verbose set",
+		func(t *testing.T) {
+			verboseVal, ok := newCtx.Value(verbose).(bool)
+			if !ok {
+				t.Error("Wrong type saved in context. Expected bool")
+			}
+			if !verboseVal {
+				t.Errorf("Expected verbose value to be true, got %t", verboseVal)
+			}
+		},
+	)
 }
