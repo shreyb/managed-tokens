@@ -30,8 +30,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 // Much thanks to K. Retzke - a lot of the boilerplate DB code is adapted from his fifemail application
@@ -183,7 +183,7 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 
 	data := make([][]any, 0)
 
-	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	dbTimeout, _, err := contextStore.GetProperTimeout(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		tracing.LogErrorWithTrace(
 			span,
@@ -289,7 +289,7 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 	span.SetAttributes(attribute.String("insertStatementString", insertStatementString))
 	defer span.End()
 
-	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	dbTimeout, _, err := contextStore.GetProperTimeout(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		tracing.LogErrorWithTrace(
 			span,

@@ -25,8 +25,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 // SQL Statements
@@ -152,7 +152,7 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 	funcLogger := log.WithField("dbLocation", m.filename)
 	var uid int
 
-	dbTimeout, err := utils.GetProperTimeoutFromContext(ctx, dbDefaultTimeoutStr)
+	dbTimeout, _, err := contextStore.GetProperTimeout(ctx, dbDefaultTimeoutStr)
 	if err != nil {
 		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse db timeout duration")
 		return uid, err
