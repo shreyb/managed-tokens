@@ -1,5 +1,5 @@
 Name:           managed-tokens
-Version:        0.15.0
+Version:        0.16.0
 Release:        1%{?dist}
 Summary:        Utility to obtain Hashicorp vault (service) tokens from service kerberos principals and distribute them to experiment nodes
 
@@ -41,7 +41,6 @@ install -m 0774 managedTokens.yml %{buildroot}/%{_sysconfdir}/%{name}/managedTok
 # Executables to /usr/bin
 mkdir -p %{buildroot}/%{_bindir}
 install -m 0755 refresh-uids-from-ferry %{buildroot}/%{_bindir}/refresh-uids-from-ferry
-install -m 0755 run-onboarding-managed-tokens %{buildroot}/%{_bindir}/run-onboarding-managed-tokens
 install -m 0755 token-push %{buildroot}/%{_bindir}/token-push
 
 # Cron and logrotate
@@ -61,7 +60,6 @@ rm -rf %{buildroot}
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/cron.d/%{name}
 %config(noreplace) %attr(0644, root, root) %{_sysconfdir}/logrotate.d/%{name}
 %{_bindir}/refresh-uids-from-ferry
-%{_bindir}/run-onboarding-managed-tokens
 %{_bindir}/token-push
 
 %post
@@ -86,6 +84,9 @@ install -d %{_sharedstatedir}/%{name}/service-credd-vault-tokens -m 0774 -o rexb
 }
 
 %changelog
+* Fri Dec 13 2024 Shreyas Bhat <sbhat@fnal.gov> - 0.16
+- Removed run-onboarding-managed-tokens executable from RPM
+
 * Thu Oct 26 2023 Shreyas Bhat <sbhat@fnal.gov> - 0.12
 - Added debug_package nil directive
 - Added dist macro to RPM release definition
