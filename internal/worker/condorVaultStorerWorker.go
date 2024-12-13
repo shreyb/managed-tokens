@@ -27,12 +27,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 	"github.com/fermitools/managed-tokens/internal/vaultToken"
 )
 
@@ -108,10 +108,13 @@ func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 		log.Debug("Closed StoreAndGetTokenWorker Notifications and Success Chan")
 	}()
 
-	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
+	vaultStorerTimeout, defaultUsed, err := contextStore.GetProperTimeout(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
 		span.SetStatus(codes.Error, "Could not parse vault storer timeout")
 		log.Fatal("Could not parse vault storer timeout")
+	}
+	if defaultUsed {
+		log.Debug("Using default timeout for vault storer")
 	}
 
 	for sc := range chans.serviceConfigChan {
@@ -201,10 +204,13 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 		log.Debug("Closed StoreAndGetTokenInteractiveWorker Notifications and Success Chans")
 	}()
 
-	vaultStorerTimeout, err := utils.GetProperTimeoutFromContext(ctx, vaultStorerDefaultTimeoutStr)
+	vaultStorerTimeout, defaultUsed, err := contextStore.GetProperTimeout(ctx, vaultStorerDefaultTimeoutStr)
 	if err != nil {
 		span.SetStatus(codes.Error, "Could not parse vault storer timeout")
 		log.Fatal("Could not parse vault storer timeout")
+	}
+	if defaultUsed {
+		log.Debug("Using default timeout for vault storer")
 	}
 
 	sc := <-chans.serviceConfigChan // Get our service config

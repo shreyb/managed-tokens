@@ -33,10 +33,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 const ferryRequestDefaultTimeoutStr string = "30s"
@@ -129,10 +129,13 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 
 	entry := UIDEntryFromFerry{}
 
-	ferryRequestTimeout, err := utils.GetProperTimeoutFromContext(ctx, ferryRequestDefaultTimeoutStr)
+	ferryRequestTimeout, defaultUsed, err := contextStore.GetProperTimeout(ctx, ferryRequestDefaultTimeoutStr)
 	if err != nil {
 		span.SetStatus(codes.Error, "Could not parse ferryRequest timeout")
 		funcLogger.Fatal("Could not parse ferryRequest timeout")
+	}
+	if defaultUsed {
+		funcLogger.Debug("Using default timeout for FERRY request")
 	}
 
 	ferryAPIConfig := struct{ Hostname, Port, API, Username string }{

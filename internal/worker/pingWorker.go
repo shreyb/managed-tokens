@@ -28,12 +28,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/ping"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var (
@@ -93,9 +93,12 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 	var wg sync.WaitGroup
 	defer wg.Wait() // Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
 
-	pingTimeout, err := utils.GetProperTimeoutFromContext(ctx, pingDefaultTimeoutStr)
+	pingTimeout, defaultUsed, err := contextStore.GetProperTimeout(ctx, pingDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse ping timeout")
+	}
+	if defaultUsed {
+		log.Debug("Using default ping timeout")
 	}
 
 	for sc := range chans.serviceConfigChan {
