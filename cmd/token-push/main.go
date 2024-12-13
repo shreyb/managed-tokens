@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
@@ -469,7 +470,7 @@ func run(ctx context.Context) error {
 
 	// Add verbose to the global context
 	if viper.GetBool("verbose") {
-		ctx = utils.ContextWithVerbose(ctx)
+		ctx = contextStore.WithVerbose(ctx)
 	}
 
 	// 1. Get kerberos tickets

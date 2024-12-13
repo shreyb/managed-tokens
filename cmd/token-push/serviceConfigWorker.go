@@ -23,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/fermitools/managed-tokens/internal/utils"
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
@@ -54,7 +54,7 @@ func startServiceConfigWorkerForProcessing(ctx context.Context, workerFunc worke
 
 	var useCtx context.Context
 	if timeout, ok := timeouts[timeoutCheckKey]; ok {
-		useCtx = utils.ContextWithOverrideTimeout(ctx, timeout)
+		useCtx = contextStore.WithOverrideTimeout(ctx, timeout)
 	} else {
 		useCtx = ctx
 	}

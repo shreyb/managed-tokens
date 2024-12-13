@@ -32,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/kerberos"
@@ -270,7 +271,7 @@ func getAndAggregateFERRYData(ctx context.Context, username string, authFunc fun
 
 	ferryRequestContext := ctx
 	if timeout, ok := timeouts["ferryrequesttimeout"]; ok {
-		ferryRequestContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+		ferryRequestContext = contextStore.WithOverrideTimeout(ctx, timeout)
 	}
 
 	entry, err := worker.GetFERRYUIDData(
