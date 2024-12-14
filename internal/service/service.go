@@ -20,8 +20,6 @@ package service
 
 import (
 	"regexp"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const DefaultRole string = "Analysis"
@@ -39,11 +37,6 @@ type Service interface {
 func NewService(serviceName string) Service {
 	s := &service{name: serviceName}
 	s.experiment, s.role = ExtractExperimentAndRoleFromServiceName(serviceName)
-	log.WithFields(log.Fields{
-		"service":    s.name,
-		"experiment": s.experiment,
-		"role":       s.role,
-	}).Debug("Parsed experiment and role from service")
 	return s
 }
 
@@ -54,7 +47,6 @@ func ExtractExperimentAndRoleFromServiceName(serviceName string) (string, string
 	if len(matches) == 3 {
 		return matches[1], matches[2]
 	} else {
-		log.WithField("service", serviceName).Infof("Service does not include role.  Setting role to defaultRole %s", DefaultRole)
 		return serviceName, DefaultRole
 	}
 }
