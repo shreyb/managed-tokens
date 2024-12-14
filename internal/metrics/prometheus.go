@@ -18,9 +18,10 @@
 package metrics
 
 import (
+	"fmt"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/push"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -32,8 +33,7 @@ var (
 func PushToPrometheus(hostName, jobName string) error {
 	pusher := push.New(hostName, jobName).Gatherer(MetricsRegistry)
 	if err := pusher.Push(); err != nil {
-		log.Errorf("Could not push metrics to the prometheus pushgateway: %s", err)
-		return err
+		return fmt.Errorf("could not push metrics to the prometheus pushgateway: %w", err)
 	}
 	return nil
 }
