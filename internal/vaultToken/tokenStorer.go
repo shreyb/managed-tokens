@@ -45,7 +45,7 @@ func init() {
 	oldPath := os.Getenv("PATH")
 	os.Setenv("PATH", fmt.Sprintf("%s:/usr/bin:/usr/sbin", oldPath))
 	if err := utils.CheckForExecutables(vaultExecutables); err != nil {
-		log.WithField("PATH", os.Getenv("PATH")).Fatal("Could not find path to condor executables")
+		panic(fmt.Sprintf("could not find path to condor executables: %s. PATH is set to %s", err, os.Getenv("PATH")))
 	}
 }
 
