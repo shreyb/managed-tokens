@@ -133,7 +133,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	rsyncTemplate, err := template.New("rsync").Parse(rsyncArgs)
 	if err != nil {
 		tracing.LogErrorWithTrace(span, funcLogger, "could not parse rsync template")
-		return err
+		return fmt.Errorf("could not parse rsync command template: %w", err)
 	}
 
 	cArgs := struct{ SSHExe, SSHOpts, RsyncOpts, SourcePath, Account, Node, DestPath string }{
@@ -150,17 +150,17 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	if err != nil {
 		var t1 *utils.TemplateExecuteError
 		var t2 *utils.TemplateArgsError
-		var retErr error
 		if errors.As(err, &t1) {
 			tracing.LogErrorWithTrace(span, funcLogger, "could not execute rsync template")
-			retErr = fmt.Errorf("could not execute rsync template: %w", err)
+			return fmt.Errorf("could not convert rsync template to a command: %w", err)
 		}
 		if errors.As(err, &t2) {
 			tracing.LogErrorWithTrace(span, funcLogger, "could not get rsync command arguments from template")
-			retErr = fmt.Errorf("could not get rsync command arguments from template: %w", err)
+			return fmt.Errorf("could not convert rsync template to a command: %w", err)
 		}
-		return retErr
+		return nil
 	}
+	funcLogger.Debug("rsync command arguments: ", args)
 
 	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, fileCopierExecutables["rsync"], args...)
 	funcLogger.WithFields(log.Fields{
@@ -169,7 +169,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	}).Debug("Running commmand to rsync file")
 
 	if err := cmd.Run(); err != nil {
-		msg := fmt.Sprintf("rsync command failed: %s", err.Error())
+		msg := fmt.Sprintf("could not rsync file: %s", err.Error())
 		tracing.LogErrorWithTrace(
 			span,
 			funcLogger,

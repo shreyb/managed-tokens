@@ -62,7 +62,7 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	args, err := parseAndExecuteKinitTemplate(keytabPath, userPrincipal)
 	if err != nil {
 		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse and execute kinit template")
-		return err
+		return fmt.Errorf("could not get kerberos ticket: %w", err)
 	}
 
 	// Run kinit to get kerberos ticket from keytab
@@ -99,7 +99,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 		}
 		tracing.LogErrorWithTrace(span, funcLogger, "Error running klist to check kerberos principal")
 		funcLogger.Error(stdoutStderr)
-		return err
+		return fmt.Errorf("could not check kerberos principal: %w", err)
 	}
 	funcLogger.Debugf("%s", stdoutStderr)
 
@@ -107,8 +107,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	principal, err := getKerberosPrincipalFromKerbListOutput(stdoutStderr)
 	if err != nil {
 		tracing.LogErrorWithTrace(span, funcLogger, "Could not get kerberos principal")
-		funcLogger.Error("Could not get kerberos principal")
-		return err
+		return fmt.Errorf("could not get kerberos principal during check: %w", err)
 	}
 
 	if principal != checkPrincipal {
@@ -123,8 +122,7 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 func parseAndExecuteKinitTemplate(keytabPath, userPrincipal string) ([]string, error) {
 	kinitTemplate, err := template.New("kinit").Parse("-k -t {{.KeytabPath}} {{.UserPrincipal}}")
 	if err != nil {
-		log.Error("could not parse kinit template")
-		return nil, err
+		return nil, fmt.Errorf("could not parse kinit template: %w", err)
 	}
 
 	cArgs := struct{ KeytabPath, UserPrincipal string }{
@@ -145,6 +143,7 @@ func parseAndExecuteKinitTemplate(keytabPath, userPrincipal string) ([]string, e
 		log.Error(retErr.Error())
 		return nil, retErr
 	}
+	log.Debug("kinit command arguments: ", args)
 	return args, nil
 }
 

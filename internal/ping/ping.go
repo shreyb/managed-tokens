@@ -57,7 +57,7 @@ func (n Node) Ping(ctx context.Context, extraPingOpts []string) error {
 	args, err := parseAndExecutePingTemplate(string(n), extraPingOpts)
 	if err != nil {
 		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse and execute ping template")
-		return err
+		return fmt.Errorf("could not parse and execute ping template: %w", err)
 	}
 
 	cmd := exec.CommandContext(ctx, pingExecutables["ping"], args...)
@@ -97,13 +97,12 @@ func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string,
 			"extraPingOpts": extraPingOpts,
 			"node":          node,
 		}).Errorf(msg)
-		return nil, errors.New("msg")
+		return nil, errors.New(msg)
 	}
 	finalPingOpts := strings.Join(mergedPingOpts, " ")
 	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingOpts))
 	if err != nil {
-		log.Error("could not parse ping template")
-		return nil, err
+		return nil, fmt.Errorf("could not parse ping template: %w", err)
 	}
 
 	var pArgs = map[string]string{
@@ -123,6 +122,7 @@ func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string,
 		log.Error(retErr.Error())
 		return nil, retErr
 	}
+	log.Debug("ping command arguments: ", args)
 	return args, nil
 }
 
