@@ -18,7 +18,6 @@
 package utils
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +29,6 @@ import (
 
 	"github.com/cornfeedhobo/pflag"
 	"github.com/google/shlex"
-	log "github.com/sirupsen/logrus"
 )
 
 // CheckForExecutables takes a map of executables of the form {"name_of_executable": "whatever"} and
@@ -45,12 +43,9 @@ func CheckForExecutables(exeMap map[string]string) error {
 		}
 		pth, err := exec.LookPath(exe)
 		if err != nil {
-			err := fmt.Errorf("%s was not found in $PATH: %w", exe, err)
-			log.Error(err)
-			return err
+			return fmt.Errorf("%s was not found in $PATH: %w", exe, err)
 		}
 		exeMap[exe] = pth
-		log.Debugf("Using %s executable at %s", exe, pth)
 	}
 	return nil
 }
@@ -59,20 +54,15 @@ func CheckForExecutables(exeMap map[string]string) error {
 func CheckRunningUserNotRoot() error {
 	currentUser, err := user.Current()
 	if err != nil {
-		log.Error("Could not get current user")
-		return err
+		return fmt.Errorf("could not get current user: %w", err)
 	}
 	rootUser, err := user.Lookup("root")
 	if err != nil {
-		log.Error("Could not lookup root user")
-		return err
+		return fmt.Errorf("could not lookup root user: %w", err)
 	}
 	if *currentUser == *rootUser {
-		msg := "current user is root"
-		log.Error(msg)
-		return errors.New(msg)
+		return fmt.Errorf("current user is root")
 	}
-	log.Debugf("Current user is %s", currentUser.Username)
 	return nil
 }
 
@@ -88,7 +78,6 @@ func GetArgsFromTemplate(s string) ([]string, error) {
 		debugSlice = append(debugSlice, strconv.Itoa(num), f)
 	}
 
-	log.Debugf("Enumerated args to command are: %s", debugSlice)
 	return args, nil
 }
 
@@ -109,26 +98,15 @@ func IsSliceSubSlice[C comparable](sliceOne []C, sliceTwo []C) bool {
 func TemplateToCommand(templ *template.Template, cmdArgs any) ([]string, error) {
 	args := make([]string, 0)
 
-	log.WithFields(log.Fields{
-		"cmdArgs":  cmdArgs,
-		"template": templ.Name(),
-	}).Debug("Executing template with provided args")
-
 	var b strings.Builder
 	if err := templ.Execute(&b, cmdArgs); err != nil {
-		errMsg := fmt.Sprintf("Could not execute template: %s", err)
-		log.Error(errMsg)
-		return args, &TemplateExecuteError{errMsg}
+		return args, &TemplateExecuteError{fmt.Sprintf("Could not execute template: %s", err)}
 	}
 
 	templateString := b.String()
-	log.WithField("templateString", templateString).Debug("Filled template string")
-
 	args, err := GetArgsFromTemplate(templateString)
 	if err != nil {
-		errMsg := fmt.Sprintf("Could not get command arguments from template: %s", err)
-		log.Error(errMsg)
-		return args, &TemplateArgsError{errMsg}
+		return args, &TemplateArgsError{fmt.Sprintf("Could not get command arguments from template: %s", err)}
 	}
 	return args, nil
 }
