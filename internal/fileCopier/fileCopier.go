@@ -25,7 +25,6 @@ import (
 	"text/template"
 
 	"github.com/cornfeedhobo/pflag"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -34,6 +33,8 @@ import (
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
+
+var ErrDefaultSSHOpts = errors.New("could not merge ssh options. Using default")
 
 var fileCopierExecutables map[string]string = map[string]string{
 	"rsync": "",
@@ -46,9 +47,14 @@ type fileCopier interface {
 }
 
 // NewSSHFileCopier returns a FileCopier object that copies a file via ssh
-func NewSSHFileCopier(source, account, node, destination string, fileCopierOptions []string, sshOptions []string, env environment.CommandEnvironment) *rsyncSetup {
+func NewSSHFileCopier(source, account, node, destination string, fileCopierOptions []string, sshOptions []string, env environment.CommandEnvironment) (*rsyncSetup, error) {
+	var err error
 	// Default ssh options
-	sshOpts := mergeSshOpts(sshOptions)
+	sshOpts, fellBackToDefault := mergeSshOpts(sshOptions)
+	if fellBackToDefault {
+		err = ErrDefaultSSHOpts
+	}
+
 	sshOptsString := strings.Join(sshOpts, " ")
 
 	// We don't have any default fileCopierOptions, so we just use whatever is passed in
@@ -62,7 +68,7 @@ func NewSSHFileCopier(source, account, node, destination string, fileCopierOptio
 		sshOpts:            sshOptsString,
 		rsyncOpts:          finalFileCopierOptions,
 		CommandEnvironment: env,
-	}
+	}, err
 }
 
 // CopyToDestination wraps a FileCopier's copyToDestination method
@@ -86,20 +92,22 @@ type rsyncSetup struct {
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
 func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.rsyncSetup.copyToDestination")
-	span.SetAttributes(attribute.String("type", "rsyncSetup"))
+	span.SetAttributes(
+		attribute.String("type", "rsyncSetup"),
+		attribute.String("sourcePath", r.source),
+		attribute.String("destPath", r.destination),
+		attribute.String("node", r.node),
+		attribute.String("account", r.account),
+		attribute.String("rsyncOpts", r.rsyncOpts),
+	)
 	defer span.End()
 
-	err := rsyncFile(ctx, r.source, r.node, r.account, r.destination, r.sshOpts, r.rsyncOpts, r.CommandEnvironment)
-	if err != nil {
-		log.WithFields(log.Fields{
-			"sourcePath": r.source,
-			"destPath":   r.destination,
-			"node":       r.node,
-			"account":    r.account,
-			"rsyncOpts":  r.rsyncOpts,
-		}).Error("Could not copy source file to destination node")
+	if err := rsyncFile(ctx, r.source, r.node, r.account, r.destination, r.sshOpts, r.rsyncOpts, r.CommandEnvironment); err != nil {
+		err = fmt.Errorf("could not copy source file to destination node: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 // rsyncFile runs rsync on a file at source, and syncs it with the destination account@node:dest
@@ -120,20 +128,12 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 
 	utils.CheckForExecutables(fileCopierExecutables)
 
-	funcLogger := log.WithFields(log.Fields{
-		"source":       source,
-		"node":         node,
-		"destination":  dest,
-		"account":      account,
-		"sshOptions":   sshOptions,
-		"rsyncOptions": rsyncOptions,
-	})
-
 	rsyncArgs := "-e \"{{.SSHExe}} {{.SSHOpts}}\" {{.RsyncOpts}} {{.SourcePath}} {{.Account}}@{{.Node}}:{{.DestPath}}"
 	rsyncTemplate, err := template.New("rsync").Parse(rsyncArgs)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "could not parse rsync template")
-		return fmt.Errorf("could not parse rsync command template: %w", err)
+		err = fmt.Errorf("could not parse rsync command template: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
 
 	cArgs := struct{ SSHExe, SSHOpts, RsyncOpts, SourcePath, Account, Node, DestPath string }{
@@ -151,39 +151,30 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 		var t1 *utils.TemplateExecuteError
 		var t2 *utils.TemplateArgsError
 		if errors.As(err, &t1) {
-			tracing.LogErrorWithTrace(span, funcLogger, "could not execute rsync template")
-			return fmt.Errorf("could not convert rsync template to a command: %w", err)
+			err = fmt.Errorf("could not convert rsync template to a command: %w", err)
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
 		if errors.As(err, &t2) {
-			tracing.LogErrorWithTrace(span, funcLogger, "could not get rsync command arguments from template")
-			return fmt.Errorf("could not convert rsync template to a command: %w", err)
+			err = fmt.Errorf("could not convert rsync template to a command: %w", err)
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
 		return nil
 	}
-	funcLogger.Debug("rsync command arguments: ", args)
 
 	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, fileCopierExecutables["rsync"], args...)
-	funcLogger.WithFields(log.Fields{
-		"command":     cmd.String(),
-		"environment": environ.String(),
-	}).Debug("Running commmand to rsync file")
-
+	span.AddEvent("running rsync command: " + cmd.String()) // TODO Add verbose that dumps environ into span attrs
 	if err := cmd.Run(); err != nil {
-		msg := fmt.Sprintf("could not rsync file: %s", err.Error())
+		err = fmt.Errorf("could not rsync file: %w", err)
 		tracing.LogErrorWithTrace(
 			span,
-			funcLogger,
-			msg,
+			err,
 			tracing.KeyValueForLog{Key: "command", Value: cmd.String()},
 		)
-		return errors.New(msg)
+		return err
 	}
 
-	log.WithFields(log.Fields{
-		"account":  account,
-		"node":     node,
-		"destPath": dest,
-	}).Debug("rsync successful")
 	span.SetStatus(codes.Ok, "rsync successful")
 	return nil
 }
@@ -192,7 +183,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 // For example, if a user wants to pass "-o ConnectTimeout=30", they should pass []string{"ConnectTimeout=30"}
 // All options passed here will be returned with the "-o" prepended, for use in ssh commands, so the only options that
 // should be passed are those supported by the ssh utility
-func mergeSshOpts(extraArgs []string) []string {
+func mergeSshOpts(extraArgs []string) (mergedOpts []string, defaultArgsUsed bool) {
 	defaultArgs := []string{"-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1"}
 	fs := pflag.NewFlagSet("ssh args", pflag.ContinueOnError)
 	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
@@ -206,12 +197,12 @@ func mergeSshOpts(extraArgs []string) []string {
 
 	_mergedArgs, err := utils.MergeCmdArgs(fs, _preprocessedArgs)
 	if err != nil {
-		log.WithField("args", extraArgs).Error("Could not merge ssh args. Using default")
-		return defaultArgs
+		// Could not merge ssh args. Using default
+		return defaultArgs, true
 	}
 
 	mergedArgs := correctMergedSshOpts(_mergedArgs)
-	return mergedArgs
+	return mergedArgs, false
 }
 
 func preProcessSshOpts(args []string) []string {

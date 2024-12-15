@@ -127,7 +127,7 @@ func TestMergeSshArgs(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				args := mergeSshOpts(test.extraArgs)
+				args, _ := mergeSshOpts(test.extraArgs)
 				fmt.Println(args)
 				assert.ElementsMatch(t, test.expectedArgs, args)
 				assert.Condition(t, func() (success bool) {
