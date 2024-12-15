@@ -23,7 +23,6 @@ import (
 	"os/exec"
 	"regexp"
 
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -69,28 +68,25 @@ func storeAndValidateToken(ctx context.Context, t tokenStorer, environ *environm
 	)
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{
-		"serviceName": t.GetServiceName(),
-		"vaultServer": t.GetVaultServer(),
-		"credd":       t.GetCredd(),
-	})
 	if err := t.getTokensAndStoreInVault(ctx, environ); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err := fmt.Errorf("could not obtain vault token: %w", ctx.Err())
+			tracing.LogErrorWithTrace(span, err)
 			return err
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not obtain vault token: %s", err.Error()))
+		err := fmt.Errorf("could not obtain vault token: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	funcLogger.Debug("Stored vault and bearer tokens in vault and condor_credd/schedd")
+	span.AddEvent("Stored vault and bearer tokens in vault and condor_credd/schedd")
 
 	if err := t.validateToken(); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not validate vault token for TokenStorer")
+		err = fmt.Errorf("could not validate vault token: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
-	span.SetStatus(codes.Ok, "Stored and validated vault token")
-	funcLogger.Debug("Validated vault token")
+	tracing.LogSuccessWithTrace(span, "Stored and validated vault token")
 	return nil
 }
 
@@ -136,11 +132,6 @@ func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, e
 	)
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{
-		"service":     t.serviceName,
-		"vaultServer": t.vaultServer,
-		"credd":       t.credd,
-	})
 	getTokensAndStoreInVaultCmd := setupCmdWithEnvironmentForTokenStorer(ctx, t, environ)
 
 	// We need to capture stdout and stderr on the terminal so the user can authenticate
@@ -148,22 +139,26 @@ func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, e
 	getTokensAndStoreInVaultCmd.Stderr = os.Stderr
 
 	if err := getTokensAndStoreInVaultCmd.Start(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
-			return ctx.Err()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err := fmt.Errorf("could not start condor_vault_storer command to store and obtain tokens: %w", ctx.Err())
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error starting condor_vault_storer command to store and obtain tokens; %s", err.Error()))
+		err = fmt.Errorf("could not start condor_vault_storer command to store and obtain vault tokens: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 	if err := getTokensAndStoreInVaultCmd.Wait(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
-			return ctx.Err()
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("could not store and obtain tokens: %w", ctx.Err())
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error running condor_vault_storer to store and obtain tokens; %s", err))
+		err = fmt.Errorf("could not store and obtain vault tokens: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	span.SetStatus(codes.Ok, "Stored and obtained vault token")
+	tracing.LogSuccessWithTrace(span, "Stored and obtained vault token")
 	return nil
 }
 
@@ -200,35 +195,26 @@ func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context
 	)
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{
-		"service":     t.serviceName,
-		"vaultServer": t.vaultServer,
-		"credd":       t.credd,
-	})
 	getTokensAndStoreInVaultCmd := setupCmdWithEnvironmentForTokenStorer(ctx, t, environ)
 
 	// For non-interactive use, it is an error condition if the user is prompted to authenticate, so we want to just run the command
 	// and capture the output
 	if stdoutStderr, err := getTokensAndStoreInVaultCmd.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
-			return ctx.Err()
+			err = fmt.Errorf("could not store and obtain vault tokens: %w", ctx.Err())
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
 		authErr := checkStdoutStderrForAuthNeededError(stdoutStderr)
-		funcLogger.Errorf("Error running condor_vault_storer to store and obtain tokens; %s", err)
-		funcLogger.Errorf("%s", stdoutStderr)
 		if authErr != nil {
 			span.SetStatus(codes.Error, "Authentication needed")
 			return authErr
 		}
-		span.SetStatus(codes.Error, "Error running condor_vault_storer to store and obtain tokens")
+		err = errors.New(string(stdoutStderr))
+		tracing.LogErrorWithTrace(span, err)
 		return err
-	} else {
-		if len(stdoutStderr) > 0 {
-			funcLogger.Debugf("%s", stdoutStderr)
-		}
 	}
-	span.SetStatus(codes.Ok, "Stored and obtained vault token")
+	tracing.LogSuccessWithTrace(span, "Stored and obtained vault token")
 	return nil
 }
 
@@ -241,21 +227,13 @@ func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t tokenStorer, e
 	)
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{
-		"service":     t.GetServiceName(),
-		"vaultServer": t.GetVaultServer(),
-		"credd":       t.GetCredd(),
-	})
-
 	cmdArgs := getCmdArgsForTokenStorer(ctx, t.GetServiceName())
 	newEnv := setupEnvironmentForTokenStorer(environ, t.GetCredd(), t.GetVaultServer())
 	getTokensAndStoreInVaultCmd := environment.EnvironmentWrappedCommand(ctx, newEnv, vaultExecutables["condor_vault_storer"], cmdArgs...)
 
-	funcLogger.Info("Storing and obtaining vault token")
-	funcLogger.WithFields(log.Fields{
-		"command":     getTokensAndStoreInVaultCmd.String(),
-		"environment": newEnv.String(),
-	}).Debug("Command to store vault token")
+	span.AddEvent(
+		fmt.Sprintf("Storing and obtaining vault token with command: %s", getTokensAndStoreInVaultCmd.String()),
+	)
 
 	return getTokensAndStoreInVaultCmd
 }
@@ -265,15 +243,14 @@ func getCmdArgsForTokenStorer(ctx context.Context, serviceName string) []string 
 	span.SetAttributes(attribute.String("service", serviceName))
 	defer span.End()
 
-	funcLogger := log.WithField("service", serviceName)
-
 	cmdArgs := make([]string, 0, 2)
 	verbose, err := contextStore.GetVerbose(ctx)
 	// If err == utils.ErrContextKeyNotStored, don't worry about it - we just use the default verbose value of false
 	if !errors.Is(err, contextStore.ErrContextKeyNotStored) && err != nil {
-		funcLogger.Error("Could not retrieve verbose setting from context.  Setting verbose to false")
+		tracing.LogErrorWithTrace(span, fmt.Errorf("could not retrieve verbose setting from context. Setting verbose to false: %w", err))
 	}
-	funcLogger.Debugf("Verbose is set to %t", verbose)
+	span.SetAttributes(attribute.Bool("verbose", verbose))
+
 	if verbose {
 		cmdArgs = append(cmdArgs, "-v")
 	}

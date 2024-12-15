@@ -104,7 +104,7 @@ func TestStoreAndValidateToken(t *testing.T) {
 					context.Background(),
 					test.tokenStorer,
 					&environment.CommandEnvironment{},
-				); !errors.Is(test.expectedErr, err) {
+				); !errors.Is(err, test.expectedErr) {
 					t.Errorf("Expected error %s.  Got %s", test.expectedErr, err)
 				}
 			},
