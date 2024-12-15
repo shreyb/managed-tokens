@@ -25,7 +25,6 @@ import (
 	"text/template"
 
 	"github.com/cornfeedhobo/pflag"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -52,28 +51,27 @@ func (n Node) Ping(ctx context.Context, extraPingOpts []string) error {
 	span.SetAttributes(attribute.String("node", string(n)))
 	defer span.End()
 
-	funcLogger := log.WithField("node", string(n))
-
 	args, err := parseAndExecutePingTemplate(string(n), extraPingOpts)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse and execute ping template")
-		return fmt.Errorf("could not parse and execute ping template: %w", err)
+		err = fmt.Errorf("could not ping node: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
 
 	cmd := exec.CommandContext(ctx, pingExecutables["ping"], args...)
-	funcLogger.WithField("command", cmd.String()).Debug("Running command to ping node")
-	if cmdOut, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
-		if e := ctx.Err(); e != nil {
-			tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Context error: %s", e.Error()),
+	span.AddEvent("Running command to ping node: " + cmd.String()) // TODO This should only be done if we're in verbose mode
+	if stdoutStderr, err := cmd.CombinedOutput(); err != nil {
+		if err2 := ctx.Err(); err2 != nil {
+			err2 = fmt.Errorf("could not ping node: %w", err2)
+			tracing.LogErrorWithTrace(span, err2,
 				tracing.KeyValueForLog{Key: "command", Value: cmd.String()},
 			)
-			return e
+			return err2
 		}
-
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error running ping command: %s %s", string(cmdOut), cmdErr.Error()),
+		tracing.LogErrorWithTrace(span, fmt.Errorf("could not ping node: %w", err),
 			tracing.KeyValueForLog{Key: "command", Value: cmd.String()},
 		)
-		return fmt.Errorf("%s %s", cmdOut, cmdErr)
+		return fmt.Errorf("%s %s", stdoutStderr, err)
 
 	}
 	span.SetStatus(codes.Ok, "Ping successful")
@@ -85,24 +83,19 @@ func (n Node) String() string { return string(n) }
 
 func init() {
 	if err := utils.CheckForExecutables(pingExecutables); err != nil {
-		log.WithField("executableGroup", "ping").Error("One or more required executables were not found in $PATH.  Will still attempt to run, but this will probably fail")
+		fmt.Println("One or more required executables were not found in $PATH.  Will still attempt to run, but this will probably fail")
 	}
 }
 
 func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string, error) {
 	mergedPingOpts, err := mergePingOpts(extraPingOpts)
 	if err != nil {
-		msg := "could not merge ping args"
-		log.WithFields(log.Fields{
-			"extraPingOpts": extraPingOpts,
-			"node":          node,
-		}).Errorf(msg)
-		return nil, errors.New(msg)
+		return nil, fmt.Errorf("could not parse and execute ping template: %w", err)
 	}
 	finalPingOpts := strings.Join(mergedPingOpts, " ")
 	pingTemplate, err := template.New("ping").Parse(fmt.Sprintf("%s {{.Node}}", finalPingOpts))
 	if err != nil {
-		return nil, fmt.Errorf("could not parse ping template: %w", err)
+		return nil, fmt.Errorf("could not parse and execute ping template: %w", err)
 	}
 
 	var pArgs = map[string]string{
@@ -112,17 +105,13 @@ func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string,
 	if err != nil {
 		var t1 *utils.TemplateExecuteError
 		var t2 *utils.TemplateArgsError
-		var retErr error
 		if errors.As(err, &t1) {
-			retErr = fmt.Errorf("could not execute ping template: %w", err)
+			return nil, fmt.Errorf("could not execute ping template: %w", err)
 		}
 		if errors.As(err, &t2) {
-			retErr = fmt.Errorf("could not get ping command arguments from template: %w", err)
+			return nil, fmt.Errorf("could not get ping command arguments from template: %w", err)
 		}
-		log.Error(retErr.Error())
-		return nil, retErr
 	}
-	log.Debug("ping command arguments: ", args)
 	return args, nil
 }
 
