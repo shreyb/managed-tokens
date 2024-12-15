@@ -2,9 +2,7 @@ package tracing
 
 import (
 	"context"
-	"errors"
 
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -40,25 +38,22 @@ type KeyValueForLog struct {
 
 // LogErrorWithTrace logs an error message modifies the passed in trace span.
 // It sets the status of the span to an error, records the error, and logs the error message using the provided logger.
-func LogErrorWithTrace(span trace.Span, logger *log.Entry, msg string, keyValues ...KeyValueForLog) {
-	span, logger = assembleSpanAndLogger(span, logger, keyValues...)
-	err := errors.New(msg)
-	span.SetStatus(codes.Error, msg)
+func LogErrorWithTrace(span trace.Span, err error, keyValues ...KeyValueForLog) {
+	span = assembleSpan(span, keyValues...)
+	span.SetStatus(codes.Error, err.Error())
 	span.RecordError(err)
-	logger.Error(msg)
 }
 
 // LogSuccessWithTrace logs a success message with the passed in logger and sets the passed-in span's status to OK
-func LogSuccessWithTrace(span trace.Span, logger *log.Entry, msg string, keyValues ...KeyValueForLog) {
-	span, logger = assembleSpanAndLogger(span, logger, keyValues...)
+func LogSuccessWithTrace(span trace.Span, msg string, keyValues ...KeyValueForLog) {
+	span = assembleSpan(span, keyValues...)
 	span.SetStatus(codes.Ok, msg)
-	logger.Info(msg)
+	span.AddEvent(msg)
 }
 
-func assembleSpanAndLogger(span trace.Span, logger *log.Entry, keyValues ...KeyValueForLog) (trace.Span, *log.Entry) {
+func assembleSpan(span trace.Span, keyValues ...KeyValueForLog) trace.Span {
 	for _, keyValue := range keyValues {
 		span.SetAttributes(attribute.KeyValue{Key: attribute.Key(keyValue.Key), Value: attribute.StringValue(keyValue.Value)})
-		logger = logger.WithField(keyValue.Key, keyValue.Value)
 	}
-	return span, logger
+	return span
 }
