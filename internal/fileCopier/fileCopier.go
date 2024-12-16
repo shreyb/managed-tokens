@@ -28,6 +28,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/tracing"
@@ -164,7 +165,9 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	}
 
 	cmd := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, fileCopierExecutables["rsync"], args...)
-	span.AddEvent("running rsync command: " + cmd.String()) // TODO Add verbose that dumps environ into span attrs
+	span.AddEvent("running rsync command",
+		trace.WithAttributes(attribute.String("command", cmd.String())),
+	)
 	if err := cmd.Run(); err != nil {
 		err = fmt.Errorf("could not rsync file: %w", err)
 		tracing.LogErrorWithTrace(
