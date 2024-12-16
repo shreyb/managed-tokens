@@ -27,9 +27,9 @@ import (
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var kerberosExecutables = map[string]string{
@@ -40,7 +40,7 @@ var kerberosExecutables = map[string]string{
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
 	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
-		log.Fatal("Could not find kerberos executables")
+		panic(fmt.Errorf("could not find kerberos executables: %w", err))
 	}
 }
 
@@ -53,31 +53,30 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 	)
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{
-		"keytabPath":    keytabPath,
-		"userPrincipal": userPrincipal,
-	})
-
 	// Parse and execute kinit template
 	args, err := parseAndExecuteKinitTemplate(keytabPath, userPrincipal)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse and execute kinit template")
-		return fmt.Errorf("could not get kerberos ticket: %w", err)
+		err = fmt.Errorf("could not get kerberos ticket: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
 
 	// Run kinit to get kerberos ticket from keytab
 	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
-	funcLogger.WithField("command", createKerberosTicket.String()).Debug("Now creating new kerberos ticket with keytab")
+	span.AddEvent(
+		"creating new kerberos ticket with keytabs",
+		trace.WithAttributes(attribute.String("command", createKerberosTicket.String())),
+	)
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
+			tracing.LogErrorWithTrace(span, context.DeadlineExceeded)
 			return ctx.Err()
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, "Error running kinit to create new kerberos ticket")
-		funcLogger.Errorf("%s", stdoutstdErr)
+		err = fmt.Errorf("error creating kerberos ticket: %w\n: %s", err, stdoutstdErr)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Successfully created new kerberos ticket")
+	tracing.LogSuccessWithTrace(span, "Successfully created new kerberos ticket")
 	return nil
 }
 
@@ -87,35 +86,35 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	span.SetAttributes(attribute.String("checkPrincipal", checkPrincipal))
 	defer span.End()
 
-	funcLogger := log.WithField("caller", "CheckKerberosPrincipal")
-
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
-	funcLogger.Debug("Checking user principal against configured principal")
+	span.AddEvent("finding kerberos ticket with klist")
 	stdoutStderr, err := checkForKerberosTicket.CombinedOutput()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
+			tracing.LogErrorWithTrace(span, context.DeadlineExceeded)
 			return ctx.Err()
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, "Error running klist to check kerberos principal")
-		funcLogger.Error(stdoutStderr)
-		return fmt.Errorf("could not check kerberos principal: %w", err)
+		err = fmt.Errorf("could not check kerberos principal: %w\n: %s", err, stdoutStderr)
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
-	funcLogger.Debugf("%s", stdoutStderr)
 
 	// Check output of klist to get principal
+	span.AddEvent("checking klist output for principal")
 	principal, err := getKerberosPrincipalFromKerbListOutput(stdoutStderr)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get kerberos principal")
-		return fmt.Errorf("could not get kerberos principal during check: %w", err)
+		err = fmt.Errorf("could not get kerberos principal during check: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
+	span.AddEvent("found principal", trace.WithAttributes(attribute.String("principal", principal)))
 
 	if principal != checkPrincipal {
 		err := fmt.Errorf("klist yielded a principal that did not match the configured user prinicpal.  Expected %s, got %s", checkPrincipal, principal)
-		tracing.LogErrorWithTrace(span, funcLogger, err.Error())
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Kerberos principal matches configured principal")
+	tracing.LogSuccessWithTrace(span, "Kerberos principal matches configured principal")
 	return nil
 }
 
@@ -140,10 +139,8 @@ func parseAndExecuteKinitTemplate(keytabPath, userPrincipal string) ([]string, e
 		if errors.As(err, &t2) {
 			retErr = fmt.Errorf("could not get kinit command arguments from template: %w", err)
 		}
-		log.Error(retErr.Error())
 		return nil, retErr
 	}
-	log.Debug("kinit command arguments: ", args)
 	return args, nil
 }
 
@@ -152,10 +149,8 @@ func getKerberosPrincipalFromKerbListOutput(output []byte) (string, error) {
 	matches := principalCheckRegexp.FindSubmatch(output)
 	if len(matches) != 2 {
 		err := "could not find principal in klist output"
-		log.Error(err)
 		return "", errors.New(err)
 	}
 	principal := string(matches[1])
-	log.Debugf("Found principal: %s", principal)
 	return principal, nil
 }
