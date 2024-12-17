@@ -68,10 +68,6 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 		trace.WithAttributes(attribute.String("command", createKerberosTicket.String())),
 	)
 	if stdoutstdErr, err := createKerberosTicket.CombinedOutput(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, context.DeadlineExceeded)
-			return ctx.Err()
-		}
 		err = fmt.Errorf("error creating kerberos ticket: %w\n: %s", err, stdoutstdErr)
 		tracing.LogErrorWithTrace(span, err)
 		return err
@@ -90,10 +86,6 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	span.AddEvent("finding kerberos ticket with klist")
 	stdoutStderr, err := checkForKerberosTicket.CombinedOutput()
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, context.DeadlineExceeded)
-			return ctx.Err()
-		}
 		err = fmt.Errorf("could not check kerberos principal: %w\n: %s", err, stdoutStderr)
 		tracing.LogErrorWithTrace(span, err)
 		return err
