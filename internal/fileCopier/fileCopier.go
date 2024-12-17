@@ -124,7 +124,7 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 
 	// Check if our context is expired before we try to do anything
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return fmt.Errorf("could not rsync file to destination: %w", ctx.Err())
 	}
 
 	utils.CheckForExecutables(fileCopierExecutables)
