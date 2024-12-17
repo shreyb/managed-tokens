@@ -20,11 +20,11 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/fermitools/managed-tokens/internal/tracing"
 	_ "github.com/mattn/go-sqlite3"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // SQL statements to be used by API
@@ -126,15 +126,15 @@ func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, e
 
 	dataConverted, err := getNamedDimensionStringValues(ctx, m.db, getAllServicesFromTableStatement)
 	if err != nil {
+		err := fmt.Errorf("could not get service names from database: %w", err)
 		tracing.LogErrorWithTrace(
 			span,
-			log.NewEntry(log.StandardLogger()),
-			"Could not get service names from database",
+			err,
 			tracing.KeyValueForLog{Key: "dbLocation", Value: m.filename},
 		)
 		return nil, err
 	}
-	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Got service names from database")
+	tracing.LogSuccessWithTrace(span, "Got service names from database")
 	return dataConverted, nil
 }
 
@@ -146,15 +146,15 @@ func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, erro
 
 	dataConverted, err := getNamedDimensionStringValues(ctx, m.db, getAllNodesFromTableStatement)
 	if err != nil {
+		err := fmt.Errorf("could not get node names from database: %w", err)
 		tracing.LogErrorWithTrace(
 			span,
-			log.NewEntry(log.StandardLogger()),
-			"Could not get node names from database",
+			err,
 			tracing.KeyValueForLog{Key: "dbLocation", Value: m.filename},
 		)
 		return nil, err
 	}
-	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Got node names from database")
+	tracing.LogSuccessWithTrace(span, "Got node names from database")
 	return dataConverted, nil
 }
 
@@ -182,19 +182,15 @@ func (s *setupErrorCount) insertValues() []any { return []any{s.service, s.count
 func (s *setupErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error) {
 	// Make sure we have the right number of values
 	if len(resultRow) != 2 {
-		msg := "setup error data has wrong structure"
-		log.Errorf("%s: %v", msg, resultRow)
-		return nil, errDatabaseDataWrongStructure
+		return nil, &errDatabaseDataWrongStructure{resultRow, "expected row with 2 values"}
 	}
 	// Type check each element
 	serviceVal, serviceTypeOk := resultRow[0].(string)
 	countVal, countTypeOk := resultRow[1].(int64)
 	if !(serviceTypeOk && countTypeOk) {
-		msg := "setup errors query result has wrong type.  Expected (string, int64)"
-		log.Errorf("%s: got (%T, %T)", msg, resultRow[0], resultRow[1])
-		return nil, errDatabaseDataWrongType
+		_valsForErr := []any{resultRow[0], resultRow[1]}
+		return nil, &errDatabaseDataWrongType{_valsForErr, "expected (string, int64)"}
 	}
-	log.Debugf("Got SetupError row: %s, %d", serviceVal, countVal)
 	return &setupErrorCount{serviceVal, int(countVal)}, nil
 }
 
@@ -205,24 +201,23 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
-
-	// dataConverted := make([]SetupErrorCount, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsStatement)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get setup errors information from ManagedTokensDatabase")
+		err = fmt.Errorf("could not get setup errors information from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		funcLogger.Debug("No setup error data in database")
+		span.AddEvent("No setup error data in database")
 		return nil, sql.ErrNoRows
 	}
 
 	// Unpack data
 	unpackedData, err := unpackData[*setupErrorCount](data)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking setupErrorCount data")
+		err = fmt.Errorf("error unpacking setupErrorCount data: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 	convertedData := make([]SetupErrorCount, 0, len(unpackedData))
@@ -230,7 +225,7 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 		convertedData = append(convertedData, datum)
 	}
 
-	tracing.LogSuccessWithTrace(span, funcLogger, "Got setup errors information from ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Got setup errors information from ManagedTokensDatabase")
 	return convertedData, nil
 }
 
@@ -241,30 +236,31 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 	span.SetAttributes(attribute.String("service", service), attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{"dbLocation": m.filename, "service": service})
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get setup errors information from ManagedTokensDatabase")
+		err = fmt.Errorf("could not get setup errors information from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		funcLogger.Debug("No setup error data in database")
+		span.AddEvent("No setup error data in database")
 		return nil, sql.ErrNoRows
 	}
 
 	if len(data) != 1 {
-		msg := fmt.Sprintf("setup error data should only have 1 row: %v", data)
-		tracing.LogErrorWithTrace(span, funcLogger, msg)
-		return nil, errDatabaseDataWrongStructure
+		err := &errDatabaseDataWrongStructure{data, "setup errors query result has wrong structure.  Expected row with 1 value"}
+		tracing.LogErrorWithTrace(span, err)
+		return nil, err
 	}
 
 	unpackedData, err := unpackData[*setupErrorCount](data)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking setupErrorCount data")
+		err = fmt.Errorf("error unpacking setupErrorCount data: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Got setup errors information from ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Got setup errors information from ManagedTokensDatabase")
 	return unpackedData[0], nil
 }
 
@@ -275,15 +271,14 @@ func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setu
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
-
 	setupErrorDatumSlice := setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorsByService)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not update setup errors in ManagedTokensDatabase")
+		err = fmt.Errorf("could not update setup errors in database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Updated setup errors in ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Updated setup errors in ManagedTokensDatabase")
 	return nil
 }
 
@@ -327,21 +322,15 @@ func (p *pushErrorCount) insertValues() []any { return []any{p.service, p.node, 
 func (p *pushErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error) {
 	// Make sure we have the right number of values
 	if len(resultRow) != 3 {
-		msg := "push error data has wrong structure"
-		log.Errorf("%s: %v", msg, resultRow)
-		return nil, errDatabaseDataWrongStructure
+		return nil, &errDatabaseDataWrongStructure{resultRow, "push error data has wrong structure"}
 	}
 	// Type check each element
 	serviceVal, serviceTypeOk := resultRow[0].(string)
 	nodeVal, nodeTypeOk := resultRow[1].(string)
 	countVal, countTypeOk := resultRow[2].(int64)
 	if !(serviceTypeOk && nodeTypeOk && countTypeOk) {
-		msg := "push errors query result has wrong type.  Expected (string, string, int64)"
-		log.Errorf("%s: got (%T, %T, %T)", msg, resultRow[0], resultRow[1], resultRow[2])
-		return nil, errDatabaseDataWrongType
+		return nil, &errDatabaseDataWrongType{resultRow, "expected (string, string, int64)"}
 	}
-	log.Debugf("Got PushErrorCount row: %s, %s, %d", serviceVal, nodeVal, countVal)
-
 	return &pushErrorCount{serviceVal, nodeVal, int(countVal)}, nil
 }
 
@@ -349,31 +338,33 @@ func (p *pushErrorCount) unpackDataRow(resultRow []any) (dataRowUnpacker, error)
 // that the caller can unpack using the interface methods Service(), Node(), and Count()
 func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushErrorCount, error) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetPushErrorsInfo")
+	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsStatement)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get push errors information from ManagedTokensDatabase")
+		err = fmt.Errorf("could not get push errors information from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		funcLogger.Debug("No push error data in database")
+		span.AddEvent("No push error data in database")
 		return nil, sql.ErrNoRows
 	}
 
 	// Unpack data
 	unpackedData, err := unpackData[*pushErrorCount](data)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking pushErrorCount data")
+		err = fmt.Errorf("error unpacking pushErrorCount data: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 	convertedData := make([]PushErrorCount, 0, len(unpackedData))
 	for _, datum := range unpackedData {
 		convertedData = append(convertedData, datum)
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Got push errors information from ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Got push errors information from ManagedTokensDatabase")
 	return convertedData, nil
 }
 
@@ -387,29 +378,30 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 	)
 	defer span.End()
 
-	funcLogger := log.WithFields(log.Fields{"dbLocation": m.filename, "service": service})
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsByServiceStatement, service)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get push errors information from ManagedTokensDatabase")
+		err = fmt.Errorf("could not get push errors information from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		funcLogger.Debug("No push error data in database")
+		span.AddEvent("No push error data in database")
 		return nil, sql.ErrNoRows
 	}
 
 	// Unpack data
 	unpackedData, err := unpackData[*pushErrorCount](data)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not unpack data from database")
+		err = fmt.Errorf("error unpacking pushErrorCount data: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 	convertedData := make([]PushErrorCount, 0, len(unpackedData))
 	for _, datum := range unpackedData {
 		convertedData = append(convertedData, datum)
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Got push errors information from ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Got push errors information from ManagedTokensDatabase")
 	return convertedData, nil
 }
 
@@ -417,16 +409,17 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 // in the database should be given as a slice of PushErrorCount (pushErrorsByServiceAndNode)
 func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushErrorsByServiceAndNode []PushErrorCount) error {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.UpdatePushErrorsTable")
+	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
 	pushErrorDatumSlice := pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorsByServiceAndNode)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not update push errors in ManagedTokensDatabase")
+		err = fmt.Errorf("could not update push errors in database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Updated push errors in ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Updated push errors in ManagedTokensDatabase")
 	return nil
 }
 
@@ -462,19 +455,18 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 	)
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
-
 	serviceDatumSlice := convertStringSliceToInsertValuesSlice(
 		newInsertValuesFromUnderlyingString[*serviceDatum, serviceDatum],
 		serviceNames,
 	)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not update services in ManagedTokensDatabase")
+		err = fmt.Errorf("could not update services in database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
-	tracing.LogSuccessWithTrace(span, funcLogger, "Updated services in ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Updated services in ManagedTokensDatabase")
 	return nil
 }
 
@@ -494,19 +486,18 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 	)
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
-
 	nodesDatumSlice := convertStringSliceToInsertValuesSlice(
 		newInsertValuesFromUnderlyingString[*nodeDatum, nodeDatum],
 		nodes,
 	)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not update nodes in ManagedTokensDatabase")
+		err = fmt.Errorf("could not update nodes in database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
-	tracing.LogSuccessWithTrace(span, funcLogger, "Updated nodes in ManagedTokensDatabase")
+	tracing.LogSuccessWithTrace(span, "Updated nodes in ManagedTokensDatabase")
 	return nil
 
 }

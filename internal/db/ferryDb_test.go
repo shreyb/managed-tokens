@@ -236,11 +236,15 @@ func TestGetUIDsByUsername(t *testing.T) {
 }
 
 func TestUnpackUIDDataRow(t *testing.T) {
+	var nilErr error
+	var errStruct *errDatabaseDataWrongStructure
+	var errType *errDatabaseDataWrongType
+
 	type testCase struct {
 		description    string
 		resultRow      []any
 		expectedResult *ferryUidDatum
-		expectedErr    error
+		expectedErr    any
 	}
 
 	testCases := []testCase{
@@ -254,7 +258,7 @@ func TestUnpackUIDDataRow(t *testing.T) {
 				"string",
 				42,
 			},
-			nil,
+			nilErr,
 		},
 		{
 			"Invalid data - wrong structure",
@@ -264,7 +268,7 @@ func TestUnpackUIDDataRow(t *testing.T) {
 				int64(43),
 			},
 			nil,
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 		{
 			"Invalid data - wrong types",
@@ -273,7 +277,7 @@ func TestUnpackUIDDataRow(t *testing.T) {
 				"string2",
 			},
 			nil,
-			errDatabaseDataWrongType,
+			errType,
 		},
 	}
 
@@ -283,20 +287,14 @@ func TestUnpackUIDDataRow(t *testing.T) {
 			func(t *testing.T) {
 				var u ferryUidDatum
 				datum, err := u.unpackDataRow(test.resultRow)
-				if test.expectedErr == nil && err != nil {
-					t.Errorf("Expected nil error.  Got %s instead", err)
-					return
-				}
-				testErrors := []error{errDatabaseDataWrongStructure, errDatabaseDataWrongType}
-				for _, testError := range testErrors {
-					if errors.Is(test.expectedErr, testError) {
-						if !errors.Is(err, testError) {
-							t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
-							return
-						}
-						break
+				func() {
+					if test.expectedErr == nil && err == nil {
+						return
 					}
-				}
+					if !errors.As(err, &test.expectedErr) {
+						t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+					}
+				}()
 
 				if (test.expectedResult == nil && datum != nil) ||
 					(test.expectedResult != nil && datum == nil) {

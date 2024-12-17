@@ -26,7 +26,6 @@ import (
 	"strconv"
 
 	_ "github.com/mattn/go-sqlite3"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -60,43 +59,40 @@ func (m *ManagedTokensDatabase) Location() string {
 // OpenOrCreateDatabase opens a sqlite3 database for reading or writing, and returns a *FERRYUIDDatabase object.  If the database already
 // exists at the filename provided, it will open that database as long as the ApplicationId matches
 func OpenOrCreateDatabase(filename string) (*ManagedTokensDatabase, error) {
-	funcLog := log.WithField("dbLocation", filename)
-
 	m := ManagedTokensDatabase{filename: filename}
-	if _, err := os.Stat(filename); errors.Is(err, os.ErrNotExist) {
+	_, err := os.Stat(filename)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
 		if err = m.create(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("could not create database: %w", err)
 		}
-		funcLog.Debug("Created new ManagedTokensDatabase")
-	} else {
+	case err != nil:
+		return nil, fmt.Errorf("could not stat database file: %w", err)
+	default:
 		if err = m.open(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("could not open existing database: %w", err)
 		}
-		funcLog.Debug("ManagedTokensDatabase file already exists.  Will try to use it")
 	}
 
 	if err := m.addForeignKeyConstraintsToDB(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not add foreign key constraints to database: %w", err)
 	}
 
 	if err := m.check(); err != nil {
-		funcLog.Error("ManagedTokensDatabase failed check")
-		return nil, err
+		return nil, fmt.Errorf("ManagedTokensDatabase failed check: %w", err)
 	}
 
-	funcLog.Debug("ManagedTokensDatabase connection ready")
 	return &m, nil
 }
 
 func (m *ManagedTokensDatabase) create() error {
-	funcLog := log.WithField("dbLocation", m.filename)
 	if err := m.initialize(); err != nil {
-		funcLog.Error("Could not initialize database")
-		if err2 := os.Remove(m.filename); errors.Is(err2, os.ErrNotExist) {
-			funcLog.Error("Could not remove corrupt database file.  Please do so manually")
-			return err2
+		errMsg := "could not initialize database"
+		if err2 := os.Remove(m.filename); !errors.Is(err2, os.ErrNotExist) {
+			errMsg = errMsg + ": could not remove corrupt database file.  Please do so manually"
+			return fmt.Errorf("%s: %w", errMsg, err2)
 		}
-		return err
+		return fmt.Errorf("%s: %w", errMsg, err)
 	}
 	return nil
 }
@@ -105,17 +101,14 @@ func (m *ManagedTokensDatabase) open() error {
 	var err error
 	m.db, err = sql.Open("sqlite3", m.filename)
 	if err != nil {
-		msg := "Could not open the managed tokens database file"
-		log.WithField("dbLocation", m.filename).Errorf("%s: %s", msg, err)
-		return &databaseOpenError{m.filename, err}
+		return fmt.Errorf("could not open database file: %w", &databaseOpenError{m.filename, err})
 	}
 	return nil
 }
 
 func (m *ManagedTokensDatabase) addForeignKeyConstraintsToDB() error {
 	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
-		log.WithField("dbLocation", m.filename).Error(err)
-		return err
+		return fmt.Errorf("could not enable foreign key constraints: %w", err)
 	}
 	return nil
 }
@@ -127,43 +120,34 @@ func (m *ManagedTokensDatabase) Close() error {
 
 // check makes sure that an object claiming to be a ManagedTokensDatabase actually is, by checking the ApplicationID
 func (m *ManagedTokensDatabase) check() error {
-	funcLog := log.WithField("dbLocation", m.filename)
-
 	err := m.checkApplicationId()
 	if err != nil {
-		funcLog.Error("ApplicationId check failed")
-		return err
+		return fmt.Errorf("ApplicationId check failed: %w", err)
 	}
 
 	// Migrate to the right userVersion of the database
 	var userVersion int
 	if err := m.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
-		msg := "Could not get user_version from ManagedTokensDatabase"
-		funcLog.Error(msg)
-		return &databaseCheckError{msg, err}
+		return &databaseCheckError{"could not get user_version from ManagedTokensDatabase", err}
 	}
 	if userVersion < schemaVersion {
 		if err := m.migrate(userVersion, schemaVersion); err != nil {
 			return &databaseCheckError{"Error migrating database schema versions", err}
 		}
 	} else if userVersion > schemaVersion {
-		funcLog.Warn("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
+		fmt.Println("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
 	}
 	return nil
 }
 
 func (m *ManagedTokensDatabase) checkApplicationId() error {
 	var dbApplicationId int
-	funcLog := log.WithField("dbLocation", m.filename)
 	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
-		msg := "Could not get application_id from ManagedTokensDatabase"
-		funcLog.Error(msg)
-		return &databaseCheckError{msg, err}
+		return &databaseCheckError{"Could not get application_id from ManagedTokensDatabase", err}
 	}
 	// Make sure our application IDs match
 	if dbApplicationId != ApplicationId {
 		errMsg := fmt.Sprintf("Application IDs do not match.  Got %d, expected %d", dbApplicationId, ApplicationId)
-		funcLog.Errorf(errMsg)
 		return &databaseCheckError{errMsg, nil}
 	}
 	return nil
@@ -185,10 +169,10 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 
 	dbTimeout, _, err := contextStore.GetProperTimeout(ctx, dbDefaultTimeoutStr)
 	if err != nil {
+		err = fmt.Errorf("could not parse db timeout duration: %w", err)
 		tracing.LogErrorWithTrace(
 			span,
-			log.NewEntry(log.StandardLogger()),
-			"Could not parse db timeout duration",
+			err,
 			tracing.KeyValueForLog{Key: "dbDefaultTimeoutStr", Value: dbDefaultTimeoutStr},
 		)
 		return data, err
@@ -199,19 +183,10 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	// Query the DB
 	rows, err := db.QueryContext(dbContext, getStatementString, args...)
 	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(
-				span,
-				log.NewEntry(log.StandardLogger()),
-				"Context timeout",
-				tracing.KeyValueForLog{Key: "dbStatement", Value: getStatementString},
-			)
-			return data, dbContext.Err()
-		}
+		err = fmt.Errorf("could not query the database: %w", err)
 		tracing.LogErrorWithTrace(
 			span,
-			log.NewEntry(log.StandardLogger()),
-			fmt.Sprintf("Error running SELECT query against database: %s", err),
+			err,
 			tracing.KeyValueForLog{Key: "dbStatement", Value: getStatementString},
 		)
 		return data, err
@@ -221,7 +196,8 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	// Get column names so we can get the length of each row
 	cols, err := rows.Columns()
 	if err != nil {
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error getting columns from query results")
+		err = fmt.Errorf("could not get columns from query results: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return data, err
 	}
 
@@ -230,23 +206,18 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 		resultRow, resultRowPtrs := prepareDataAndPointerSliceForDBRows(len(cols))
 		err := rows.Scan(resultRowPtrs...)
 		if err != nil {
-			if dbContext.Err() == context.DeadlineExceeded {
-				tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
-				return data, dbContext.Err()
-			}
-			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error retrieving results of SELECT query")
+			err = fmt.Errorf("could not scan row from database results: %w", err)
+			tracing.LogErrorWithTrace(span, err)
 			return data, err
 		}
-
 		data = append(data, resultRow)
-		log.Debugf("Got row values from database: %s", resultRow...)
 	}
-	err = rows.Err()
-	if err != nil {
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error reading rows from database")
-		return data, err
+	if err = rows.Err(); err != nil {
+		err = fmt.Errorf("error reading rows from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return nil, err
 	}
-	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Successfully retrieved data from database")
+	tracing.LogSuccessWithTrace(span, "Successfully retrieved data from database")
 	return data, nil
 }
 
@@ -261,22 +232,24 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 
 	data, err := getValuesTransactionRunner(ctx, db, sqlGetStatement)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Could not get values from database")
+		err = fmt.Errorf("could not get values from database transaction: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		log.Debug("No values in database")
+		span.AddEvent("No values in database")
 		return nil, nil
 	}
 
 	unpackedData, err := unpackNamedDimensionData(data)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Error unpacking named dimension data")
+		err = fmt.Errorf("could not unpack named dimension data: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
-	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Successfully retrieved named dimension data from database")
+	tracing.LogSuccessWithTrace(span, "Successfully retrieved named dimension data from database")
 	return unpackedData, nil
 }
 
@@ -291,10 +264,10 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 
 	dbTimeout, _, err := contextStore.GetProperTimeout(ctx, dbDefaultTimeoutStr)
 	if err != nil {
+		err = fmt.Errorf("could not parse db timeout duration: %w", err)
 		tracing.LogErrorWithTrace(
 			span,
-			log.NewEntry(log.StandardLogger()),
-			"Could not parse db timeout duration",
+			err,
 			tracing.KeyValueForLog{Key: "dbDefaultTimeoutStr", Value: dbDefaultTimeoutStr},
 		)
 		return err
@@ -304,21 +277,15 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 
 	tx, err := db.Begin()
 	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
-			return dbContext.Err()
-		}
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Could not open transaction to database: %s", err))
+		err = fmt.Errorf("could not open transaction to database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
 	insertStatement, err := tx.Prepare(insertStatementString)
 	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
-			return dbContext.Err()
-		}
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Could not prepare INSERT statement to database: %s", err))
+		err = fmt.Errorf("could not prepare INSERT statement to database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 	defer insertStatement.Close()
@@ -333,15 +300,10 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 			argSlice = append(argSlice, datumValueSlice...)
 		}
 
-		_, err := insertStatement.ExecContext(dbContext, datumValues...)
-		if err != nil {
-			if dbContext.Err() == context.DeadlineExceeded {
-				span.SetAttributes(attribute.StringSlice("args", argSlice))
-				tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
-				return dbContext.Err()
-			}
+		if _, err := insertStatement.ExecContext(dbContext, datumValues...); err != nil {
+			err = fmt.Errorf("could not insert data into database: %w", err)
 			span.SetAttributes(attribute.StringSlice("args", argSlice))
-			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), fmt.Sprintf("Could not insert data into database: %s", err))
+			tracing.LogErrorWithTrace(span, err)
 			return err
 		}
 	}
@@ -349,19 +311,12 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 
 	err = tx.Commit()
 	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), "Context timeout")
-			return dbContext.Err()
-		}
-		tracing.LogErrorWithTrace(
-			span,
-			log.NewEntry(log.StandardLogger()),
-			fmt.Sprintf("Could not commit transaction to database. Rolling back.  Error: %s", err),
-		)
+		err = fmt.Errorf("could not commit transaction to database. Rolling back: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
-	tracing.LogSuccessWithTrace(span, log.NewEntry(log.StandardLogger()), "Successfully inserted data into database")
+	tracing.LogSuccessWithTrace(span, "Successfully inserted data into database")
 	return nil
 }
 
@@ -418,18 +373,13 @@ func unpackNamedDimensionData(data [][]any) ([]string, error) {
 	dataConverted := make([]string, 0, len(data))
 	for _, resultRow := range data {
 		if len(resultRow) != 1 {
-			msg := "dimension name data has wrong structure"
-			log.Errorf("%s: %v", msg, resultRow)
-			return nil, errDatabaseDataWrongStructure
+			return nil, &errDatabaseDataWrongStructure{resultRow, "expected 1 element"}
 		}
-		if val, ok := resultRow[0].(string); !ok {
-			msg := "dimension name query result has wrong type.  Expected string"
-			log.Errorf("%s: got %T", msg, val)
-			return nil, errDatabaseDataWrongType
-		} else {
-			log.Debugf("Got dimension row: %s", val)
-			dataConverted = append(dataConverted, val)
+		val, ok := resultRow[0].(string)
+		if !ok {
+			return nil, &errDatabaseDataWrongType{resultRow[0], "expected string"}
 		}
+		dataConverted = append(dataConverted, val)
 	}
 	return dataConverted, nil
 }
@@ -441,14 +391,11 @@ func unpackData[T dataRowUnpacker](data [][]any) ([]T, error) {
 		var datum T
 		unpackedDatum, err := datum.unpackDataRow(row)
 		if err != nil {
-			log.Error("Error unpacking data")
-			return nil, err
+			return nil, fmt.Errorf("could not unpack data row: %v: %w", row, err)
 		}
 		datumVal, ok := unpackedDatum.(T)
 		if !ok {
-			msg := "unpackDataRow returned wrong type"
-			log.Error(msg)
-			return nil, errors.New(msg)
+			return nil, fmt.Errorf("unpackDataRow returned wrong type.  Expected %T", datumVal)
 		}
 		unpackedData = append(unpackedData, datumVal)
 	}
@@ -519,7 +466,30 @@ func dbArgsToStringSlice(args []any) ([]string, error) {
 	return argsStr, nil
 }
 
-var (
-	errDatabaseDataWrongStructure error = errors.New("returned data has wrong structure")
-	errDatabaseDataWrongType      error = errors.New("returned data has wrong type")
-)
+type errDatabaseDataWrongStructure struct {
+	value any
+	msg   string
+}
+
+func (e *errDatabaseDataWrongStructure) Error() string {
+	msg := "row has wrong structure"
+	if e.msg != "" {
+		msg += ": " + e.msg
+	}
+	msg += fmt.Sprintf(": %v", e.value)
+	return msg
+}
+
+type errDatabaseDataWrongType struct {
+	value       any
+	expectedMsg string
+}
+
+func (e *errDatabaseDataWrongType) Error() string {
+	msg := "datum has wrong type"
+	if e.expectedMsg != "" {
+		msg += ": " + e.expectedMsg
+	}
+	msg += fmt.Sprintf(", got %T", e.value)
+	return msg
+}

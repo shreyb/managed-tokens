@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	_ "github.com/mattn/go-sqlite3"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -71,19 +70,15 @@ func (f *ferryUidDatum) insertValues() []any { return []any{f.username, f.uid, f
 func (f *ferryUidDatum) unpackDataRow(resultRow []any) (dataRowUnpacker, error) {
 	// Make sure we have the right number of values
 	if len(resultRow) != 2 {
-		msg := "uid data has wrong structure"
-		log.Errorf("%s: %v", msg, resultRow)
-		return nil, errDatabaseDataWrongStructure
+		return nil, &errDatabaseDataWrongStructure{resultRow, "Expected 2 values"}
 	}
 	// Type check each element
 	usernameVal, usernameOk := resultRow[0].(string)
 	uidVal, uidOk := resultRow[1].(int64)
 	if !(usernameOk && uidOk) {
-		msg := "uid query result datum has wrong type.  Expected (string, int64)"
-		log.Errorf("%s: got (%T, %T)", msg, resultRow[0], resultRow[1])
-		return nil, errDatabaseDataWrongType
+		errVal := []any{resultRow[0], resultRow[1]}
+		return nil, &errDatabaseDataWrongType{errVal, "expected (string, int64)"}
 	}
-	log.Debugf("Got UID row: %s, %d", usernameVal, uidVal)
 	return &ferryUidDatum{usernameVal, int(uidVal)}, nil
 }
 
@@ -95,15 +90,15 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
 	ferryUIDDatumSlice := ferryUIDDatumInterfaceSlicetoInsertValuesSlice(ferryData)
 
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not update uids table in database")
+		err = fmt.Errorf("could not update uids table in database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
-	tracing.LogSuccessWithTrace(span, funcLogger, "Updated uid table in database with FERRY data")
+	tracing.LogSuccessWithTrace(span, "Updated uid table in database with FERRY data")
 	return nil
 }
 
@@ -114,31 +109,31 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
-	funcLogger := log.WithField("dbLocation", m.filename)
-
 	// dataConverted := make([]FerryUIDDatum, 0)
 	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get usernames and uids from database")
+		err = fmt.Errorf("could not get usernames and uids from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 
 	if len(data) == 0 {
-		funcLogger.Debug("No uids in database")
+		span.AddEvent("No uids in database")
 		return nil, nil
 	}
 
 	// Unpack data
 	unpackedData, err := unpackData[*ferryUidDatum](data)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error unpacking UID Data row")
+		err = fmt.Errorf("could not unpack UID Data row: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 	convertedData := make([]FerryUIDDatum, 0, len(unpackedData))
 	for _, elt := range unpackedData {
 		convertedData = append(convertedData, elt)
 	}
-	tracing.LogSuccessWithTrace(span, funcLogger, "Got usernames and uids from database")
+	tracing.LogSuccessWithTrace(span, "Got usernames and uids from database")
 	return convertedData, nil
 }
 
@@ -149,40 +144,33 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 		attribute.String("dbLocation", m.filename),
 		attribute.String("username", username),
 	)
-	funcLogger := log.WithField("dbLocation", m.filename)
-	var uid int
 
 	dbTimeout, _, err := contextStore.GetProperTimeout(ctx, dbDefaultTimeoutStr)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not parse db timeout duration")
-		return uid, err
+		err = fmt.Errorf("could not parse db timeout duration: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return 0, err
 	}
 	dbContext, dbCancel := context.WithTimeout(ctx, dbTimeout)
 	defer dbCancel()
 
 	stmt, err := m.db.Prepare(getUIDbyUsernameStatement)
 	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
-			return uid, dbContext.Err()
-		}
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not prepare query to get UID: %s", err))
-		funcLogger.Errorf("Could not prepare query to get UID: %s", err)
-		return uid, err
+		err = fmt.Errorf("could not prepare query to get UID: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return 0, err
 	}
 	defer stmt.Close()
 
+	var uid int
 	err = stmt.QueryRowContext(dbContext, username).Scan(&uid)
 	if err != nil {
-		if dbContext.Err() == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Context timeout")
-			return uid, dbContext.Err()
-		}
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not execute query to get UID: %s", err))
-		return uid, err
+		err = fmt.Errorf("could not execute query to get UID: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return 0, err
 	}
 
-	tracing.LogSuccessWithTrace(span, funcLogger, "Got UID from database",
+	tracing.LogSuccessWithTrace(span, "Got UID from database",
 		tracing.KeyValueForLog{Key: "username", Value: username},
 		tracing.KeyValueForLog{Key: "uid", Value: strconv.Itoa(uid)},
 	)

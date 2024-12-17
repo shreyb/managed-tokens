@@ -629,11 +629,14 @@ func TestCheckApplicationId(t *testing.T) {
 }
 
 func TestUnpackNamedDimensionData(t *testing.T) {
+	var nilErr error
+	var errStruct *errDatabaseDataWrongStructure
+	var errType *errDatabaseDataWrongType
 	type testCase struct {
 		description     string
 		data            [][]any
 		expectedResults []string
-		expectedErr     error
+		expectedErr     any
 	}
 
 	testCases := []testCase{
@@ -651,13 +654,13 @@ func TestUnpackNamedDimensionData(t *testing.T) {
 				},
 			},
 			[]string{"foo", "bar", "baz"},
-			nil,
+			nilErr,
 		},
 		{
 			"No data",
 			[][]any{},
 			[]string{},
-			nil,
+			nilErr,
 		},
 		{
 			"Dimension row has more than 1 elt errDatabaseDataWrongStructure",
@@ -672,7 +675,7 @@ func TestUnpackNamedDimensionData(t *testing.T) {
 				},
 			},
 			nil,
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 		{
 			"Dimension row has no elts.  Like []{[]{ }} errDatabaseDataWrongStructure",
@@ -681,7 +684,7 @@ func TestUnpackNamedDimensionData(t *testing.T) {
 				{},
 			},
 			nil,
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 		{
 			"Dimension row is not a string value errDatabaseDataWrongType",
@@ -690,7 +693,7 @@ func TestUnpackNamedDimensionData(t *testing.T) {
 				{21},
 			},
 			nil,
-			errDatabaseDataWrongType,
+			errType,
 		},
 
 		{
@@ -701,7 +704,7 @@ func TestUnpackNamedDimensionData(t *testing.T) {
 				{"baz", "noooo"},
 			},
 			nil,
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 	}
 
@@ -713,7 +716,10 @@ func TestUnpackNamedDimensionData(t *testing.T) {
 				if !slices.Equal(results, test.expectedResults) {
 					t.Errorf("Got wrong results.  Expected %v, got %v", test.expectedResults, results)
 				}
-				if !errors.Is(err, test.expectedErr) {
+				if err == nil && test.expectedErr == nil {
+					return
+				}
+				if !errors.As(err, &test.expectedErr) {
 					t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
 				}
 			},

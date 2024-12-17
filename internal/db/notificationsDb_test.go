@@ -135,36 +135,40 @@ func TestGetAllNodes(t *testing.T) {
 // TestGetNamedDimensionStringValues checks that getNamedDimentionStringValues returns the expected result or error depending on
 // the given SQL to run
 func TestGetNamedDimensionStringValues(t *testing.T) {
+	var nilErr error
+	var errStruct *errDatabaseDataWrongStructure
+	var errType *errDatabaseDataWrongType
+
 	type testCase struct {
 		description     string
 		sqlGetStatement string
 		expectedData    []string
-		expectedErr     error
+		expectedErr     any
 	}
 	testCases := []testCase{
 		{
 			"No data in table",
 			"SELECT name FROM nodes",
 			[]string{},
-			nil,
+			nilErr,
 		},
 		{
 			"Valid data in table",
 			"SELECT name FROM nodes",
 			[]string{"foo", "bar", "baz"},
-			nil,
+			nilErr,
 		},
 		{
 			"Valid data in table, bad query result structure",
 			"SELECT id, name FROM nodes",
 			[]string{"foo", "bar", "baz"},
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 		{
 			"Valid data in table, but the type of the column we picked is wrong",
 			"SELECT id FROM nodes",
 			[]string{"foo", "bar", "baz"},
-			errDatabaseDataWrongType,
+			errType,
 		},
 	}
 
@@ -191,9 +195,14 @@ func TestGetNamedDimensionStringValues(t *testing.T) {
 				// The test
 				ctx := context.Background()
 				data, err := getNamedDimensionStringValues(ctx, m.db, test.sqlGetStatement)
-				if !errors.Is(err, test.expectedErr) {
-					t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
-				}
+				func() {
+					if err == nil && test.expectedErr == nil {
+						return
+					}
+					if !errors.As(err, &test.expectedErr) {
+						t.Errorf("Got wrong error.  Expected %s, got %s", test.expectedErr, err)
+					}
+				}()
 				if err == nil && !testUtils.SlicesHaveSameElementsOrderedType[string](data, test.expectedData) {
 					t.Errorf("Retrieved data and expected data do not match.  Expected %v, got %v", test.expectedData, data)
 				}
@@ -1044,11 +1053,15 @@ func TestUpdatePushErrorsTable(t *testing.T) {
 }
 
 func TestUnpackSetupErrorDataRow(t *testing.T) {
+	var nilErr error
+	var errStruct *errDatabaseDataWrongStructure
+	var errType *errDatabaseDataWrongType
+
 	type testCase struct {
 		description    string
 		resultRow      []any
 		expectedResult *setupErrorCount
-		expectedErr    error
+		expectedErr    any
 	}
 
 	testCases := []testCase{
@@ -1062,7 +1075,7 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 				"string",
 				42,
 			},
-			nil,
+			nilErr,
 		},
 		{
 			"Invalid data - wrong structure",
@@ -1072,7 +1085,7 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 				int64(43),
 			},
 			nil,
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 		{
 			"Invalid data - wrong types",
@@ -1081,7 +1094,7 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 				"string2",
 			},
 			nil,
-			errDatabaseDataWrongType,
+			errType,
 		},
 	}
 
@@ -1091,20 +1104,16 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 			func(t *testing.T) {
 				var s *setupErrorCount
 				datum, err := s.unpackDataRow(test.resultRow)
-				if test.expectedErr == nil && err != nil {
-					t.Errorf("Expected nil error.  Got %s instead", err)
-					return
-				}
-				testErrors := []error{errDatabaseDataWrongStructure, errDatabaseDataWrongType}
-				for _, testError := range testErrors {
-					if errors.Is(test.expectedErr, testError) {
-						if !errors.Is(err, testError) {
-							t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
-							return
-						}
-						break
+				func() {
+					if test.expectedErr == nil && err == nil {
+						return
 					}
-				}
+
+					if !errors.As(err, &test.expectedErr) {
+						t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+						return
+					}
+				}()
 
 				if (test.expectedResult == nil && datum != nil) ||
 					(test.expectedResult != nil && datum == nil) {
@@ -1126,11 +1135,15 @@ func TestUnpackSetupErrorDataRow(t *testing.T) {
 }
 
 func TestUnpackPushErrorDataRow(t *testing.T) {
+	var nilErr error
+	var errStruct *errDatabaseDataWrongStructure
+	var errType *errDatabaseDataWrongType
+
 	type testCase struct {
 		description    string
 		resultRow      []any
 		expectedResult *pushErrorCount
-		expectedErr    error
+		expectedErr    any
 	}
 
 	testCases := []testCase{
@@ -1146,7 +1159,7 @@ func TestUnpackPushErrorDataRow(t *testing.T) {
 				"string2",
 				42,
 			},
-			nil,
+			nilErr,
 		},
 		{
 			"Invalid data - wrong structure",
@@ -1155,7 +1168,7 @@ func TestUnpackPushErrorDataRow(t *testing.T) {
 				int64(43),
 			},
 			nil,
-			errDatabaseDataWrongStructure,
+			errStruct,
 		},
 		{
 			"Invalid data - wrong types",
@@ -1165,7 +1178,7 @@ func TestUnpackPushErrorDataRow(t *testing.T) {
 				"string3",
 			},
 			nil,
-			errDatabaseDataWrongType,
+			errType,
 		},
 	}
 
@@ -1175,20 +1188,16 @@ func TestUnpackPushErrorDataRow(t *testing.T) {
 			func(t *testing.T) {
 				var s *pushErrorCount
 				datum, err := s.unpackDataRow(test.resultRow)
-				if test.expectedErr == nil && err != nil {
-					t.Errorf("Expected nil error.  Got %s instead", err)
-					return
-				}
-				testErrors := []error{errDatabaseDataWrongStructure, errDatabaseDataWrongType}
-				for _, testError := range testErrors {
-					if errors.Is(test.expectedErr, testError) {
-						if !errors.Is(err, testError) {
-							t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
-							return
-						}
-						break
+				func() {
+					if test.expectedErr == nil && err == nil {
+						return
 					}
-				}
+
+					if !errors.As(err, &test.expectedErr) {
+						t.Errorf("Got wrong error.  Expected %v, got %v", test.expectedErr, err)
+						return
+					}
+				}()
 
 				if (test.expectedResult == nil && datum != nil) ||
 					(test.expectedResult != nil && datum == nil) {
