@@ -19,9 +19,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
-	"slices"
+	"path/filepath"
 	"testing"
+
+	"github.com/fermitools/managed-tokens/internal/testUtils"
 )
 
 // TestIsServiceToken checks a number of candidate service tokens and verifies that IsServiceToken correctly identifies whether or not
@@ -132,74 +133,77 @@ func TestValidateVaultToken(t *testing.T) {
 	}
 }
 
-func TestValidateServiceVaultToken(t *testing.T) {
-	serviceName := "myservice"
-	badServiceName := "notmyservice"
+type _testUidGetter struct{}
 
-	validTokenString := "hvs.123456"
-	invalidTokenString := "thiswillnotwork"
+func (u _testUidGetter) getUID() string { return "thisisauid" }
 
-	tempDir := t.TempDir()
+type _testServiceGetter struct{}
 
+func (s _testServiceGetter) getService() string { return "thisisaservice" }
+
+// TestGetAllVaultTokenLocations checks that getAllVaultTokenLocations returns the correct locations for vault tokens
+func TestGetAllVaultTokenLocations(t *testing.T) {
+	u := _testUidGetter{}
+	s := _testServiceGetter{}
 	type testCase struct {
-		description                      string
-		serviceName                      string
-		writeTokenFileFunc               func() string
-		expectedErrorNil                 bool
-		expectedErrorIsInvalidVaultToken bool
+		description string
+		uidGetter
+		serviceGetter
+		fileCreators   []func()
+		expectedResult []string
+		expectedError  error
 	}
 
 	testCases := []testCase{
-		// Make sure to delete vault token each time.   The fake service name should keep this separate from real stuff:w
 		{
-			"Valid vault token, service can be found",
-			serviceName,
-			func() string {
-				tokenFileName, _ := getCondorVaultTokenLocation(serviceName)
-				b := []byte(validTokenString)
-				os.WriteFile(tokenFileName, b, 0644)
-				return tokenFileName
+			description:   "Valid locations",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators: []func(){
+				func() { createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID()))) },
+				func() {
+					createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService())))
+				},
 			},
-			true,
-			false,
+			expectedResult: []string{
+				filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID())),
+				filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService())),
+			},
+			expectedError: nil,
 		},
 		{
-			"Valid vault token, service can't be found",
-			badServiceName,
-			func() string {
-				tokenFile, _ := os.CreateTemp(tempDir, "managed-tokens-test")
-				tokenFileName := tokenFile.Name()
-				b := []byte(validTokenString)
-				os.WriteFile(tokenFileName, b, 0644)
-				return tokenFileName
-			},
-			false,
-			false,
+			description:    "locations that don't exist, since we didn't make them",
+			uidGetter:      u,
+			serviceGetter:  s,
+			fileCreators:   []func(){},
+			expectedResult: []string{},
+			expectedError:  os.ErrNotExist,
 		},
 		{
-			"invalid vault token, service can't be found",
-			badServiceName,
-			func() string {
-				tokenFile, _ := os.CreateTemp(tempDir, "managed-tokens-test")
-				tokenFileName := tokenFile.Name()
-				b := []byte(validTokenString)
-				os.WriteFile(tokenFileName, b, 0644)
-				return tokenFileName
+			description:   "default location exists, not condor location",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators: []func(){
+				func() { createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID()))) },
 			},
-			false,
-			false,
+			expectedResult: []string{
+				filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID())),
+			},
+			expectedError: os.ErrNotExist,
 		},
 		{
-			"invalid vault token, service can be found",
-			serviceName,
-			func() string {
-				tokenFileName, _ := getCondorVaultTokenLocation(serviceName)
-				b := []byte(invalidTokenString)
-				os.WriteFile(tokenFileName, b, 0644)
-				return tokenFileName
+			description:   "default location does not exist, condor location does",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators: []func(){
+				func() {
+					createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService())))
+				},
 			},
-			false,
-			true,
+			expectedResult: []string{
+				filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService())),
+			},
+			expectedError: os.ErrNotExist,
 		},
 	}
 
@@ -207,19 +211,114 @@ func TestValidateServiceVaultToken(t *testing.T) {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				tokenFile := test.writeTokenFileFunc()
-				defer os.Remove(tokenFile)
-				err := validateServiceVaultToken(test.serviceName)
-				if err != nil && test.expectedErrorNil {
+				for _, creator := range test.fileCreators {
+					creator()
+				}
+
+				t.Cleanup(func() {
+					for _, location := range test.expectedResult {
+						os.Remove(location)
+					}
+				})
+
+				result, err := getAllVaultTokenLocations(u, s)
+				if err != nil && test.expectedError == nil {
 					t.Errorf("Expected nil error.  Got %s instead", err)
 				}
-				if err == nil && !test.expectedErrorNil {
-					t.Error("Got nil error, but expected non-nil error")
+				if err == nil && test.expectedError != nil {
+					t.Errorf("Expected non-nil error.  Got nil")
 				}
-				if err != nil && !test.expectedErrorNil && test.expectedErrorIsInvalidVaultToken {
-					var e *InvalidVaultTokenError
-					if !errors.As(err, &e) {
-						t.Errorf("Got wrong kind of error.  Expected InvalidVaultTokenError, got %T", err)
+				if len(result) != len(test.expectedResult) {
+					t.Errorf("Expected result length %d.  Got %d instead", len(test.expectedResult), len(result))
+				}
+
+				if !testUtils.SlicesHaveSameElements[string](result, test.expectedResult) {
+					t.Errorf("Expected locations %s.  Got %s instead", test.expectedResult, result)
+				}
+			},
+		)
+	}
+}
+
+// TestRemoveServiceVaultTokens checks that removeServiceVaultTokens correctly removes vault tokens
+func TestRemoveServiceVaultTokens(t *testing.T) {
+	u := _testUidGetter{}
+	s := _testServiceGetter{}
+	type testCase struct {
+		description string
+		uidGetter
+		serviceGetter
+		fileCreators  []func() string
+		expectedError error
+	}
+
+	testCases := []testCase{
+		{
+			description:   "Remove valid locations",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators: []func() string{
+				func() string { return createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID()))) },
+				func() string {
+					return createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService())))
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			description:   "Remove locations that don't exist",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators:  []func() string{},
+			expectedError: os.ErrNotExist,
+		},
+		{
+			description:   "Remove default location exists, not condor location",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators: []func() string{
+				func() string { return createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID()))) },
+			},
+			expectedError: os.ErrNotExist,
+		},
+		{
+			description:   "Remove default location does not exist, condor location does",
+			uidGetter:     u,
+			serviceGetter: s,
+			fileCreators: []func() string{
+				func() string {
+					return createFileIfNotExist(filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService())))
+				},
+			},
+			expectedError: os.ErrNotExist,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				cleanupFiles := make([]string, 0)
+				for _, creator := range test.fileCreators {
+					cleanupFiles = append(cleanupFiles, creator())
+				}
+
+				t.Cleanup(func() {
+					for _, location := range cleanupFiles {
+						os.Remove(location)
+					}
+				})
+
+				err := removeServiceVaultTokens(u, s)
+				if err != nil && test.expectedError == nil {
+					t.Errorf("Expected nil error.  Got %s instead", err)
+				}
+				if err == nil && test.expectedError != nil {
+					t.Errorf("Expected non-nil error.  Got nil")
+				}
+				if err != nil && test.expectedError != nil {
+					if !errors.Is(err, test.expectedError) {
+						t.Errorf("Expected error %s.  Got %s instead", test.expectedError, err)
 					}
 				}
 			},
@@ -228,91 +327,19 @@ func TestValidateServiceVaultToken(t *testing.T) {
 }
 
 func TestGetCondorVaultTokenLocation(t *testing.T) {
-	currentUser, _ := user.Current()
-	uid := currentUser.Uid
-	serviceName := "myService"
-	expectedResult := fmt.Sprintf("/tmp/vt_u%s-%s", uid, serviceName)
-	result, err := getCondorVaultTokenLocation(serviceName)
-	if err != nil {
-		t.Errorf("Expected nil error.  Got %s", err)
-	}
-	if result != expectedResult {
+	u := _testUidGetter{}
+	s := _testServiceGetter{}
+	expectedResult := fmt.Sprintf("/tmp/vt_u%s-%s", u.getUID(), s.getService())
+	if result := getCondorVaultTokenLocation(u, s); result != expectedResult {
 		t.Errorf("Got wrong result for condor vault token location.  Expected %s, got %s", expectedResult, result)
 	}
 }
 
 func TestGetDefaultVaultTokenLocation(t *testing.T) {
-	currentUser, _ := user.Current()
-	uid := currentUser.Uid
-	expectedResult := fmt.Sprintf("/tmp/vt_u%s", uid)
-	result, err := getDefaultVaultTokenLocation()
-	if err != nil {
-		t.Errorf("Expected nil error.  Got %s", err)
-	}
-	if result != expectedResult {
+	u := _testUidGetter{}
+	expectedResult := fmt.Sprintf("/tmp/vt_u%s", u.getUID())
+	if result := getDefaultVaultTokenLocation(u); result != expectedResult {
 		t.Errorf("Got wrong result for condor vault token location.  Expected %s, got %s", expectedResult, result)
-	}
-
-}
-
-func TestGetAllVaultTokenLocations(t *testing.T) {
-	serviceName := "mytestservice"
-	user, _ := user.Current()
-
-	goodDefaultFile := func() string { return createFileIfNotExist(fmt.Sprintf("/tmp/vt_u%s", user.Uid)) }
-	goodCondorFile := func() string { return createFileIfNotExist(fmt.Sprintf("/tmp/vt_u%s-%s", user.Uid, serviceName)) }
-	badFile := func() string { return "thispathdoesnotexist" }
-
-	clearFiles := func() {
-		os.Remove(goodDefaultFile())
-		os.Remove(goodCondorFile())
-		os.Remove(badFile())
-	}
-
-	type testCase struct {
-		description    string
-		fileCreators   []func() string
-		expectedResult []string
-	}
-
-	testCases := []testCase{
-		{
-			"Can find both locations",
-			[]func() string{goodDefaultFile, goodCondorFile},
-			[]string{goodDefaultFile(), goodCondorFile()},
-		},
-		{
-			"Can find default file, not condor",
-			[]func() string{goodDefaultFile, badFile},
-			[]string{goodDefaultFile()},
-		},
-		{
-			"Can find condor file, not default",
-			[]func() string{badFile, goodCondorFile},
-			[]string{goodCondorFile()},
-		},
-		{
-			"Can't find either file",
-			[]func() string{badFile, badFile},
-			[]string{},
-		},
-	}
-
-	for _, test := range testCases {
-		t.Run(
-			test.description,
-			func(t *testing.T) {
-				clearFiles()
-				for _, f := range test.fileCreators {
-					defaultFile := f()
-					defer os.Remove(defaultFile)
-				}
-				result, _ := GetAllVaultTokenLocations(serviceName)
-				if !slices.Equal(result, test.expectedResult) {
-					t.Errorf("Got wrong result.  Expected %v, got %v", test.expectedResult, result)
-				}
-			},
-		)
 	}
 }
 

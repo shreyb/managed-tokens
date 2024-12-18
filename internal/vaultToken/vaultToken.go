@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // Borrowed from hashicorp's vault API, since we ONLY need this func
@@ -59,29 +61,74 @@ func (i *InvalidVaultTokenError) Error() string {
 	)
 }
 
+type serviceGetter interface {
+	getService() string
+}
+
+type serviceString string
+
+func (s serviceString) getService() string { return string(s) }
+
+type uidGetter interface {
+	getUID() string
+}
+
+type uidGetterUser user.User
+
+func (u uidGetterUser) getUID() string { return u.Uid }
+
 // GetAllVaultTokenLocations returns the locations of the vault tokens that both HTCondor and other OSG grid tools will use.
 // The first element of the returned slice is the standard location for most grid tools, and the second is the standard for
 // HTCondor
 func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
-	funcLogger := log.WithField("service", serviceName)
-	vaultTokenLocations := make([]string, 0, 2)
-
-	defaultLocation, err := getDefaultVaultTokenLocation()
+	s := serviceString(serviceName)
+	currentUser, err := user.Current()
 	if err != nil {
-		funcLogger.Error("Could not get default vault location")
-		return nil, err
+		return nil, fmt.Errorf("could not get current user to determine vault token locations: %w", err)
 	}
-	if _, err := os.Stat(defaultLocation); err == nil { // Check to see if the file exists and we can read it
+	u := uidGetterUser(*currentUser)
+	return getAllVaultTokenLocations(u, s)
+}
+
+// getAllVaultTokenLocations returns the locations of the vault tokens that both HTCondor and other OSG grid tools will use.
+// The first element of the returned slice is the standard location for most grid tools, and the second is the standard for
+// HTCondor
+func getAllVaultTokenLocations(u uidGetter, s serviceGetter) ([]string, error) {
+	vaultTokenLocations := make([]string, 0, 2)
+	errs := make([]error, 0, 2)
+
+	defaultLocation := getDefaultVaultTokenLocation(u)
+	if _, err := os.Stat(defaultLocation); err != nil { // Check to see if the file exists and we can read it
+		errs = append(errs, fmt.Errorf("could not get vault token default location: %w", err))
+	} else {
 		vaultTokenLocations = append(vaultTokenLocations, defaultLocation)
 	}
 
-	condorLocation, err := getCondorVaultTokenLocation(serviceName)
-	if err != nil {
-		funcLogger.Error("Could not get condor vault location")
-		return nil, err
-	}
-	if _, err := os.Stat(condorLocation); err == nil { // Check to see if the file exists and we can read it
+	condorLocation := getCondorVaultTokenLocation(u, s)
+	if _, err := os.Stat(condorLocation); err != nil { // Check to see if the file exists and we can read it
+		errs = append(errs, fmt.Errorf("could not get vault token condor location: %w", err))
+	} else {
 		vaultTokenLocations = append(vaultTokenLocations, condorLocation)
+	}
+
+	if len(errs) > 0 {
+		var underlying error
+		for _, err := range errs {
+			if !errors.Is(err, os.ErrNotExist) {
+				underlying = err
+				break
+			}
+		}
+		if underlying == nil {
+			return vaultTokenLocations, &errGetTokenLocation{ // all errors were os.ErrNotExist
+				serviceName: s.getService(),
+				underlying:  fmt.Errorf("could not remove all vault tokens: %w", os.ErrNotExist),
+			}
+		}
+		return nil, &errGetTokenLocation{
+			serviceName: s.getService(),
+			underlying:  fmt.Errorf("could not remove all vault tokens: %w", underlying),
+		}
 	}
 
 	return vaultTokenLocations, nil
@@ -89,62 +136,83 @@ func GetAllVaultTokenLocations(serviceName string) ([]string, error) {
 
 // RemoveServiceVaultTokens removes the vault token files at the standard OSG Grid Tools and HTCondor locations
 func RemoveServiceVaultTokens(serviceName string) error {
-	vaultTokenLocations, err := GetAllVaultTokenLocations(serviceName)
+	s := serviceString(serviceName)
+	currentUser, err := user.Current()
 	if err != nil {
-		log.WithField("service", serviceName).Error("Could not get vault token locations for deletion")
+		return fmt.Errorf("could not get current user to remove vault tokens: %w", err)
 	}
+	u := uidGetterUser(*currentUser)
+	return removeServiceVaultTokens(u, s)
+}
+
+// RemoveServiceVaultTokens removes the vault token files at the standard OSG Grid Tools and HTCondor locations
+func removeServiceVaultTokens(u uidGetter, s serviceGetter) error {
+	errGetTokenPathsNotExist := false
+	vaultTokenLocations, err := getAllVaultTokenLocations(u, s)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("could not get vault token locations for deletion: %w", err)
+		}
+		errGetTokenPathsNotExist = true
+	}
+
+	if len(vaultTokenLocations) == 0 {
+		return fmt.Errorf("no vault token files to delete: %w", os.ErrNotExist)
+	}
+
+	errs := make([]error, 0, len(vaultTokenLocations))
 	for _, vaultToken := range vaultTokenLocations {
-		tokenLogger := log.WithFields(log.Fields{
-			"service":  serviceName,
-			"filename": vaultToken,
-		})
 		if err := os.Remove(vaultToken); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				tokenLogger.Info("Vault token not removed because the file does not exist")
-			} else {
-				tokenLogger.Error("Could not remove vault token")
-				return err
-			}
-		} else {
-			tokenLogger.Debug("Removed vault token")
+			errs = append(errs, fmt.Errorf("could not remove token at path %s: %w", vaultToken, err))
 		}
 	}
+
+	if len(errs) > 0 {
+		var underlying error
+		for _, err := range errs {
+			if !errors.Is(err, os.ErrNotExist) {
+				underlying = err
+				break
+			}
+		}
+		if underlying == nil { // All errors were os.ErrNotExist
+			return &errTokenRemove{
+				serviceName: s.getService(),
+				underlying:  fmt.Errorf("could not remove all vault tokens: %w", os.ErrNotExist),
+			}
+		}
+		return &errTokenRemove{
+			serviceName: s.getService(),
+			underlying:  fmt.Errorf("could not remove all vault tokens: %w", underlying),
+		}
+
+	}
+
+	// Even though all of our attempted removes went well, we want the caller to know that
+	// when we tried to make sure that the paths of the expected token locations existed,
+	// at least one of them returned an os.ErrNotExist.
+	if errGetTokenPathsNotExist {
+		return fmt.Errorf("could not remove at least one vault token: %w", os.ErrNotExist)
+	}
+
 	return nil
 }
 
 // getCondorVaultTokenLocation returns the location of vault token that HTCondor uses based on the current user's UID
-func getCondorVaultTokenLocation(serviceName string) (string, error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		log.WithField("service", serviceName).Error(err)
-		return "", err
-	}
-	currentUID := currentUser.Uid
-	return fmt.Sprintf("/tmp/vt_u%s-%s", currentUID, serviceName), nil
+func getCondorVaultTokenLocation(u uidGetter, s serviceGetter) string {
+	return filepath.Join("/tmp", fmt.Sprintf("vt_u%s-%s", u.getUID(), s.getService()))
 }
 
 // getDefaultVaultTokenLocation returns the location of vault token that most OSG grid tools use based on the current user's UID
-func getDefaultVaultTokenLocation() (string, error) {
-	currentUser, err := user.Current()
-	if err != nil {
-		log.Error(err)
-		return "", err
-	}
-	currentUID := currentUser.Uid
-	return fmt.Sprintf("/tmp/vt_u%s", currentUID), nil
+func getDefaultVaultTokenLocation(u uidGetter) string {
+	return filepath.Join("/tmp", fmt.Sprintf("vt_u%s", u.getUID()))
 }
 
-func validateServiceVaultToken(serviceName string) error {
-	funcLogger := log.WithField("service", serviceName)
-	vaultTokenFilename, err := getCondorVaultTokenLocation(serviceName)
-	if err != nil {
-		funcLogger.Error("Could not get default vault token location")
-		return err
-	}
+func validateServiceVaultToken(u uidGetter, s serviceGetter) error {
+	vaultTokenFilename := getCondorVaultTokenLocation(u, s)
 
 	if err := validateVaultToken(vaultTokenFilename); err != nil {
-		funcLogger.Error("Could not validate vault token")
-		return err
+		return fmt.Errorf("could not validate vault token: %w", err)
 	}
 	return nil
 }
@@ -153,18 +221,14 @@ func validateServiceVaultToken(serviceName string) error {
 func validateVaultToken(vaultTokenFilename string) error {
 	vaultTokenBytes, err := os.ReadFile(vaultTokenFilename)
 	if err != nil {
-		log.WithField("filename", vaultTokenFilename).Error("Could not read tokenfile for verification.")
-		return err
+		return fmt.Errorf("could not read tokenfile %s for verification: %w", vaultTokenFilename, err)
 	}
 
 	vaultTokenString := string(vaultTokenBytes[:])
-
 	if !IsServiceToken(vaultTokenString) {
-		errString := "vault token failed validation"
-		log.WithField("filename", vaultTokenFilename).Error(errString)
 		return &InvalidVaultTokenError{
 			vaultTokenFilename,
-			errString,
+			"vault token failed validation",
 		}
 	}
 	return nil
@@ -172,6 +236,9 @@ func validateVaultToken(vaultTokenFilename string) error {
 
 // TODO STILL UNDER DEVELOPMENT.  Export when ready, and add tracing
 func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer string, environ environment.CommandEnvironment) error {
+	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.GetToken")
+	// TODO Add attributes to span
+
 	htgettokenArgs := []string{
 		"-d",
 		"-a",
@@ -184,18 +251,38 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 	// TODO Get rid of all this when it works
 	htgettokenCmd.Stdout = os.Stdout
 	htgettokenCmd.Stderr = os.Stderr
-	log.Debug(htgettokenCmd.Args)
 
-	log.WithField("service", serviceName).Info("Running htgettoken to get vault and bearer tokens")
 	if stdoutStderr, err := htgettokenCmd.CombinedOutput(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			log.WithField("service", serviceName).Error("Context timeout")
-			return ctx.Err()
-		}
-		log.WithField("service", serviceName).Errorf("Could not get vault token:\n%s", string(stdoutStderr[:]))
+		err = fmt.Errorf("could not get vault token: %s: %w", string(stdoutStderr[:]), err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
-	log.WithField("service", serviceName).Debug("Successfully got vault token")
 	return nil
+}
+
+type errTokenRemove struct {
+	serviceName, fileName string
+	underlying            error
+}
+
+func (e *errTokenRemove) Error() string {
+	return fmt.Sprintf("could not remove token for service %s at path %s: %s", e.serviceName, e.fileName, e.underlying)
+}
+
+func (e *errTokenRemove) Unwrap() error {
+	return e.underlying
+}
+
+type errGetTokenLocation struct {
+	serviceName string
+	underlying  error
+}
+
+func (e *errGetTokenLocation) Error() string {
+	return fmt.Sprintf("could not get token location for service %s: %s", e.serviceName, e.underlying)
+}
+
+func (e *errGetTokenLocation) Unwrap() error {
+	return e.underlying
 }
