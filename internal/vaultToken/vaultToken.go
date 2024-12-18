@@ -120,13 +120,13 @@ func getAllVaultTokenLocations(u uidGetter, s serviceGetter) ([]string, error) {
 			}
 		}
 		if underlying == nil {
-			return vaultTokenLocations, &errGetTokenLocation{ // all errors were os.ErrNotExist
-				serviceName: s.getService(),
+			return vaultTokenLocations, &ErrGetTokenLocation{ // all errors were os.ErrNotExist
+				ServiceName: s.getService(),
 				underlying:  fmt.Errorf("could not remove all vault tokens: %w", os.ErrNotExist),
 			}
 		}
-		return nil, &errGetTokenLocation{
-			serviceName: s.getService(),
+		return nil, &ErrGetTokenLocation{
+			ServiceName: s.getService(),
 			underlying:  fmt.Errorf("could not remove all vault tokens: %w", underlying),
 		}
 	}
@@ -176,13 +176,13 @@ func removeServiceVaultTokens(u uidGetter, s serviceGetter) error {
 			}
 		}
 		if underlying == nil { // All errors were os.ErrNotExist
-			return &errTokenRemove{
-				serviceName: s.getService(),
+			return &ErrTokenRemove{
+				ServiceName: s.getService(),
 				underlying:  fmt.Errorf("could not remove all vault tokens: %w", os.ErrNotExist),
 			}
 		}
-		return &errTokenRemove{
-			serviceName: s.getService(),
+		return &ErrTokenRemove{
+			ServiceName: s.getService(),
 			underlying:  fmt.Errorf("could not remove all vault tokens: %w", underlying),
 		}
 
@@ -261,28 +261,28 @@ func GetToken(ctx context.Context, userPrincipal, serviceName, vaultServer strin
 	return nil
 }
 
-type errTokenRemove struct {
-	serviceName, fileName string
+type ErrTokenRemove struct {
+	ServiceName, FileName string
 	underlying            error
 }
 
-func (e *errTokenRemove) Error() string {
-	return fmt.Sprintf("could not remove token for service %s at path %s: %s", e.serviceName, e.fileName, e.underlying)
+func (e *ErrTokenRemove) Error() string {
+	return fmt.Sprintf("could not remove token for service %s at path %s: %s", e.ServiceName, e.FileName, e.underlying)
 }
 
-func (e *errTokenRemove) Unwrap() error {
+func (e *ErrTokenRemove) Unwrap() error {
 	return e.underlying
 }
 
-type errGetTokenLocation struct {
-	serviceName string
+type ErrGetTokenLocation struct {
+	ServiceName string
 	underlying  error
 }
 
-func (e *errGetTokenLocation) Error() string {
-	return fmt.Sprintf("could not get token location for service %s: %s", e.serviceName, e.underlying)
+func (e *ErrGetTokenLocation) Error() string {
+	return fmt.Sprintf("could not get token location for service %s: %s", e.ServiceName, e.underlying)
 }
 
-func (e *errGetTokenLocation) Unwrap() error {
+func (e *ErrGetTokenLocation) Unwrap() error {
 	return e.underlying
 }
