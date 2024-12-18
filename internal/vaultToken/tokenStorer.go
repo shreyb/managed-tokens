@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"regexp"
 
 	"go.opentelemetry.io/otel"
@@ -118,7 +119,13 @@ func (t *InteractiveTokenStorer) GetServiceName() string { return t.serviceName 
 func (t *InteractiveTokenStorer) GetCredd() string       { return t.credd }
 func (t *InteractiveTokenStorer) GetVaultServer() string { return t.vaultServer }
 func (t *InteractiveTokenStorer) validateToken() error {
-	return validateServiceVaultToken(t.serviceName)
+	user, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("could not validate token in InteractiveTokenStorer: could not get current user: %w", err)
+	}
+	u := uidGetterUser(*user)
+	s := serviceString(t.serviceName)
+	return validateServiceVaultToken(u, s)
 }
 
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
@@ -181,7 +188,13 @@ func (t *NonInteractiveTokenStorer) GetServiceName() string { return t.serviceNa
 func (t *NonInteractiveTokenStorer) GetCredd() string       { return t.credd }
 func (t *NonInteractiveTokenStorer) GetVaultServer() string { return t.vaultServer }
 func (t *NonInteractiveTokenStorer) validateToken() error {
-	return validateServiceVaultToken(t.serviceName)
+	user, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("could not validate token in InteractiveTokenStorer: could not get current user: %w", err)
+	}
+	u := uidGetterUser(*user)
+	s := serviceString(t.serviceName)
+	return validateServiceVaultToken(u, s)
 }
 
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
