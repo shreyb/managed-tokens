@@ -18,14 +18,12 @@ package notifications
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	"github.com/fermitools/managed-tokens/internal/tracing"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	gomail "gopkg.in/gomail.v2"
+
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // Email is an email message configuration
@@ -68,7 +66,6 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 		Host: e.smtpHost,
 		Port: e.smtpPort,
 	}
-	funcLogger := log.WithField("recipient", strings.Join(e.to, ", "))
 
 	m := gomail.NewMessage()
 	m.SetHeader("From", e.from)
@@ -86,20 +83,15 @@ func (e *email) sendMessage(ctx context.Context, message string) error {
 	select {
 	case err := <-c:
 		if err != nil {
-			span.SetStatus(codes.Error, "Error sending email")
-			funcLogger.WithField("email", e).Errorf("Error sending email: %s", err)
-		} else {
-			span.SetStatus(codes.Ok, "Sent email")
-			funcLogger.Debug("Sent email")
+			err = fmt.Errorf("error sending email: %w", err)
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
-		return err
+		tracing.LogSuccessWithTrace(span, "Sent email")
+		return nil
 	case <-ctx.Done():
-		err := ctx.Err()
-		if err == context.DeadlineExceeded {
-			tracing.LogErrorWithTrace(span, funcLogger, "Error sending email: timeout")
-		} else {
-			tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Error sending email: %s", err.Error()))
-		}
+		err := fmt.Errorf("error sending email: %w", ctx.Err())
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 }

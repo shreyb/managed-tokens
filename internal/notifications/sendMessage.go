@@ -18,10 +18,9 @@ package notifications
 import (
 	"context"
 
-	"github.com/fermitools/managed-tokens/internal/tracing"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
+
+	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // SendMessager wraps the SendMessage method
@@ -30,9 +29,17 @@ type SendMessager interface {
 }
 
 // SendMessageError indicates that an error occurred sending a message
-type SendMessageError struct{ message string }
+type SendMessageError struct {
+	underlying error
+}
 
-func (s *SendMessageError) Error() string { return s.message }
+func (s *SendMessageError) Error() string {
+	return "error sending message: " + s.underlying.Error()
+}
+
+func (s *SendMessageError) Unwrap() error {
+	return s.underlying
+}
 
 // SendMessage sends a message (msg).  The kind of message and how that message is sent is determined
 // by the SendMessager, which should be configured before passing into SendMessage
@@ -42,10 +49,10 @@ func SendMessage(ctx context.Context, s SendMessager, msg string) error {
 
 	err := s.sendMessage(ctx, msg)
 	if err != nil {
-		err := &SendMessageError{"Error sending message"}
-		tracing.LogErrorWithTrace(span, log.NewEntry(log.StandardLogger()), err.Error())
+		err = &SendMessageError{err}
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	span.SetStatus(codes.Ok, "Message sent successfully")
+	tracing.LogSuccessWithTrace(span, "Message sent successfully")
 	return nil
 }

@@ -90,7 +90,8 @@ func SendAdminNotifications(ctx context.Context, operation string, isTest bool, 
 	if adminErrorsIsEmpty() {
 		if isTest {
 			if err := sendSlackNoErrorTestMessages(ctx, sendMessagers); err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Error sending admin notifications saying there were no errors in test mode")
+				err = fmt.Errorf("error sending admin notifications saying there were no errors in test mode: %w", err)
+				tracing.LogErrorWithTrace(span, err)
 				return err
 			}
 		}
@@ -101,7 +102,8 @@ func SendAdminNotifications(ctx context.Context, operation string, isTest bool, 
 
 	fullMessage, abridgedMessage, err := prepareFullAndAbridgedMessages(operation)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not prepare full or abridged admin message from template: %s", err.Error()))
+		err = fmt.Errorf("error preparing full and abridged messages: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 
@@ -142,9 +144,9 @@ func SendAdminNotifications(ctx context.Context, operation string, isTest bool, 
 	}
 
 	if err := g.Wait(); err != nil {
-		err2 := errors.New("sending admin notifications failed.  Please see logs")
-		tracing.LogErrorWithTrace(span, funcLogger, err2.Error())
-		return err2
+		err = errors.New("sending admin notifications failed.  Please see logs")
+		tracing.LogErrorWithTrace(span, err)
+		return err
 	}
 
 	span.SetStatus(codes.Ok, "Admin notifications sent")
@@ -165,9 +167,11 @@ func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessa
 		}
 	}
 	for _, slackMessage := range slackMessages {
-		if slackErr := SendMessage(ctx, slackMessage, slackMsgText); slackErr != nil {
-			tracing.LogErrorWithTrace(span, funcLogger, "Failed to send slack message")
-			return slackErr
+		if err := SendMessage(ctx, slackMessage, slackMsgText); err != nil {
+			err = fmt.Errorf("error sending slack message: %w", err)
+			funcLogger.Error(err.Error())
+			tracing.LogErrorWithTrace(span, err)
+			return err
 		}
 	}
 	span.SetStatus(codes.Ok, "Slack messages sent")

@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
@@ -86,8 +87,6 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 	span.SetAttributes(attribute.String("service", service))
 	defer span.End()
 
-	funcLogger := log.WithField("service", service)
-
 	// Only track errors if we have a valid ManagedTokensDatabase
 	if database == nil {
 		return nil, errors.New("no database to query")
@@ -105,7 +104,8 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 
 	// Listen on tChan to see if we got any errors getting error counts from ManagedTokensDatabase
 	if err := g.Wait(); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error getting error info from database.  Will not track errors")
+		err = errors.New("could not get error info from database")
+		tracing.LogErrorWithTrace(span, err)
 		return nil, err
 	}
 	span.SetStatus(codes.Ok, "Successfully loaded error counts from database")
@@ -125,7 +125,8 @@ func populateServiceSetupErrorCountFromDatabase(ctx context.Context, service str
 			funcLogger.Debug("No setupError information for service.  Assuming there are no prior errors")
 			return nil
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get setupError information. Please inspect database")
+		err = fmt.Errorf("could not get setupError information for service %s: %w", service, err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 	ec.setupErrors.value = setupErrorData.Count()
@@ -147,7 +148,8 @@ func populateServicePushErrorCountFromDatabase(ctx context.Context, service stri
 			funcLogger.Debug("No pushError information for service.  Assuming there are no prior errors")
 			return nil
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not get pushError information.  Please inspect database")
+		err = fmt.Errorf("could not get pushError information for service %s: %w", service, err)
+		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
 	for _, datum := range pushErrorData {
@@ -208,7 +210,8 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 	if storeSetupErrorCount, value := shouldStoreValue(&ec.setupErrors); storeSetupErrorCount {
 		s := setupErrorCount{service, value}
 		if err := database.UpdateSetupErrorsTable(ctx, []db.SetupErrorCount{&s}); err != nil {
-			tracing.LogErrorWithTrace(span, funcLogger, "Could not save new setupError counts in database")
+			err = fmt.Errorf("could not save new setupError counts in database: %w", err)
+			tracing.LogErrorWithTrace(span, err)
 			return err
 		}
 		funcLogger.Debug("Updated setupError counts in database")
@@ -224,7 +227,8 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 
 	if len(pushErrorsCountSlice) != 0 {
 		if err := database.UpdatePushErrorsTable(ctx, pushErrorsCountSlice); err != nil {
-			tracing.LogErrorWithTrace(span, funcLogger, "Could not save new pushError counts in database")
+			err = fmt.Errorf("could not save new pushError counts in database: %w", err)
+			tracing.LogErrorWithTrace(span, err)
 			return err
 		}
 		funcLogger.Debug("Updated pushError counts in database")

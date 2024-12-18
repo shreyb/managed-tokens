@@ -18,7 +18,6 @@ package notifications
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 )
 
@@ -32,15 +31,16 @@ func (f *fakeSender) sendMessage(ctx context.Context, msg string) error {
 
 // TestSendMessage checks that SendMessage properly wraps a SendMessager's sendMessage method
 func TestSendMessage(t *testing.T) {
+	_s := &SendMessageError{}
 	tests := []struct {
 		description string
 		s           SendMessager
-		err         error
+		err         any
 	}{
 		{
 			description: "Failure to send for some reason",
 			s:           &fakeSender{errors.New("This failed for some reason")},
-			err:         &SendMessageError{"Could not get a new grid proxy from gridProxyer"},
+			err:         _s,
 		},
 		{
 			description: "Successful send of message",
@@ -54,11 +54,19 @@ func TestSendMessage(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
 			err := SendMessage(ctx, test.s, "")
-			if reflect.TypeOf(err) != reflect.TypeOf(test.err) {
-				t.Errorf("SendMessage test should have returned %T; got %T instead", test.err, err)
+			if err == nil && test.err != nil {
+				t.Errorf("SendMessage test should have returned an error; got nil instead")
+				return
 			}
-		},
-		)
+			if err != nil && test.err == nil {
+				t.Errorf("SendMessage test should not have returned an error; got %v instead", err)
+				return
+			}
+			if err != nil && test.err != nil {
+				if !errors.As(err, &test.err) {
+					t.Errorf("SendMessage test should have returned %T; got %T instead", test.err, err)
+				}
+			}
+		})
 	}
-
 }

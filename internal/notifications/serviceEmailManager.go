@@ -17,6 +17,7 @@ package notifications
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -166,13 +167,9 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 		for {
 			select {
 			case <-ctx.Done():
-				if err := ctx.Err(); err == context.DeadlineExceeded {
-					tracing.LogErrorWithTrace(span, funcLogger, "Timeout exceeded in notification Manager")
-				} else {
-					tracing.LogErrorWithTrace(span, funcLogger, err.Error())
-				}
+				err := fmt.Errorf("serviceNotificationHandler error: %w", ctx.Err())
+				tracing.LogErrorWithTrace(span, err)
 				return
-
 			case n, chanOpen := <-em.ReceiveChan:
 				// Channel is closed --> save errors to database and send notifications
 				if !chanOpen {
@@ -220,6 +217,7 @@ func addPushErrorNotificationToServiceErrorsTable(n Notification, serviceErrorsT
 	funcLogger.Debug(msg)
 }
 
+// TODO - if this fails, we need to know somehow
 func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string]string, em *ServiceEmailManager) {
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.sendServiceEmailIfErrors")
 	span.SetAttributes(attribute.String("service", em.Service))
@@ -242,7 +240,8 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 	)
 	msg, err := prepareServiceEmail(tableString)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error preparing service email for sending")
+		err = fmt.Errorf("Error preparing service email for sending: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 	}
 
 	start := time.Now()
@@ -250,12 +249,13 @@ func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string
 	err = SendMessage(ctx, em.Email, msg)
 	dur := time.Since(start).Seconds()
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error sending email")
-	} else {
-		serviceErrorNotificationSendDuration.Observe(dur)
-		success = true
-		span.SetStatus(codes.Ok, "Email sent successfully")
+		err = fmt.Errorf("Error sending service email: %w", err)
+		tracing.LogErrorWithTrace(span, err)
+		return
 	}
+	serviceErrorNotificationSendDuration.Observe(dur)
+	success = true
+	span.SetStatus(codes.Ok, "Email sent successfully")
 	serviceErrorNotificationAttemptTimestamp.WithLabelValues(em.Service, strconv.FormatBool(success)).SetToCurrentTime()
 }
 

@@ -76,7 +76,7 @@ func TestSendMessageEmailContextErrors(t *testing.T) {
 			func(t *testing.T) {
 				ctx, cancel := test.contextSetupFunc()
 				t.Cleanup(func() { cancel() })
-				assert.ErrorIs(t, test.expectedErr, e.sendMessage(ctx, "This is a message"))
+				assert.ErrorIs(t, e.sendMessage(ctx, "This is a message"), test.expectedErr)
 			},
 		)
 	}

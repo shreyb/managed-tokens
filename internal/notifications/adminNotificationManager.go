@@ -17,12 +17,15 @@ package notifications
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 )
 
 // AdminNotificationManager holds information needed to receive and handle notifications meant to be sent to the administrators of the managed
@@ -125,7 +128,8 @@ func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotification
 
 	services, err := a.Database.GetAllServices(ctx)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Error getting services from database.  Assuming that we need to send all notifications")
+		err = fmt.Errorf("error getting services from database: %w", err)
+		tracing.LogErrorWithTrace(span, err)
 		return false, nil
 	}
 	if len(services) == 0 {
@@ -142,12 +146,12 @@ func getAllErrorCountsFromDatabase(ctx context.Context, services []string, datab
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.getAllErrorCountsFromDatabase")
 	defer span.End()
 
-	funcLogger := log.WithField("caller", "notifications.getAllErrorCountsFromDatabase")
 	allServiceCounts = make(map[string]*serviceErrorCounts)
 	for _, service := range services {
 		ec, err := setErrorCountsByService(ctx, service, database)
 		if err != nil {
-			tracing.LogErrorWithTrace(span, funcLogger, "Error getting error counts from database.  Will not use error counts")
+			err = fmt.Errorf("error getting error counts from database: %w", err)
+			tracing.LogErrorWithTrace(span, err)
 			return nil, false
 		}
 		allServiceCounts[service] = ec
@@ -171,10 +175,11 @@ func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Conte
 			select {
 			case <-ctx.Done():
 				if err := ctx.Err(); err == context.DeadlineExceeded {
-					tracing.LogErrorWithTrace(span, funcLogger, "Timeout exceeded in notification Manager")
-					funcLogger.Error("Timeout exceeded in notification Manager")
+					err = errors.New("timeout exceeded in notification Manager")
+					tracing.LogErrorWithTrace(span, err)
+					funcLogger.Error(err.Error())
 				} else {
-					tracing.LogErrorWithTrace(span, funcLogger, "Context cancelled in notification Manager")
+					tracing.LogErrorWithTrace(span, errors.New("context canceled in notification Manager"))
 					funcLogger.Error(err)
 				}
 				return
