@@ -32,7 +32,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
-	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/vaultToken"
 )
 
@@ -153,26 +152,16 @@ func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 						success.success = false
 
 						// Check to see if we need to report a specific error
-						var msg string
+						msg := "could not store and get vault tokens for schedd"
 						if errors.Is(err, context.DeadlineExceeded) {
-							msg = "timeout error"
-							errsToReport = append(errsToReport, fmt.Errorf("%s: %s", schedd, msg))
+							errsToReport = append(errsToReport, fmt.Errorf("%s %s: timeout error", msg, schedd))
 						} else {
-							msg = "could not store and get vault tokens for schedd"
-							unwrappedErr := errors.Unwrap(err)
-							if unwrappedErr != nil {
-								// Check to see if authorization is needed.  This is an error condition for non-interactive token storing
-								var authNeededErrorPtr *vaultToken.ErrAuthNeeded
-								if errors.As(unwrappedErr, &authNeededErrorPtr) {
-									msg = fmt.Sprintf("%s: %s", msg, unwrappedErr.Error())
-									errsToReport = append(errsToReport, fmt.Errorf("%s: %w", schedd, unwrappedErr))
-								}
-							}
+							errsToReport = append(errsToReport, fmt.Errorf("%s %s: %w", msg, schedd, err))
 						}
-						tracing.LogErrorWithTrace(span, scheddLogger, msg)
+						logErrorWithTracing(scheddLogger, span, fmt.Errorf("msg: %w", err))
 						return
 					}
-					tracing.LogSuccessWithTrace(span, scheddLogger, "Successfully got and stored vault token for schedd")
+					logSuccessWithTracing(scheddLogger, span, "Successfully got and stored vault token for schedd")
 				}(ctx, schedd)
 			}
 
@@ -181,11 +170,11 @@ func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 				for _, err := range errsToReport {
 					msg = fmt.Sprintf("%s; %s", msg, err.Error())
 				}
-				tracing.LogErrorWithTrace(span, configLogger, msg)
+				logErrorWithTracing(configLogger, span, errors.New(msg))
 				chans.notificationsChan <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 				return
 			}
-			tracing.LogSuccessWithTrace(span, configLogger, "Successfully got and stored vault tokens for all schedds")
+			logSuccessWithTracing(configLogger, span, "Successfully stored and got all vault tokens")
 		}(sc)
 	}
 }
@@ -246,19 +235,19 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 
 			if err := StoreAndGetTokensForSchedd(vaultStorerContext, &sc.CommandEnvironment, sc.ServiceCreddVaultTokenPathRoot, ts); err != nil {
 				success.success = false
-				tracing.LogErrorWithTrace(span, scheddLogger, fmt.Sprintf("could not store and get vault tokens for schedd: %s", err.Error()))
+				logErrorWithTracing(scheddLogger, span, fmt.Errorf("could not store and get vault tokens for schedd: %w", err))
 				return
 			}
-			tracing.LogSuccessWithTrace(span, scheddLogger, "Successfully got and stored vault tokens for schedd")
+			logSuccessWithTracing(scheddLogger, span, "Successfully got and stored vault token for schedd")
 		}(ctx, schedd)
 	}
 
 	if !success.success {
 		msg := "Could not store and get vault tokens"
-		tracing.LogErrorWithTrace(span, configLogger, msg)
+		logErrorWithTracing(configLogger, span, errors.New(msg))
 		return
 	}
-	tracing.LogSuccessWithTrace(span, configLogger, "Successfully stored and got all vault tokens")
+	logSuccessWithTracing(configLogger, span, "Successfully stored and got all vault tokens")
 }
 
 // StoreAndGetTokensForSchedds will store a refresh token on the condor-configured vault server, obtain vault and bearer tokens for a service
@@ -281,9 +270,10 @@ func StoreAndGetTokensForSchedd[T tokenStorer](ctx context.Context, environ *env
 
 	// Before we stage any prior vault token, check to make sure our context hasn't already been canceled
 	if ctx.Err() != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "context was canceled or the deadline exceeded before token vault staging.  Will not attempt to stage a stored token file or store vault token")
+		err := fmt.Errorf("context was canceled or the deadline exceeded before token vault staging.  Will not attempt to stage a stored token file or store vault token: %w", ctx.Err())
+		logErrorWithTracing(funcLogger, span, err)
 		success = false
-		return ctx.Err()
+		return err
 	}
 
 	// Stage prior vault token, if it exists
@@ -304,7 +294,7 @@ func StoreAndGetTokensForSchedd[T tokenStorer](ctx context.Context, environ *env
 		case errors.Is(err, errMoveServiceCreddToken):
 			funcLogger.Warn("There was an error staging the prior vault token for this service and credd.  Will get a new vault token")
 		default:
-			tracing.LogErrorWithTrace(span, funcLogger, "Could not stage prior vault token.  Please investigate, and be aware that stale credentials may get stored.")
+			logErrorWithTracing(funcLogger, span, fmt.Errorf("Could not stage prior vault token.  Please investigate, and be aware that stale credentials may get stored."))
 			success = false
 		}
 	}
@@ -324,15 +314,18 @@ func StoreAndGetTokensForSchedd[T tokenStorer](ctx context.Context, environ *env
 
 	// Last context check again here:  before we store vault token, check to make sure our context hasn't already been canceled
 	if ctx.Err() != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "context was canceled or the deadline exceeded before token vault storage.  Will not attempt to store vault token")
+		err := fmt.Errorf("context was canceled or the deadline exceeded before token vault storage.  Will not attempt to store vault token: %w", ctx.Err())
+		logErrorWithTracing(funcLogger, span, err)
 		success = false
-		return ctx.Err()
+		return err
 	}
 
 	// Store vault token on credd
 	if err := vaultToken.StoreAndValidateToken(ctx, ts, environ); err != nil {
 		storeFailureCount.WithLabelValues(ts.GetServiceName(), ts.GetCredd()).Inc()
-		span.SetStatus(codes.Error, "could not store or validate vault token")
+
+		err = fmt.Errorf("could not store or validate vault token: %w", err)
+		logErrorWithTracing(funcLogger, span, err)
 		return err
 	}
 
@@ -340,7 +333,7 @@ func StoreAndGetTokensForSchedd[T tokenStorer](ctx context.Context, environ *env
 	tokenStoreTimestamp.WithLabelValues(ts.GetServiceName(), ts.GetCredd()).SetToCurrentTime()
 	tokenStoreDuration.WithLabelValues(ts.GetServiceName(), ts.GetCredd()).Set(dur)
 
-	span.SetStatus(codes.Ok, "Successfully stored and obtained vault tokens for schedds")
+	logSuccessWithTracing(funcLogger, span, "Successfully stored and obtained vault tokens for schedds")
 	return nil
 }
 
