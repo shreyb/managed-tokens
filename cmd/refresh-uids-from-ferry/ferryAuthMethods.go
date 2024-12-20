@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net/http"
 	"os"
 	"path"
@@ -66,19 +67,16 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 			viper.GetString("ferry.hostKey"),
 		)
 		if err != nil {
-			tracing.LogErrorWithTrace(span, exeLogger, "Could not load host cert")
+			err = fmt.Errorf("could not load host cert: %w", err)
+			logErrorWithTracing(exeLogger, span, err)
 			return &http.Response{}, err
 		}
 
 		// Load CA certs
 		caFiles, err := os.ReadDir(viper.GetString("ferry.caPath"))
 		if err != nil {
-			tracing.LogErrorWithTrace(
-				span,
-				exeLogger,
-				"Could not read CA directory",
-				tracing.KeyValueForLog{Key: "caPath", Value: viper.GetString("ferry.caPath")},
-			)
+			err = fmt.Errorf("could not read CA directory: %w", err)
+			logErrorWithTracing(exeLogger, span, err, tracing.KeyValueForLog{Key: "caPath", Value: viper.GetString("ferry.caPath")})
 			return &http.Response{}, err
 		}
 		for _, f := range caFiles {
@@ -111,41 +109,32 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 		}
 		req, err := http.NewRequestWithContext(ctx, strings.ToUpper(verb), url, nil)
 		if err != nil {
-			tracing.LogErrorWithTrace(
-				span,
-				exeLogger,
-				"Could not initialize HTTP request",
-				tracing.KeyValueForLog{Key: "url", Value: url},
-			)
+			err = fmt.Errorf("could not initialize HTTP request: %w", err)
+			logErrorWithTracing(exeLogger, span, err, tracing.KeyValueForLog{Key: "url", Value: url})
 			return &http.Response{}, err
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.WithFields(log.Fields{
-				"url":        url,
-				"verb":       "GET",
-				"authMethod": "cert",
-			}).Error("Error executing HTTP request")
-			log.WithField("url", url).Error(err)
-			tracing.LogErrorWithTrace(
-				span,
+			err = fmt.Errorf("error executing HTTP request: %w", err)
+			logErrorWithTracing(
 				exeLogger,
-				"Error executing HTTP request",
-				tracing.KeyValueForLog{Key: "url", Value: url},
-				tracing.KeyValueForLog{Key: "verb", Value: verb},
-				tracing.KeyValueForLog{Key: "authMethod", Value: "tlsAuth"},
-			)
-		} else {
-			tracing.LogSuccessWithTrace(
 				span,
-				exeLogger,
-				"Executed HTTP request",
+				err,
 				tracing.KeyValueForLog{Key: "url", Value: url},
 				tracing.KeyValueForLog{Key: "verb", Value: verb},
 				tracing.KeyValueForLog{Key: "authMethod", Value: "tlsAuth"},
 			)
 		}
-		return resp, err
+
+		logSuccessWithTracing(
+			exeLogger,
+			span,
+			"Executed HTTP request",
+			tracing.KeyValueForLog{Key: "url", Value: url},
+			tracing.KeyValueForLog{Key: "verb", Value: verb},
+			tracing.KeyValueForLog{Key: "authMethod", Value: "tlsAuth"},
+		)
+		return resp, nil
 	}
 }
 
@@ -171,7 +160,11 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 				viper.GetString("ferry.vaultServer"),
 				serviceConfig.CommandEnvironment,
 			); err != nil {
-				tracing.LogErrorWithTrace(span, exeLogger, "Could not get token to authenticate to FERRY",
+				err = fmt.Errorf("could not get token to authenticate to FERRY: %w", err)
+				logErrorWithTracing(
+					exeLogger,
+					span,
+					err,
 					tracing.KeyValueForLog{Key: "service", Value: serviceConfig.Service.Name()},
 					tracing.KeyValueForLog{Key: "userPrincipal", Value: serviceConfig.UserPrincipal},
 					tracing.KeyValueForLog{Key: "vaultServer", Value: viper.GetString("ferry.vaultServer")},
@@ -181,7 +174,8 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 
 			bearerTokenDefaultLocation, err := getBearerTokenDefaultLocation()
 			if err != nil {
-				tracing.LogErrorWithTrace(span, exeLogger, "Could not get default location for bearer tokens")
+				err = fmt.Errorf("could not get default location for bearer tokens: %w", err)
+				logErrorWithTracing(exeLogger, span, err)
 				return &http.Response{}, err
 			}
 			defer func() {
@@ -193,16 +187,25 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 
 			bearerBytes, err := os.ReadFile(bearerTokenDefaultLocation)
 			if err != nil {
-				tracing.LogErrorWithTrace(span, exeLogger, "Could not open bearer token file for reading",
-					tracing.KeyValueForLog{Key: "bearerTokenFileLocation", Value: bearerTokenDefaultLocation},
+				err = fmt.Errorf("could not open bearer token file for reading: %w", err)
+				logErrorWithTracing(
+					exeLogger,
+					span,
+					err,
+					tracing.KeyValueForLog{Key: "bearertokenFileLocation", Value: bearerTokenDefaultLocation},
 				)
 				return &http.Response{}, err
 			}
 
 			// Validate token
 			if _, err := jwtLib.Parse(bearerBytes); err != nil {
-				tracing.LogErrorWithTrace(span, exeLogger, "Token validation failed: not a valid bearer (JWT) token",
-					tracing.KeyValueForLog{Key: "bearerTokenFileLocation", Value: bearerTokenDefaultLocation})
+				err = fmt.Errorf("token validation failed: not a valid bearer (JWT) token: %w", err)
+				logErrorWithTracing(
+					exeLogger,
+					span,
+					err,
+					tracing.KeyValueForLog{Key: "bearerTokenFileLocation", Value: bearerTokenDefaultLocation},
+				)
 				return &http.Response{}, err
 			}
 
@@ -213,7 +216,11 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 
 			req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 			if err != nil {
-				tracing.LogErrorWithTrace(span, exeLogger, "Could not initialize HTTP request",
+				err = fmt.Errorf("could not initialize HTTP request: %w", err)
+				logErrorWithTracing(
+					exeLogger,
+					span,
+					err,
 					tracing.KeyValueForLog{Key: "url", Value: url},
 					tracing.KeyValueForLog{Key: "verb", Value: "GET"},
 				)
@@ -222,24 +229,25 @@ func withKerberosJWTAuth(serviceConfig *worker.Config) func() func(context.Conte
 			req.Header.Add("Authorization", bearerHeader)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
-				tracing.LogErrorWithTrace(
-					span,
+				err = fmt.Errorf("error executing HTTP request: %w", err)
+				logErrorWithTracing(
 					exeLogger,
-					"Error executing HTTP request",
-					tracing.KeyValueForLog{Key: "url", Value: url},
-					tracing.KeyValueForLog{Key: "verb", Value: verb},
-					tracing.KeyValueForLog{Key: "authMethod", Value: "jwtAuth"})
-				return &http.Response{}, err
-			} else {
-				tracing.LogSuccessWithTrace(
 					span,
-					exeLogger,
-					"Executed HTTP request",
+					err,
 					tracing.KeyValueForLog{Key: "url", Value: url},
-					tracing.KeyValueForLog{Key: "verb", Value: verb},
+					tracing.KeyValueForLog{Key: "verb", Value: "GET"},
 					tracing.KeyValueForLog{Key: "authMethod", Value: "jwtAuth"},
 				)
+				return &http.Response{}, err
 			}
+			logSuccessWithTracing(
+				exeLogger,
+				span,
+				"Executed HTTP request",
+				tracing.KeyValueForLog{Key: "url", Value: url},
+				tracing.KeyValueForLog{Key: "verb", Value: "GET"},
+				tracing.KeyValueForLog{Key: "authMethod", Value: "jwtAuth"},
+			)
 			return resp, nil
 		}
 	}

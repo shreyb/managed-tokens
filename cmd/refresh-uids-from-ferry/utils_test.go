@@ -165,7 +165,7 @@ func TestGetAndAggregateFERRYData(t *testing.T) {
 			"test_user",
 			func() func(context.Context, string, string) (*http.Response, error) {
 				return func(ctx context.Context, url, verb string) (*http.Response, error) {
-					return nil, errors.New("this is a test error")
+					return nil, nonNilErr
 				}
 			},
 			// buffer these channels so we can send values without preemptively starting up listeners like we normally would
@@ -193,11 +193,11 @@ func TestGetAndAggregateFERRYData(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.username, func(t *testing.T) {
+		t.Run(tc.description, func(t *testing.T) {
 			defer close(tc.ferryDataChan)
 			defer close(tc.notificationsChan)
 			err := getAndAggregateFERRYData(context.Background(), tc.username, tc.authFunc, tc.ferryDataChan, tc.notificationsChan)
-			assert.Equal(t, tc.expectedErr, err)
+			assert.ErrorIs(t, err, tc.expectedErr)
 
 			if tc.expectedErr != nil {
 				// If there is no expected error, we check that a notification got sent.  We don't care in this case about the contents

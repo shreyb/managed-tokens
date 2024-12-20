@@ -381,7 +381,8 @@ func run(ctx context.Context) error {
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
 		msg := "Could not open or create ManagedTokensDatabase"
-		tracing.LogErrorWithTrace(span, exeLogger, msg)
+		err = fmt.Errorf("%s: %w", msg, err)
+		logErrorWithTracing(exeLogger, span, err)
 		// Start up a notification manager JUST for the purpose of sending the email that we couldn't open the DB.
 		// In the case of this executable, that's a fatal error and we should stop execution.
 		if !viper.GetBool("disableNotifications") {
@@ -395,13 +396,12 @@ func run(ctx context.Context) error {
 			// and mocked out here:
 			// https://go.dev/play/p/rww0ORt94pU
 			if err2 := sendAdminNotifications(ctx, admNotMgr, &adminNotifications); err2 != nil {
-				msg := "error sending admin notifications"
-				tracing.LogErrorWithTrace(span, exeLogger, msg)
-				err := fmt.Errorf("%s regarding %w: %w", msg, err, err2)
+				err = fmt.Errorf("error sending admin notifications: %w: %w", err, err2)
+				logErrorWithTracing(exeLogger, span, err)
 				return err
 			}
 		}
-		return fmt.Errorf("%s: %w", msg, err)
+		return err
 	}
 	defer database.Close()
 	span.AddEvent("Opened ManagedTokensDatabase")
@@ -488,9 +488,9 @@ func run(ctx context.Context) error {
 		authFunc = withKerberosJWTAuth(sc)
 		exeLogger.Debug("Using JWT to authenticate to FERRY")
 	default:
-		msg := "unsupported authentication method to communicate with FERRY"
-		tracing.LogErrorWithTrace(span, exeLogger, msg)
-		return errors.New(msg)
+		err := errors.New("unsupported authentication method to communicate with FERRY")
+		logErrorWithTracing(exeLogger, span, err)
+		return err
 	}
 	span.SetAttributes(attribute.KeyValue{Key: "authmethod", Value: attribute.StringValue(viper.GetString("authmethod"))})
 
@@ -520,8 +520,8 @@ func run(ctx context.Context) error {
 		// Don't close data channel until all workers have put their data in
 		if err := ferryDataErrGroup.Wait(); err != nil {
 			// It's OK if we have an error - just log it and move on so we can work with what data did come back
-			msg := "Error getting FERRY data for one of the usernames.  Please investigate"
-			tracing.LogErrorWithTrace(span, exeLogger, msg)
+			err = errors.New("error getting FERRY data for one of the usernames.  Please investigate")
+			logErrorWithTracing(exeLogger, span, err)
 		}
 	}()
 
@@ -535,8 +535,9 @@ func run(ctx context.Context) error {
 		if !viper.GetBool("disableNotifications") {
 			sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		}
-		tracing.LogErrorWithTrace(span, exeLogger, msg+". Exiting")
-		return errors.New(msg)
+		err := errors.New(msg + ". Exiting")
+		logErrorWithTracing(exeLogger, span, err)
+		return err
 	}
 
 	// Stop here if we're in test mode
@@ -547,7 +548,7 @@ func run(ctx context.Context) error {
 		for _, datum := range ferryData {
 			ferryDataStringSlice = append(ferryDataStringSlice, datum.String())
 		}
-		exeLogger.Infof(strings.Join(ferryDataStringSlice, "; "))
+		exeLogger.Info(strings.Join(ferryDataStringSlice, "; "))
 
 		exeLogger.Info("Test mode finished")
 		return nil
@@ -567,7 +568,8 @@ func run(ctx context.Context) error {
 		if !viper.GetBool("disableNotifications") {
 			sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		}
-		tracing.LogErrorWithTrace(span, exeLogger, msg)
+		err = fmt.Errorf("%s: %w", msg, err)
+		logErrorWithTracing(exeLogger, span, err)
 		return err
 	}
 	span.AddEvent("End DB Update")
@@ -580,7 +582,8 @@ func run(ctx context.Context) error {
 		if !viper.GetBool("disableNotifications") {
 			sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		}
-		tracing.LogErrorWithTrace(span, exeLogger, msg)
+		err = fmt.Errorf("%s: %w", msg, err)
+		logErrorWithTracing(exeLogger, span, err)
 		return err
 	}
 
@@ -589,13 +592,14 @@ func run(ctx context.Context) error {
 		if !viper.GetBool("disableNotifications") {
 			sendSetupErrorToAdminMgr(aReceiveChan, msg)
 		}
-		tracing.LogErrorWithTrace(span, exeLogger, msg)
-		return errors.New(msg)
+		err = errors.New(msg)
+		logErrorWithTracing(exeLogger, span, err)
+		return err
 	}
 	span.AddEvent("End DB Verification")
 
 	exeLogger.Debug("Verified INSERT")
-	tracing.LogSuccessWithTrace(span, exeLogger, "Successfully refreshed Managed Tokens DB")
+	logSuccessWithTracing(exeLogger, span, "Successfully refreshed Managed Tokens DB")
 	promDuration.WithLabelValues(currentExecutable, "refreshManagedTokensDB").Set(time.Since(startDBInsert).Seconds())
 	ferryRefreshTime.SetToCurrentTime()
 	return nil

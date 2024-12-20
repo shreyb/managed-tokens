@@ -30,7 +30,6 @@ import (
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
@@ -38,7 +37,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
-	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
@@ -98,18 +96,20 @@ func sendAdminNotifications(ctx context.Context, a *notifications.AdminNotificat
 	defer span.End()
 
 	a.RequestToCloseReceiveChan(ctx)
-	err := notifications.SendAdminNotifications(
+	if err := notifications.SendAdminNotifications(
 		ctx,
 		currentExecutable,
 		viper.GetBool("test"),
 		(*adminNotificationsPtr)...,
-	)
-	if err != nil {
+	); err != nil {
 		// We don't want to halt execution at this point
-		tracing.LogErrorWithTrace(span, exeLogger, "Error sending admin notifications")
+		err = fmt.Errorf("error sending admin notifications: %w", err)
+		logErrorWithTracing(exeLogger, span, err)
+		return err
 	}
-	span.SetStatus(codes.Ok, "Admin notifications sent successfully")
-	return err
+
+	logSuccessWithTracing(exeLogger, span, "Admin notifications sent successfully")
+	return nil
 }
 
 // getAllAccountsFromConfig reads the configuration file and gets a slice of accounts
