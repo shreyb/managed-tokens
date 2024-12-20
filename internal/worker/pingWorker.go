@@ -33,7 +33,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/ping"
 	"github.com/fermitools/managed-tokens/internal/service"
-	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 var (
@@ -161,7 +160,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 					failedNodesStrings = append(failedNodesStrings, node.String())
 				}
 				msg := "Could not ping the following nodes: " + strings.Join(failedNodesStrings, ", ")
-				tracing.LogErrorWithTrace(span, serviceLogger, msg)
+				logErrorWithTracing(serviceLogger, span, errors.New(msg))
 				chans.notificationsChan <- notifications.NewSetupError(
 					msg,
 					sc.ServiceNameFromExperimentAndRole(),
@@ -169,7 +168,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 				return
 			}
 			success.success = true
-			tracing.LogSuccessWithTrace(span, serviceLogger, "Successfully pinged all nodes for service")
+			logSuccessWithTracing(serviceLogger, span, "Successfully pinged all nodes for service")
 		}(sc)
 	}
 }
