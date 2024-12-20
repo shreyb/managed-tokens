@@ -243,7 +243,7 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 	}
 
 	if !success.success {
-		msg := "Could not store and get vault tokens"
+		msg := "could not store and get vault tokens"
 		logErrorWithTracing(configLogger, span, errors.New(msg))
 		return
 	}
@@ -294,7 +294,7 @@ func StoreAndGetTokensForSchedd[T tokenStorer](ctx context.Context, environ *env
 		case errors.Is(err, errMoveServiceCreddToken):
 			funcLogger.Warn("There was an error staging the prior vault token for this service and credd.  Will get a new vault token")
 		default:
-			logErrorWithTracing(funcLogger, span, fmt.Errorf("Could not stage prior vault token.  Please investigate, and be aware that stale credentials may get stored."))
+			logErrorWithTracing(funcLogger, span, fmt.Errorf("could not stage prior vault token.  Please investigate, and be aware that stale credentials may get stored"))
 			success = false
 		}
 	}
