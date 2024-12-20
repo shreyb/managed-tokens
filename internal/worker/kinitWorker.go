@@ -18,6 +18,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -32,7 +33,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
-	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 var (
@@ -122,17 +122,15 @@ func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
 			defer kerbCancel()
 
 			if err := GetKerberosTicketandVerify(kerbContext, sc); err != nil {
-				var msg string
+				msg := "Could not obtain and verify kerberos ticket"
 				if errors.Is(err, context.DeadlineExceeded) {
-					msg = "Timeout error"
-				} else {
-					msg = "Could not obtain and verify kerberos ticket"
+					msg = msg + ": timeout error"
 				}
-				tracing.LogErrorWithTrace(span, log.WithFields(log.Fields{
+				logErrorWithTracing(log.WithFields(log.Fields{
 					"experiment": sc.Service.Experiment(),
 					"role":       sc.Service.Role(),
 					"account":    sc.Account,
-				}), msg)
+				}), span, errors.New(msg))
 				chans.notificationsChan <- notifications.NewSetupError(msg, sc.ServiceNameFromExperimentAndRole())
 				return
 			}
@@ -158,20 +156,21 @@ func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
 	start := time.Now()
 
 	if err := kerberos.GetTicket(ctx, sc.KeytabPath, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not obtain kerberos ticket")
 		kinitFailureCount.WithLabelValues(sc.Service.Name()).Inc()
+		err = fmt.Errorf("could not obtain kerberos ticket: %w", err)
+		logErrorWithTracing(funcLogger, span, err)
 		return err
 	}
 
 	if err := kerberos.CheckPrincipal(ctx, sc.UserPrincipal, sc.CommandEnvironment); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Kerberos ticket verification failed")
 		kinitFailureCount.WithLabelValues(sc.Service.Name()).Inc()
+		err = fmt.Errorf("kerberos ticket verification failed: %w", err)
+		logErrorWithTracing(funcLogger, span, err)
 		return err
 	}
 
 	dur := time.Since(start).Seconds()
 	kinitDuration.WithLabelValues(sc.Service.Name()).Set(dur)
-	span.SetStatus(codes.Ok, "Kerberos ticket obtained and verified")
-	funcLogger.Debug("Kerberos ticket obtained and verified")
+	logSuccessWithTracing(funcLogger, span, "Kerberos ticket obtained and verified")
 	return nil
 }
