@@ -835,6 +835,7 @@ func initTracing(ctx context.Context) (func(context.Context), error) {
 	}
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
+	exeLogger.Debug("Sending OTLP traces to ", url)
 	return shutdown, nil
 }
 
