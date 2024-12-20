@@ -36,7 +36,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/metrics"
-	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 const ferryRequestDefaultTimeoutStr string = "30s"
@@ -157,13 +156,15 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	defer ferryRequestCancel()
 	resp, err := requestRunnerWithAuthMethodFunc(ferryRequestCtx, b.String(), "GET")
 	if err != nil {
-		funcLogger.Error("Attempt to get UID from FERRY failed")
+		msg := "Attempt to get UID from FERRY failed"
 		ferryRequestErrorCount.Inc()
 		if err2 := ctx.Err(); errors.Is(err2, context.DeadlineExceeded) {
-			tracing.LogErrorWithTrace(span, funcLogger, "Timeout error")
-			return &entry, err2
+			retErr := fmt.Errorf("%s: timeout error: %w", msg, ctx.Err())
+			logErrorWithTracing(funcLogger, span, retErr)
+			return &entry, retErr
 		}
-		tracing.LogErrorWithTrace(span, funcLogger, err.Error())
+		err = fmt.Errorf("%s: %w", msg, err)
+		logErrorWithTracing(funcLogger, span, err)
 		return &entry, err
 	}
 	defer resp.Body.Close()
@@ -171,26 +172,29 @@ func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, fer
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		ferryRequestErrorCount.Inc()
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not read body from HTTP response")
+		err = fmt.Errorf("could not read body from HTTP response: %w", err)
+		logErrorWithTracing(funcLogger, span, err)
 		return &entry, err
 	}
 
 	parsedResponse := ferryUIDResponse{}
 	if err := json.Unmarshal(body, &parsedResponse); err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("Could not unmarshal FERRY response: %s", err))
+		err = fmt.Errorf("could not unmarshal FERRY response: %w", err)
+		logErrorWithTracing(funcLogger, span, err)
 		return &entry, err
 	}
 
 	if parsedResponse.FerryStatus == "failure" {
 		ferryRequestErrorCount.Inc()
-		tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("FERRY server error: %s", parsedResponse.FerryError))
+		err = fmt.Errorf("FERRY server error: %s", parsedResponse.FerryError)
+		logErrorWithTracing(funcLogger, span, err)
 		return &entry, errors.New("unspecified FERRY error.  Check logs")
 	}
 
 	entry.username = username
 	entry.uid = parsedResponse.FerryOutput.Uid
 
-	tracing.LogSuccessWithTrace(span, funcLogger, "Successfully got data from FERRY")
+	logSuccessWithTracing(funcLogger, span, "Successfully got data from FERRY")
 	dur := time.Since(startRequest).Seconds()
 	ferryRequestDuration.Observe(dur)
 	return &entry, nil
