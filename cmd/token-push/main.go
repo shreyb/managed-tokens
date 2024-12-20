@@ -536,6 +536,7 @@ func run(ctx context.Context) error {
 			if err := vaultToken.RemoveServiceVaultTokens(serviceName); err != nil {
 				if errors.Is(err, os.ErrNotExist) {
 					exeLogger.WithField("service", serviceName).Debug("No vault tokens to remove")
+					return
 				}
 				exeLogger.WithField("service", serviceName).Errorf("Could not remove vault tokens for service: %s", err)
 			}
