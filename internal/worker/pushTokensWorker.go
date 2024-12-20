@@ -37,7 +37,6 @@ import (
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
-	"github.com/fermitools/managed-tokens/internal/tracing"
 )
 
 // Sleep time between each retry
@@ -181,8 +180,8 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 
 				sourceFilename, err := findFirstCreddVaultToken(sc.ServiceCreddVaultTokenPathRoot, sc.Service.Name(), sc.Schedds)
 				if err != nil {
-					msg := "Could not find suitable vault token to push.  Will not push any vault tokens for this service."
-					tracing.LogErrorWithTrace(span, serviceLogger, msg)
+					msg := "Could not find suitable vault token to push.  Will not push any vault tokens for this service"
+					logErrorWithTracing(serviceLogger, span, fmt.Errorf("%s: %w", msg, err))
 					pushSuccess.changeSuccessValue(false)
 					chans.notificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
 					return
@@ -250,7 +249,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 								var notificationErrorString string
 								var err error
 								func() {
-									for i := 0; i <= int(numRetries); i++ {
+									for i := 0; i <= int(numRetries); i++ { // TODO in Go 1.23, we can change this to for i := range numRetries
 										trialContext, trialSpan := otel.GetTracerProvider().Tracer("managed-tokens").Start(pushContext, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc_trialAnonFunc")
 										trialSpan.SetAttributes(
 											attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
@@ -268,24 +267,30 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 										if err == nil {
 											return
 										}
+										notificationErrorString = "Error pushing vault tokens to destination node: "
 										// Unpingable node - no reason to retry
 										if sc.IsNodeUnpingable(destinationNode) {
-											notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
-											tracing.LogErrorWithTrace(trialSpan, nodeLogger, notificationErrorString+"will not retry")
+											notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens", destinationNode)
+											logErrorWithTracing(nodeLogger, trialSpan, fmt.Errorf("%s; will not retry: %w", notificationErrorString, err))
 											return
 										}
 										// Context has errored out - no reason to retry
-										if _trialContext.Err() != nil {
-											notificationErrorString = notificationErrorString + pushContext.Err().Error()
-											if errors.Is(_trialContext.Err(), context.DeadlineExceeded) {
+										if trialContext.Err() != nil {
+											notificationErrorString = notificationErrorString + "context error"
+											if errors.Is(trialContext.Err(), context.DeadlineExceeded) {
 												notificationErrorString = notificationErrorString + " (timeout error)"
 											}
-											tracing.LogErrorWithTrace(trialSpan, nodeLogger, fmt.Sprintf("Error pushing vault tokens to destination node: %s: will not retry", pushContext.Err()))
+											logErrorWithTracing(nodeLogger, trialSpan, fmt.Errorf("%s: %w", notificationErrorString, trialContext.Err()))
 											return
 										}
 										// Some other error - retry
 										notificationErrorString = notificationErrorString + err.Error()
 										nodeLogger.Errorf("Error pushing vault tokens to destination node.  Will sleep %s and then retry", retrySleepDuration.String())
+										if i == int(numRetries) {
+											// Last try, so we'll log the error in the logger and the trace span
+											logErrorWithTracing(nodeLogger, trialSpan, fmt.Errorf("%s; will not retry", notificationErrorString))
+											continue
+										}
 										time.Sleep(retrySleepDuration)
 										_trialCancel()
 									}
@@ -407,7 +412,7 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		sshOptions = []string{}
 	}
 
-	f := fileCopier.NewSSHFileCopier(
+	f, err := fileCopier.NewSSHFileCopier(
 		sourceFile,
 		c.Account,
 		node,
@@ -416,17 +421,23 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		sshOptions,
 		c.CommandEnvironment,
 	)
-
-	err := fileCopier.CopyToDestination(ctx, f)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not copy file to destination")
+		if !errors.Is(err, fileCopier.ErrDefaultSSHOpts) {
+			return fmt.Errorf("could not push file to node: %w", err)
+		}
+		funcLogger.Debug("Could not use provided SSH options.  Using default options")
+	}
+
+	if err := fileCopier.CopyToDestination(ctx, f); err != nil {
+		err = fmt.Errorf("could not copy file to destination: %w", err)
+		logErrorWithTracing(funcLogger, span, err)
 		pushFailureCount.WithLabelValues(c.Service.Name(), node).Inc()
 		return err
 	}
 
 	dur := time.Since(startTime).Seconds()
 	tokenPushDuration.WithLabelValues(c.Service.Name(), node).Set(dur)
-	tracing.LogSuccessWithTrace(span, funcLogger, "Success copying file to destination")
+	logSuccessWithTracing(funcLogger, span, "Success copying file to destination")
 	return nil
 
 }
