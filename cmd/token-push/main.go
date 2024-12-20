@@ -280,7 +280,8 @@ func run(ctx context.Context) error {
 		// Run cleanup actions
 		// Cleanup
 		if err := reportSuccessesAndFailures(successfulServices); err != nil {
-			tracing.LogErrorWithTrace(span, exeLogger, "Error aggregating successes and failures")
+			// We don't return the error here, because we don't want to halt execution if the admin message can't be sent.  Just log it and move on
+			logErrorWithTracing(exeLogger, span, fmt.Errorf("error aggregating successes and failures: %w", err))
 		}
 		// Push metrics to prometheus pushgateway
 		if prometheusUp {
@@ -350,7 +351,7 @@ func run(ctx context.Context) error {
 			// Create kerberos cache for this service
 			krb5ccCache, err := os.CreateTemp(kerbCacheDir, fmt.Sprintf("managed-tokens-krb5ccCache-%s", s.Name()))
 			if err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Cannot create kerberos cache. Subsequent operations will fail. Skipping service.")
+				logErrorWithTracing(funcLogger, span, fmt.Errorf("cannot create kerberos cache. Subsequent operations will fail. Skipping service: %w", err))
 				return
 			}
 
@@ -358,22 +359,22 @@ func run(ctx context.Context) error {
 			serviceConfigPath := "experiments." + s.Experiment() + ".roles." + s.Role()
 			uid, err := getDesiredUIDByOverrideOrLookup(ctx, serviceConfigPath, database)
 			if err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Error obtaining UID for service. Skipping service.")
+				logErrorWithTracing(funcLogger, span, fmt.Errorf("error obtaining UID for service. Skipping service: %w", err))
 				return
 			}
 			userPrincipal, htgettokenopts := getUserPrincipalAndHtgettokenoptsFromConfiguration(serviceConfigPath)
 			if userPrincipal == "" {
-				tracing.LogErrorWithTrace(span, funcLogger, "Cannot have a blank userPrincipal. Skipping service")
+				logErrorWithTracing(funcLogger, span, errors.New("userPrincipal cannot be blank. Skipping service"))
 				return
 			}
 			vaultServer, err := getVaultServer(serviceConfigPath)
 			if err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without vault server. Returning now.")
+				logErrorWithTracing(funcLogger, span, fmt.Errorf("error obtaining vault server for service. Cannot proceed. Returning now: %w", err))
 				return
 			}
 			collectorHost, schedds, err := getScheddsAndCollectorHostFromConfiguration(ctx, serviceConfigPath)
 			if err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Cannot proceed without schedds. Returning now")
+				logErrorWithTracing(funcLogger, span, fmt.Errorf("error obtaining collector host and schedds for service. Cannot proceed. Returning now: %w", err))
 				return
 			}
 
@@ -436,7 +437,7 @@ func run(ctx context.Context) error {
 				vaultTokenStoreHoldoffFunc,
 			)
 			if err != nil {
-				tracing.LogErrorWithTrace(span, funcLogger, "Could not create config for service")
+				logErrorWithTracing(funcLogger, span, fmt.Errorf("could not create config for service: %w", err))
 				return
 			}
 
@@ -458,9 +459,9 @@ func run(ctx context.Context) error {
 	serviceConfigSetupWg.Wait()
 
 	if len(serviceConfigs) == 0 {
-		msg := "no serviceConfigs to operate on"
-		tracing.LogErrorWithTrace(span, exeLogger, msg)
-		return errors.New(msg)
+		err := errors.New("no serviceConfigs to operate on")
+		logErrorWithTracing(exeLogger, span, err)
+		return err
 	}
 
 	span.AddEvent("Service configs setup complete")
@@ -533,7 +534,10 @@ func run(ctx context.Context) error {
 	for serviceName := range serviceConfigs {
 		defer func(serviceName string) {
 			if err := vaultToken.RemoveServiceVaultTokens(serviceName); err != nil {
-				exeLogger.WithField("service", serviceName).Error("Could not remove vault tokens for service")
+				if errors.Is(err, os.ErrNotExist) {
+					exeLogger.WithField("service", serviceName).Debug("No vault tokens to remove")
+				}
+				exeLogger.WithField("service", serviceName).Errorf("Could not remove vault tokens for service: %s", err)
 			}
 		}(serviceName)
 	}
@@ -681,6 +685,7 @@ func initEnvironment() {
 
 // Set up logs
 func initLogs() {
+	// TODO - Add a DEBUG env var so that we only turn on debugging when needed.
 	log.SetLevel(log.DebugLevel)
 	debugLogConfigLookup := "logs.token-push.debugfile"
 	logConfigLookup := "logs.token-push.logfile"
@@ -883,7 +888,8 @@ func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase
 
 	database, err := db.OpenOrCreateDatabase(dbLocation)
 	if err != nil {
-		tracing.LogErrorWithTrace(span, exeLogger, "Could not open or create ManagedTokensDatabase")
+		err = fmt.Errorf("could not open or create ManagedTokensDatabase: %w", err)
+		logErrorWithTracing(exeLogger, span, err)
 		return nil, err
 	}
 
@@ -896,7 +902,7 @@ func openDatabaseAndLoadServices(ctx context.Context) (*db.ManagedTokensDatabase
 		exeLogger.Error("Could not update database with currently-configured services.  Future database-based operations may fail")
 	}
 
-	tracing.LogSuccessWithTrace(span, exeLogger, "Successfully opened database and loaded services")
+	logSuccessWithTracing(exeLogger, span, "Successfully opened database and loaded services")
 	return database, nil
 }
 
