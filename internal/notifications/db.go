@@ -23,7 +23,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/sync/errgroup"
@@ -83,7 +82,7 @@ type serviceErrorCounts struct {
 
 // setErrorCountsByService queries the db.ManagedTokensDatabase to load the prior errorCounts for a given service
 func setErrorCountsByService(ctx context.Context, service string, database *db.ManagedTokensDatabase) (*serviceErrorCounts, error) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.setErrorCountsByService")
+	ctx, span := tracer.Start(ctx, "setErrorCountsByService")
 	span.SetAttributes(attribute.String("service", service))
 	defer span.End()
 
@@ -113,7 +112,7 @@ func setErrorCountsByService(ctx context.Context, service string, database *db.M
 }
 
 func populateServiceSetupErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.populateServiceSetupErrorCountFromDatabase")
+	ctx, span := tracer.Start(ctx, "populateServiceSetupErrorCountFromDatabase")
 	span.SetAttributes(attribute.String("service", service))
 	defer span.End()
 
@@ -135,7 +134,7 @@ func populateServiceSetupErrorCountFromDatabase(ctx context.Context, service str
 }
 
 func populateServicePushErrorCountFromDatabase(ctx context.Context, service string, database *db.ManagedTokensDatabase, ec *serviceErrorCounts) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.populateServicePushErrorCountFromDatabase")
+	ctx, span := tracer.Start(ctx, "populateServicePushErrorCountFromDatabase")
 	span.SetAttributes(attribute.String("service", service))
 	defer span.End()
 
@@ -190,7 +189,7 @@ func saveErrorCountsInDatabase(ctx context.Context, service string, database *db
 	// 2.  The value is non-zero, but unchanged.  This means there was no error registered for that errorCount, and thus the underlying
 	// issue can be assumed to be fixed.  Reset the value to 0, and store it.
 	// Otherwise, don't save the value (only true if the value is 0, and was not changed).
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.saveErrorCountsInDatabase")
+	ctx, span := tracer.Start(ctx, "saveErrorCountsInDatabase")
 	span.SetAttributes(attribute.String("service", service))
 	defer span.End()
 

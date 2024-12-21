@@ -24,7 +24,6 @@ import (
 	"os/user"
 	"regexp"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -61,7 +60,7 @@ func StoreAndValidateToken[T *InteractiveTokenStorer | *NonInteractiveTokenStore
 }
 
 func storeAndValidateToken(ctx context.Context, t tokenStorer, environ *environment.CommandEnvironment) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.StoreAndValidateToken")
+	ctx, span := tracer.Start(ctx, "storeAndValidateToken")
 	span.SetAttributes(
 		attribute.String("service", t.GetServiceName()),
 		attribute.String("credd", t.GetCredd()),
@@ -131,7 +130,7 @@ func (t *InteractiveTokenStorer) validateToken() error {
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
 // It allows for the token-storing command to prompt the user for action
 func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.InteractiveTokenStorer.getTokensAndStoreInVault")
+	ctx, span := tracer.Start(ctx, "InteractiveTokenStorer.getTokensAndStoreInVault")
 	span.SetAttributes(
 		attribute.String("service", t.serviceName),
 		attribute.String("credd", t.credd),
@@ -200,7 +199,7 @@ func (t *NonInteractiveTokenStorer) validateToken() error {
 // getTokensandStoreinVault stores a refresh token in a configured Hashicorp vault and obtains vault and bearer tokens for the user.
 // It doew not allow for the token-storing command to prompt the user for action
 func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, environ *environment.CommandEnvironment) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.NonInteractiveTokenStorer.getTokensAndStoreInVault")
+	ctx, span := tracer.Start(ctx, "NonInteractiveTokenStorer.getTokensAndStoreInVault")
 	span.SetAttributes(
 		attribute.String("service", t.serviceName),
 		attribute.String("credd", t.credd),
@@ -232,7 +231,7 @@ func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context
 }
 
 func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t tokenStorer, environ *environment.CommandEnvironment) *exec.Cmd {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.setupCmdWithEnvironmentForTokenStorer")
+	ctx, span := tracer.Start(ctx, "setupCmdWithEnvironmentForTokenStorer")
 	span.SetAttributes(
 		attribute.String("service", t.GetServiceName()),
 		attribute.String("credd", t.GetCredd()),
@@ -252,7 +251,7 @@ func setupCmdWithEnvironmentForTokenStorer(ctx context.Context, t tokenStorer, e
 }
 
 func getCmdArgsForTokenStorer(ctx context.Context, serviceName string) []string {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "vaultToken.getCmdArgsForTokenStorer")
+	ctx, span := tracer.Start(ctx, "getCmdArgsForTokenStorer")
 	span.SetAttributes(attribute.String("service", serviceName))
 	defer span.End()
 

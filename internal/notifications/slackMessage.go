@@ -25,7 +25,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -59,7 +58,7 @@ func NewSlackMessage(url string) *slackMessage {
 // sendMessage sends message as a Slack message by sending an HTTP POST request to the value of the url field of the
 // slackMessage.
 func (s *slackMessage) sendMessage(ctx context.Context, message string) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.slackMessage.sendMessage")
+	ctx, span := tracer.Start(ctx, "slackMessage.sendMessage")
 	defer span.End()
 
 	if e := ctx.Err(); e != nil {

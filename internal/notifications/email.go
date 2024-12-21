@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	gomail "gopkg.in/gomail.v2"
 
@@ -52,7 +51,7 @@ func NewEmail(from string, to []string, subject, smtpHost string, smtpPort int) 
 
 // sendMessage sends message as an email based on the email object configuration
 func (e *email) sendMessage(ctx context.Context, message string) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.email.sendMessage")
+	ctx, span := tracer.Start(ctx, "email.sendMessage")
 	span.SetAttributes(
 		attribute.String("from", e.from),
 		attribute.StringSlice("to", e.to),

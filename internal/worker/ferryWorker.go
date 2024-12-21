@@ -29,7 +29,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -112,7 +111,7 @@ type ferryUIDResponse struct {
 func GetFERRYUIDData(ctx context.Context, username string, ferryHost string, ferryPort int,
 	requestRunnerWithAuthMethodFunc func(ctx context.Context, url, verb string) (*http.Response, error),
 	ferryDataChan chan<- db.FerryUIDDatum) (*UIDEntryFromFerry, error) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens.worker").Start(ctx, "worker.GetFERRYUIDData")
+	ctx, span := tracer.Start(ctx, "GetFERRYUIDData")
 	span.SetAttributes(
 		attribute.String("username", username),
 		attribute.String("ferryHost", ferryHost),

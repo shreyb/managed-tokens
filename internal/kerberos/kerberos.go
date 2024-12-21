@@ -24,18 +24,22 @@ import (
 	"regexp"
 	"text/template"
 
-	"github.com/fermitools/managed-tokens/internal/environment"
-	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/tracing"
+	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
-var kerberosExecutables = map[string]string{
-	"kinit": "",
-	"klist": "",
-}
+var (
+	kerberosExecutables = map[string]string{
+		"kinit": "",
+		"klist": "",
+	}
+	tracer = otel.Tracer("kerberos")
+)
 
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
@@ -46,7 +50,7 @@ func init() {
 
 // GetTicket uses the keytabPath and userPrincipal to obtain a kerberos ticket
 func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ environment.CommandEnvironment) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "kerberos.GetTicket")
+	ctx, span := tracer.Start(ctx, "GetTicket")
 	span.SetAttributes(
 		attribute.String("keytabPath", keytabPath),
 		attribute.String("userPrincipal", userPrincipal),
@@ -78,7 +82,7 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 
 // CheckPrincipal verifies that the kerberos ticket principal matches checkPrincipal
 func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environment.CommandEnvironment) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "kerberos.CheckPrincipal")
+	ctx, span := tracer.Start(ctx, "CheckPrincipal")
 	span.SetAttributes(attribute.String("checkPrincipal", checkPrincipal))
 	defer span.End()
 

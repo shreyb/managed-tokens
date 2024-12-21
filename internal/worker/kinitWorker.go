@@ -24,7 +24,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -82,7 +81,7 @@ func (v *kinitSuccess) GetSuccess() bool {
 // obtains kerberos tickets from the configured kerberos principals.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketsWorker")
+	ctx, span := tracer.Start(ctx, "GetKerberosTicketsWorker")
 	defer span.End()
 
 	defer func() {
@@ -104,7 +103,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
 		go func(sc *Config) {
 			defer wg.Done()
 
-			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketsWorker_anonFunc")
+			ctx, span := tracer.Start(ctx, "GetKerberosTicketsWorker_anonFunc")
 			span.SetAttributes(
 				attribute.String("account", sc.Account),
 				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
@@ -142,7 +141,7 @@ func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
 }
 
 func GetKerberosTicketandVerify(ctx context.Context, sc *Config) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.GetKerberosTicketandVerify")
+	ctx, span := tracer.Start(ctx, "GetKerberosTicketandVerify")
 	span.SetAttributes(
 		attribute.String("experiment", sc.Service.Experiment()),
 		attribute.String("role", sc.Service.Role()),

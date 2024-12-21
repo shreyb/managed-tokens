@@ -23,7 +23,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -98,7 +97,7 @@ func (v *vaultStorerSuccess) GetSuccess() bool {
 // stores a refresh token in the configured vault and obtains vault and bearer tokens.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenWorker")
+	ctx, span := tracer.Start(ctx, "StoreAndGetTokenWorker")
 	defer span.End()
 
 	// Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
@@ -136,7 +135,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 			errsToReport := make([]error, 0) // slice of errors we need to specifically highlight
 			for _, schedd := range sc.Schedds {
 				func(ctx context.Context, schedd string) {
-					ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenWorker_anonFunc")
+					ctx, span := tracer.Start(ctx, "StoreAndGetTokenWorker_anonFunc")
 					span.SetAttributes(attribute.String("service", sc.ServiceNameFromExperimentAndRole()))
 					span.SetAttributes(attribute.String("schedd", schedd))
 					defer span.End()
@@ -184,7 +183,7 @@ func StoreAndGetTokenWorker(ctx context.Context, chans channelGroup) {
 // operation to store a single service's vault token on the configured credds.  It will display all the stdout from the underlying executables
 // to screen.
 func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenInteractiveWorker")
+	ctx, span := tracer.Start(ctx, "StoreAndGetTokenInteractiveWorker")
 	defer span.End()
 
 	// Don't close the NotificationsChan or SuccessChan until we're done sending notifications and success statuses
@@ -221,7 +220,7 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 	// Store and get tokens for each schedd
 	for _, schedd := range sc.Schedds {
 		func(ctx context.Context, schedd string) {
-			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokenInteractiveWorker_anonFunc")
+			ctx, span := tracer.Start(ctx, "StoreAndGetTokenInteractiveWorker_anonFunc")
 			span.SetAttributes(attribute.String("service", sc.ServiceNameFromExperimentAndRole()))
 			span.SetAttributes(attribute.String("schedd", schedd))
 			defer span.End()
@@ -254,7 +253,7 @@ func StoreAndGetTokenInteractiveWorker(ctx context.Context, chans channelGroup) 
 // using HTCondor executables, and store the vault token in the condor_credd that resides on each schedd that is passed in with the schedds slice.
 // If there was an error with ANY of the schedds, StoreAndGetTokensForSchedds will return an error
 func StoreAndGetTokensForSchedd[T tokenStorer](ctx context.Context, environ *environment.CommandEnvironment, tokenRootPath string, ts T) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.StoreAndGetTokensForSchedd")
+	ctx, span := tracer.Start(ctx, "StoreAndGetTokensForSchedd")
 	span.SetAttributes(attribute.String("tokenRootPath", tokenRootPath))
 	span.SetAttributes(attribute.String("service", ts.GetServiceName()))
 	span.SetAttributes(attribute.String("credd", ts.GetCredd()))

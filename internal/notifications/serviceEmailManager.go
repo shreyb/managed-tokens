@@ -25,9 +25,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/tracing"
@@ -79,7 +79,7 @@ type ServiceEmailManager struct {
 // the NotificationMinimum via EmailManagerOptions passed in.  If a ManagedTokensDatabase is not passed in via an EmailManagerOption,
 // then the EmailManager will send all notifications
 func NewServiceEmailManager(ctx context.Context, wg *sync.WaitGroup, service string, e *email, opts ...ServiceEmailManagerOption) *ServiceEmailManager {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "NewServiceEmailManager")
+	ctx, span := tracer.Start(ctx, "NewServiceEmailManager", trace.WithSpanKind(trace.SpanKindProducer))
 	span.SetAttributes(attribute.KeyValue{Key: "service", Value: attribute.StringValue(service)})
 	defer span.End()
 
@@ -146,7 +146,7 @@ func backupServiceEmailManager(s1 *ServiceEmailManager) *ServiceEmailManager {
 // runServiceNotificationHandler concurrently handles the routing and counting of errors that result from a Notification being sent
 // on the ServiceEmailManager's ReceiveChan.
 func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.ServiceEmailManager.runServiceNotificationHandler")
+	ctx, span := tracer.Start(ctx, "ServiceEmailManager.runServiceNotificationHandler", trace.WithSpanKind(trace.SpanKindProducer))
 	span.SetAttributes(attribute.String("service", em.Service))
 	defer span.End()
 
@@ -160,7 +160,7 @@ func (em *ServiceEmailManager) runServiceNotificationHandler(ctx context.Context
 		defer em.wg.Done()
 		defer close(em.adminNotificationChan)
 
-		ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.ServiceEmailManager.runServiceNotificationHandler_anonFunc")
+		ctx, span := tracer.Start(ctx, "ServiceEmailManager.runServiceNotificationHandler_anonFunc", trace.WithSpanKind(trace.SpanKindConsumer))
 		defer span.End()
 
 		serviceErrorsTable := make(map[string]string, 0)
@@ -219,7 +219,7 @@ func addPushErrorNotificationToServiceErrorsTable(n Notification, serviceErrorsT
 
 // TODO - if this fails, we need to know somehow
 func sendServiceEmailIfErrors(ctx context.Context, serviceErrorsTable map[string]string, em *ServiceEmailManager) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.sendServiceEmailIfErrors")
+	ctx, span := tracer.Start(ctx, "sendServiceEmailIfErrors")
 	span.SetAttributes(attribute.String("service", em.Service))
 	defer span.End()
 

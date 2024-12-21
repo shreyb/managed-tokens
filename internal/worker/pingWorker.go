@@ -24,7 +24,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -82,7 +81,7 @@ func (p *pingSuccess) GetSuccess() bool {
 // concurrently pings all of the Config's destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PingAggregatorWorker")
+	ctx, span := tracer.Start(ctx, "PingAggregatorWorker")
 	defer span.End()
 
 	defer func() {
@@ -105,7 +104,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 		go func(sc *Config) {
 			defer wg.Done()
 
-			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PingAggregatorWorker_anonFunc")
+			ctx, span := tracer.Start(ctx, "PingAggregatorWorker_anonFunc")
 			span.SetAttributes(
 				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
 			)
@@ -176,7 +175,7 @@ func PingAggregatorWorker(ctx context.Context, chans channelGroup) {
 // pingAllNodes will launch goroutines, which each ping a ping.PingNoder from the nodes variadic.  It returns a channel,
 // on which it reports the pingNodeStatuses signifying success or error
 func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...nodePinger) <-chan pingNodeStatus {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pingAllNodes")
+	ctx, span := tracer.Start(ctx, "pingAllNodes")
 	defer span.End()
 
 	// Buffered Channel to report on
@@ -188,7 +187,7 @@ func pingAllNodes(ctx context.Context, extraPingOpts []string, nodes ...nodePing
 			defer wg.Done()
 
 			start := time.Now()
-			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pingAllNodes_anonFunc")
+			ctx, span := tracer.Start(ctx, "pingAllNodes_anonFunc")
 			span.SetAttributes(attribute.String("node", n.String()))
 			defer span.End()
 

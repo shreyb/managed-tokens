@@ -24,13 +24,15 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+var tracer = otel.Tracer("environment")
+
 // The _WrappedCommand funcs have a very similar API to the exec.CommandContext func, except that they also accept a
 // *CommandEnvironment, and use it to set the environment of the returned *exec.Cmd
 
 // KerberosEnvironmentWrappedCommand takes an EnvironmentMapper, extracts the kerberos-related environment variables, and
 // returns an *exec.Cmd that has those variables in its environment
 func KerberosEnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvironment, name string, arg ...string) *exec.Cmd {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "environment.KerberosEnvironmentWrappedCommand")
+	ctx, span := tracer.Start(ctx, "KerberosEnvironmentWrappedCommand")
 	span.SetAttributes(
 		attribute.String("command", name),
 		attribute.StringSlice("args", arg),
@@ -52,7 +54,7 @@ func KerberosEnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvi
 // EnvironmentWrappedCommand takes an EnvironmentMapper, extracts the environment variables, and returns an *exec.Cmd that has those
 // variables in its environment
 func EnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvironment, name string, arg ...string) *exec.Cmd {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "environment.EnvironmentWrappedCommand")
+	ctx, span := tracer.Start(ctx, "EnvironmentWrappedCommand")
 	span.SetAttributes(
 		attribute.String("command", name),
 		attribute.StringSlice("args", arg),

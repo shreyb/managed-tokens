@@ -28,6 +28,10 @@
 // to collect and send notifications pre-supposes that one of these notifications will be of the email type.
 package notifications
 
+import "go.opentelemetry.io/otel"
+
+var tracer = otel.Tracer("notifications")
+
 // Notification is an interface to various types of notifications sent by a caller to
 type Notification interface {
 	GetMessage() string

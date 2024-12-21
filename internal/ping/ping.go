@@ -37,6 +37,7 @@ var (
 	pingExecutables = map[string]string{
 		"ping": "",
 	}
+	tracer = otel.Tracer("ping")
 )
 
 // Node is an interactive node
@@ -47,7 +48,7 @@ func NewNode(s string) Node { return Node(s) }
 
 // PingNode pings a node (described by a Node object) with a 5-second timeout.  It returns an error
 func (n Node) Ping(ctx context.Context, extraPingOpts []string) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "ping.Node.PingNode")
+	ctx, span := tracer.Start(ctx, "Node.Ping")
 	span.SetAttributes(attribute.String("node", string(n)))
 	defer span.End()
 

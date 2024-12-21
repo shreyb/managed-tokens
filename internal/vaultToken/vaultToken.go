@@ -40,6 +40,8 @@ const (
 	LegacyServiceTokenPrefix = "s."
 )
 
+var tracer = otel.Tracer("vaultToken")
+
 // IsServiceToken validates that a token string follows the Hashicorp service token convention
 func IsServiceToken(token string) bool {
 	return strings.HasPrefix(token, ServiceTokenPrefix) ||

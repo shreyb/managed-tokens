@@ -28,7 +28,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
@@ -111,7 +110,7 @@ func (v *pushTokenSuccess) GetSuccess() bool {
 // pushes vault tokens to all the configured destination nodes.  It returns when chans.GetServiceConfigChan() is closed,
 // and it will in turn close the other chans in the passed in ChannelsForWorkers
 func PushTokensWorker(ctx context.Context, chans channelGroup) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker")
+	ctx, span := tracer.Start(ctx, "PushTokensWorker")
 	defer span.End()
 
 	defer func() {
@@ -143,7 +142,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 
 		go func(sc *Config) {
 			defer configWg.Done()
-			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc")
+			ctx, span := tracer.Start(ctx, "PushTokensWorker_anonFunc")
 			span.SetAttributes(
 				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
 			)
@@ -211,7 +210,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 					go func(destinationNode string) {
 						defer nodeWg.Done()
 
-						ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc_nodeAnonFunc")
+						ctx, span := tracer.Start(ctx, "PushTokensWorker_anonFunc_byNode")
 						span.SetAttributes(
 							attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
 							attribute.String("node", destinationNode),
@@ -234,7 +233,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 							go func(destinationFilename string) {
 								defer filenameWg.Done()
 
-								ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc")
+								ctx, span := tracer.Start(ctx, "PushTokensWorker_anonFunc_byNodeAndFilename")
 								span.SetAttributes(
 									attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
 									attribute.String("node", destinationNode),
@@ -250,7 +249,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 								var err error
 								func() {
 									for i := 0; i <= int(numRetries); i++ { // TODO in Go 1.23, we can change this to for i := range numRetries
-										trialContext, trialSpan := otel.GetTracerProvider().Tracer("managed-tokens").Start(pushContext, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc_trialAnonFunc")
+										trialContext, trialSpan := tracer.Start(pushContext, "PushTokensWorker_anonFunc_byNodeAndFilenameAndTry")
 										trialSpan.SetAttributes(
 											attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
 											attribute.String("node", destinationNode),
@@ -381,7 +380,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
 func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
 	startTime := time.Now()
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pushToNode")
+	ctx, span := tracer.Start(ctx, "pushToNode")
 	span.SetAttributes(
 		attribute.String("service", c.ServiceNameFromExperimentAndRole()),
 		attribute.String("node", node),

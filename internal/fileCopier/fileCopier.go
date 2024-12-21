@@ -37,10 +37,13 @@ import (
 
 var ErrDefaultSSHOpts = errors.New("could not merge ssh options. Using default")
 
-var fileCopierExecutables map[string]string = map[string]string{
-	"rsync": "",
-	"ssh":   "",
-}
+var (
+	fileCopierExecutables map[string]string = map[string]string{
+		"rsync": "",
+		"ssh":   "",
+	}
+	tracer = otel.Tracer("fileCopier")
+)
 
 // fileCopier is an interface for objects that manage the copying of a file
 type fileCopier interface {
@@ -74,7 +77,7 @@ func NewSSHFileCopier(source, account, node, destination string, fileCopierOptio
 
 // CopyToDestination wraps a FileCopier's copyToDestination method
 func CopyToDestination(ctx context.Context, f fileCopier) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.CopyToDestination")
+	ctx, span := tracer.Start(ctx, "CopyToDestination")
 	defer span.End()
 	return f.copyToDestination(ctx)
 }
@@ -92,7 +95,7 @@ type rsyncSetup struct {
 
 // copyToDestination copies a file from the path at source to a destination according to the rsyncSetup struct
 func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.rsyncSetup.copyToDestination")
+	ctx, span := tracer.Start(ctx, "rsyncSetup.copyToDestination")
 	span.SetAttributes(
 		attribute.String("type", "rsyncSetup"),
 		attribute.String("sourcePath", r.source),
@@ -113,7 +116,7 @@ func (r *rsyncSetup) copyToDestination(ctx context.Context) error {
 
 // rsyncFile runs rsync on a file at source, and syncs it with the destination account@node:dest
 func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsyncOptions string, environ environment.CommandEnvironment) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "fileCopier.rsyncFile")
+	ctx, span := tracer.Start(ctx, "rsyncFile")
 	span.SetAttributes(
 		attribute.String("source", source),
 		attribute.String("node", node),

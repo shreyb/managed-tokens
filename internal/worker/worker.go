@@ -16,8 +16,14 @@
 // package worker contains the various workers that can be used concurrently to perform the various operations supported by the managed tokens library
 package worker
 
-import "context"
+import (
+	"context"
+
+	"go.opentelemetry.io/otel"
+)
 
 // Worker is a function, controlled by a context, that performs some operations based on the values passed through the
 // channelGroup.GetServiceConfigChan() channel. The worker should report success or failure through the channelGroup.GetSuccessChan()
 type Worker func(context.Context, channelGroup)
+
+var tracer = otel.Tracer("worker")

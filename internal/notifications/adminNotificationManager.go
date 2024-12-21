@@ -22,7 +22,7 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/tracing"
@@ -61,7 +61,7 @@ type AdminNotificationManager struct {
 // via email (or otherwise).  Functional options should be specified to set the fields (see AdminNotificationManagerOption documentation).
 // This function should never be called more than once concurrently.
 func NewAdminNotificationManager(ctx context.Context, opts ...AdminNotificationManagerOption) *AdminNotificationManager {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.NewAdminNotificationManager")
+	ctx, span := tracer.Start(ctx, "NewAdminNotificationManager", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
 
 	funcLogger := log.WithField("caller", "notifications.NewAdminNotificationManager")
@@ -115,7 +115,7 @@ func backupAdminNotificationManager(a1 *AdminNotificationManager) *AdminNotifica
 }
 
 func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotificationManager) (bool, []string) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.determineIfShouldTrackErrorCounts")
+	ctx, span := tracer.Start(ctx, "determineIfShouldTrackErrorCounts")
 	defer span.End()
 
 	funcLogger := log.WithField("caller", "determineIfShouldTrackErrorCounts")
@@ -143,7 +143,7 @@ func determineIfShouldTrackErrorCounts(ctx context.Context, a *AdminNotification
 // every element of services.  If there is an issue doing so, this returns as its second element false, which
 // indicates to the caller not to use the returned map
 func getAllErrorCountsFromDatabase(ctx context.Context, services []string, database *db.ManagedTokensDatabase) (allServiceCounts map[string]*serviceErrorCounts, valid bool) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.getAllErrorCountsFromDatabase")
+	ctx, span := tracer.Start(ctx, "getAllErrorCountsFromDatabase")
 	defer span.End()
 
 	allServiceCounts = make(map[string]*serviceErrorCounts)
@@ -162,14 +162,14 @@ func getAllErrorCountsFromDatabase(ctx context.Context, services []string, datab
 // runAdminNotificationHandler handles the routing and counting of errors that result from a
 // Notification being sent on the AdminNotificationManager's ReceiveChan
 func (a *AdminNotificationManager) runAdminNotificationHandler(ctx context.Context) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.runAdminNotificationHandler")
+	ctx, span := tracer.Start(ctx, "runAdminNotificationHandler", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
 
 	funcLogger := log.WithField("caller", "runAdminNotificationHandler")
 
 	go func() {
 		defer close(a.adminErrorChan)
-		ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.runAdminNotificationHandler_anonFunc")
+		ctx, span := tracer.Start(ctx, "runAdminNotificationHandler_anonFunc", trace.WithSpanKind(trace.SpanKindConsumer))
 		defer span.End()
 		for {
 			select {
@@ -235,7 +235,7 @@ type SourceNotification struct {
 // registerNotificationSource will return a channel on which callers can send SourceNotifications.  It also spins up a listener goroutine that forwards
 // these Notifications to the AdminNotificationManager's ReceiveChan as long as the context is alive
 func (a *AdminNotificationManager) RegisterNotificationSource(ctx context.Context) chan<- SourceNotification {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.registerNotificationSource")
+	ctx, span := tracer.Start(ctx, "registerNotificationSource")
 	defer span.End()
 
 	c := make(chan SourceNotification)
@@ -262,7 +262,7 @@ func (a *AdminNotificationManager) RegisterNotificationSource(ctx context.Contex
 // the channel (allowing the program to exit without sending notifications).  In the case of multiple goroutines sending notifications to
 // the AdminNotificationManager, this method is how the ReceiveChan should be closed.
 func (a *AdminNotificationManager) RequestToCloseReceiveChan(ctx context.Context) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.RequestToCloseReceiveChan")
+	ctx, span := tracer.Start(ctx, "RequestToCloseReceiveChan")
 	defer span.End()
 
 	c := make(chan struct{})

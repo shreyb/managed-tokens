@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	_ "github.com/mattn/go-sqlite3"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/fermitools/managed-tokens/internal/contextStore"
@@ -86,7 +85,7 @@ func (f *ferryUidDatum) unpackDataRow(resultRow []any) (dataRowUnpacker, error) 
 // If the username in a FERRYUIDDatum object already exists in the database, this method will overwrite the database record
 // with the information in the FERRYUIDDatum
 func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context, ferryData []FerryUIDDatum) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.InsertUidsIntoTableFromFERRY")
+	ctx, span := tracer.Start(ctx, "ManagedTokensDatabase.InsertUidsIntoTableFromFERRY")
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
@@ -105,7 +104,7 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 // ConfirmUIDsInTable returns all the user to UID mapping information in the ManagedTokensDatabase in the form of
 // a FERRYUIDDatum slice
 func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]FerryUIDDatum, error) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.ConfirmUIDsInTable")
+	ctx, span := tracer.Start(ctx, "ManagedTokensDatabase.ConfirmUIDsInTable")
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
@@ -139,7 +138,7 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 
 // GetUIDByUsername queries the ManagedTokensDatabase for a UID, given a username
 func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username string) (int, error) {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "db.GetUIDByUsername")
+	ctx, span := tracer.Start(ctx, "ManagedTokensDatabase.GetUIDByUsername")
 	span.SetAttributes(
 		attribute.String("dbLocation", m.filename),
 		attribute.String("username", username),

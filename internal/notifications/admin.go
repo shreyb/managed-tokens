@@ -26,7 +26,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/sync/errgroup"
@@ -76,7 +75,7 @@ type packageErrors struct {
 // SendAdminNotifications sends admin messages via email and Slack that have been collected in adminErrors. It expects a valid template file
 // configured at adminTemplatePath
 func SendAdminNotifications(ctx context.Context, operation string, isTest bool, sendMessagers ...SendMessager) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.SendAdminNotifications")
+	ctx, span := tracer.Start(ctx, "SendAdminNotifications")
 	span.SetAttributes(attribute.String("operation", operation))
 	defer span.End()
 
@@ -154,7 +153,7 @@ func SendAdminNotifications(ctx context.Context, operation string, isTest bool, 
 }
 
 func sendSlackNoErrorTestMessages(ctx context.Context, sendMessagers []SendMessager) error {
-	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "notifications.sendSlackNoErrorTestMessages")
+	ctx, span := tracer.Start(ctx, "sendSlackNoErrorTestMessages")
 	defer span.End()
 
 	funcLogger := log.WithField("caller", "sendSlackNoErrorTestMessages")
