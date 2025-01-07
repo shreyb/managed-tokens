@@ -40,6 +40,7 @@ import (
 	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
@@ -49,18 +50,19 @@ import (
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
 
+const devEnvironmentLabelDefault string = "production"
+
 var (
 	currentExecutable       string
 	buildTimestamp          string // Should be injected at build time with something like go build -ldflags="-X main.buildTimeStamp=$BUILDTIMESTAMP"
 	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger               *log.Entry
 	notificationsDisabledBy disableNotificationsOption = DISABLED_BY_CONFIGURATION
+	debugEnvSetByFlag       bool                       // Set to true if we set MANAGED_TOKENS_DEBUG via flag in resolveDebugAndVerbose()
 )
 
 // devEnvironmentLabel can be set via config or environment variable MANAGED_TOKENS_DEV_ENVIRONMENT_LABEL
 var devEnvironmentLabel string
-
-const devEnvironmentLabelDefault string = "production"
 
 // Supported timeouts and their default values
 var timeouts = map[timeoutKey]time.Duration{
@@ -130,6 +132,11 @@ func main() {
 		exeLogger.Fatal("Error running operations to push vault tokens.  Exiting")
 	}
 	exeLogger.Debug("Finished run")
+
+	// If we changed the debug environment variable, put it back
+	if debugEnvSetByFlag {
+		os.Unsetenv("MANAGED_TOKENS_DEBUG")
+	}
 }
 
 // Initial setup.  Read flags, find config file
@@ -628,10 +635,13 @@ func initFlags() {
 	pflag.StringP("service", "s", "", "Service to obtain and push vault tokens for.  Must be of the form experiment_role, e.g. dune_production")
 	pflag.BoolP("test", "t", false, "Test mode.  Obtain vault tokens but don't push them to nodes")
 	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.BoolP("debug", "d", false, "Turn on debug mode.  This implies -v/--verbose.")
 	pflag.Bool("version", false, "Version of Managed Tokens library")
 
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
+
+	resolveDebugAndVerboseFromFlags()
 
 	// Aliases
 	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
@@ -682,24 +692,31 @@ func checkRunOnboardingFlags() error {
 // in-code overrides.  This only sets the initial state of the given viper keys.
 func initEnvironment() {
 	viper.BindEnv("collectorHost", environment.CondorCollectorHost.EnvVarKey())
+	viper.BindEnv("debug", "MANAGED_TOKENS_DEBUG")
 }
 
 // Set up logs
 func initLogs() {
-	// TODO - Add a DEBUG env var so that we only turn on debugging when needed.
-	log.SetLevel(log.DebugLevel)
-	debugLogConfigLookup := "logs.token-push.debugfile"
-	logConfigLookup := "logs.token-push.logfile"
-	// Debug log
-	log.AddHook(lfshook.NewHook(lfshook.PathMap{
-		log.DebugLevel: viper.GetString(debugLogConfigLookup),
-		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
-		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
-		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
-		log.FatalLevel: viper.GetString(debugLogConfigLookup),
-		log.PanicLevel: viper.GetString(debugLogConfigLookup),
-	}, &log.TextFormatter{FullTimestamp: true}))
+	if viper.GetBool("debug") {
+		log.SetLevel(log.DebugLevel)
+		debugLogConfigLookup := "logs.token-push.debugfile"
 
+		// Debug log
+		log.AddHook(lfshook.NewHook(lfshook.PathMap{
+			log.DebugLevel: viper.GetString(debugLogConfigLookup),
+			log.InfoLevel:  viper.GetString(debugLogConfigLookup),
+			log.WarnLevel:  viper.GetString(debugLogConfigLookup),
+			log.ErrorLevel: viper.GetString(debugLogConfigLookup),
+			log.FatalLevel: viper.GetString(debugLogConfigLookup),
+			log.PanicLevel: viper.GetString(debugLogConfigLookup),
+		}, &log.TextFormatter{FullTimestamp: true}))
+
+		// Set package-level debug loggers
+		kerberos.SetDebugLogger(log.StandardLogger())
+
+	}
+
+	logConfigLookup := "logs.token-push.logfile"
 	// Info log file
 	log.AddHook(lfshook.NewHook(lfshook.PathMap{
 		log.InfoLevel:  viper.GetString(logConfigLookup),
@@ -944,4 +961,16 @@ func getPrometheusJobName() string {
 		return jobName
 	}
 	return fmt.Sprintf("%s_%s", jobName, devEnvironmentLabel)
+}
+
+func resolveDebugAndVerboseFromFlags() {
+	if viper.GetBool("debug") {
+		viper.Set("verbose", true)
+		// Only set the environment if MANAGED_TOKENS_DEBUG is UNSET.  If it is set to
+		// "" or anything, we don't want to override it
+		if val, ok := os.LookupEnv("MANAGED_TOKENS_DEBUG"); val == "" && !ok {
+			os.Setenv("MANAGED_TOKENS_DEBUG", "1")
+			debugEnvSetByFlag = true
+		}
+	}
 }

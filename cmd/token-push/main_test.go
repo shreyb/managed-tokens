@@ -484,6 +484,98 @@ func TestGetPrometheusJobName(t *testing.T) {
 	}
 }
 
+func TestResolveDebugAndVerbose(t *testing.T) {
+	type testCase struct {
+		description         string
+		debugSetting        bool
+		envVarSet           bool
+		envVarSetting       string
+		expectedVerbose     bool
+		expectedEnvVarSet   bool
+		expectedEnvVarValue string
+	}
+
+	testCases := []testCase{
+		{
+			description:         "--debug flag not set, no env var",
+			debugSetting:        false,
+			envVarSet:           false,
+			envVarSetting:       "",
+			expectedVerbose:     false,
+			expectedEnvVarSet:   false,
+			expectedEnvVarValue: "",
+		},
+		{
+			description:         "--debug flag set, no env var",
+			debugSetting:        true,
+			envVarSet:           false,
+			envVarSetting:       "",
+			expectedVerbose:     true,
+			expectedEnvVarSet:   true,
+			expectedEnvVarValue: "1",
+		},
+		{
+			description:         "--debug flag not set, env var set",
+			debugSetting:        false,
+			envVarSet:           true,
+			envVarSetting:       "something",
+			expectedVerbose:     false,
+			expectedEnvVarSet:   true,
+			expectedEnvVarValue: "something",
+		},
+		{
+			description:         "--debug flag set, env var set",
+			debugSetting:        true,
+			envVarSet:           true,
+			envVarSetting:       "something",
+			expectedVerbose:     true,
+			expectedEnvVarSet:   true,
+			expectedEnvVarValue: "something",
+		},
+		{
+			description:         "--debug flag set, env var set to empty string",
+			debugSetting:        true,
+			envVarSet:           true,
+			envVarSetting:       "",
+			expectedVerbose:     true,
+			expectedEnvVarSet:   true,
+			expectedEnvVarValue: "",
+		},
+		{
+			description:         "--debug flag not set, env var set to empty string",
+			debugSetting:        false,
+			envVarSet:           true,
+			envVarSetting:       "",
+			expectedVerbose:     false,
+			expectedEnvVarSet:   true,
+			expectedEnvVarValue: "",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(
+			test.description,
+			func(t *testing.T) {
+				reset()
+				defer reset()
+				viper.Set("debug", test.debugSetting)
+				if test.envVarSet {
+					oldSetting := os.Getenv("MANAGED_TOKENS_DEBUG")
+					t.Setenv("MANAGED_TOKENS_DEBUG", test.envVarSetting)
+					t.Cleanup(func() { os.Setenv("MANAGED_TOKENS_DEBUG", oldSetting) })
+				}
+				resolveDebugAndVerboseFromFlags()
+
+				assert.Equal(t, test.expectedVerbose, viper.GetBool("verbose"))
+
+				val, ok := os.LookupEnv("MANAGED_TOKENS_DEBUG")
+				assert.Equal(t, test.expectedEnvVarSet, ok)
+				assert.Equal(t, test.expectedEnvVarValue, val)
+			},
+		)
+	}
+}
+
 func reset() {
 	viper.Reset()
 	devEnvironmentLabel = ""
