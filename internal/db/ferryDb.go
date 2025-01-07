@@ -91,6 +91,9 @@ func (m *ManagedTokensDatabase) InsertUidsIntoTableFromFERRY(ctx context.Context
 
 	ferryUIDDatumSlice := ferryUIDDatumInterfaceSlicetoInsertValuesSlice(ferryData)
 
+	if debugEnabled {
+		debugLogger.Debug("Inserting uids into database")
+	}
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoUIDTableStatement, ferryUIDDatumSlice); err != nil {
 		err = fmt.Errorf("could not update uids table in database: %w", err)
 		tracing.LogErrorWithTrace(span, err)
@@ -109,6 +112,9 @@ func (m *ManagedTokensDatabase) ConfirmUIDsInTable(ctx context.Context) ([]Ferry
 	defer span.End()
 
 	// dataConverted := make([]FerryUIDDatum, 0)
+	if debugEnabled {
+		debugLogger.Debug("Getting usernames and uids from database")
+	}
 	data, err := getValuesTransactionRunner(ctx, m.db, confirmUIDsInTableStatement)
 	if err != nil {
 		err = fmt.Errorf("could not get usernames and uids from database: %w", err)
@@ -162,6 +168,9 @@ func (m *ManagedTokensDatabase) GetUIDByUsername(ctx context.Context, username s
 	defer stmt.Close()
 
 	var uid int
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting UID from database. Query %s, Username: %s", getUIDbyUsernameStatement, username))
+	}
 	err = stmt.QueryRowContext(dbContext, username).Scan(&uid)
 	if err != nil {
 		err = fmt.Errorf("could not execute query to get UID: %w", err)

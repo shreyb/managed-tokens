@@ -123,6 +123,9 @@ func (m *ManagedTokensDatabase) GetAllServices(ctx context.Context) ([]string, e
 	ctx, span := tracer.Start(ctx, "ManagedTokensDatabase.GetAllServices")
 	defer span.End()
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting all services from database: %s", getAllServicesFromTableStatement))
+	}
 	dataConverted, err := getNamedDimensionStringValues(ctx, m.db, getAllServicesFromTableStatement)
 	if err != nil {
 		err := fmt.Errorf("could not get service names from database: %w", err)
@@ -143,6 +146,9 @@ func (m *ManagedTokensDatabase) GetAllNodes(ctx context.Context) ([]string, erro
 	ctx, span := tracer.Start(ctx, "ManagedTokensDatabase.GetAllNodes")
 	defer span.End()
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting all nodes from database: %s", getAllNodesFromTableStatement))
+	}
 	dataConverted, err := getNamedDimensionStringValues(ctx, m.db, getAllNodesFromTableStatement)
 	if err != nil {
 		err := fmt.Errorf("could not get node names from database: %w", err)
@@ -200,6 +206,9 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfo(ctx context.Context) ([]Setup
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting setup errors information from database: %s", getSetupErrorsCountsStatement))
+	}
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsStatement)
 	if err != nil {
 		err = fmt.Errorf("could not get setup errors information from database: %w", err)
@@ -235,6 +244,9 @@ func (m *ManagedTokensDatabase) GetSetupErrorsInfoByService(ctx context.Context,
 	span.SetAttributes(attribute.String("service", service), attribute.String("dbLocation", m.filename))
 	defer span.End()
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting setup errors information from database for service %s", service))
+	}
 	data, err := getValuesTransactionRunner(ctx, m.db, getSetupErrorsCountsByServiceStatement, service)
 	if err != nil {
 		err = fmt.Errorf("could not get setup errors information from database: %w", err)
@@ -272,6 +284,9 @@ func (m *ManagedTokensDatabase) UpdateSetupErrorsTable(ctx context.Context, setu
 
 	setupErrorDatumSlice := setupErrorCountInterfaceSliceToInsertValuesSlice(setupErrorsByService)
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Updating setup errors in database: %s, %v", insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice))
+	}
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdateSetupErrorsStatement, setupErrorDatumSlice); err != nil {
 		err = fmt.Errorf("could not update setup errors in database: %w", err)
 		tracing.LogErrorWithTrace(span, err)
@@ -340,6 +355,9 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfo(ctx context.Context) ([]PushEr
 	span.SetAttributes(attribute.String("dbLocation", m.filename))
 	defer span.End()
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting push errors information from database: %s", getPushErrorsCountsStatement))
+	}
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsStatement)
 	if err != nil {
 		err = fmt.Errorf("could not get push errors information from database: %w", err)
@@ -377,6 +395,9 @@ func (m *ManagedTokensDatabase) GetPushErrorsInfoByService(ctx context.Context, 
 	)
 	defer span.End()
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Getting push errors information from database for service %s", service))
+	}
 	data, err := getValuesTransactionRunner(ctx, m.db, getPushErrorsCountsByServiceStatement, service)
 	if err != nil {
 		err = fmt.Errorf("could not get push errors information from database: %w", err)
@@ -413,6 +434,9 @@ func (m *ManagedTokensDatabase) UpdatePushErrorsTable(ctx context.Context, pushE
 
 	pushErrorDatumSlice := pushErrorCountInterfaceSliceToInsertValuesSlice(pushErrorsByServiceAndNode)
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Updating push errors in database: %s, %v", insertOrUpdatePushErrorsStatement, pushErrorDatumSlice))
+	}
 	if err := insertValuesTransactionRunner(ctx, m.db, insertOrUpdatePushErrorsStatement, pushErrorDatumSlice); err != nil {
 		err = fmt.Errorf("could not update push errors in database: %w", err)
 		tracing.LogErrorWithTrace(span, err)
@@ -459,6 +483,9 @@ func (m *ManagedTokensDatabase) UpdateServices(ctx context.Context, serviceNames
 		serviceNames,
 	)
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Updating services in database: %s, %v", insertIntoServicesTableStatement, serviceNames))
+	}
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoServicesTableStatement, serviceDatumSlice); err != nil {
 		err = fmt.Errorf("could not update services in database: %w", err)
 		tracing.LogErrorWithTrace(span, err)
@@ -490,6 +517,9 @@ func (m *ManagedTokensDatabase) UpdateNodes(ctx context.Context, nodes []string)
 		nodes,
 	)
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Updating nodes in database: %s, %v", insertIntoNodesTableStatement, nodes))
+	}
 	if err := insertValuesTransactionRunner(ctx, m.db, insertIntoNodesTableStatement, nodesDatumSlice); err != nil {
 		err = fmt.Errorf("could not update nodes in database: %w", err)
 		tracing.LogErrorWithTrace(span, err)

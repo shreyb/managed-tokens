@@ -712,6 +712,7 @@ func initLogs() {
 		}, &log.TextFormatter{FullTimestamp: true}))
 
 		// Set package-level debug loggers
+		db.SetDebugLogger(log.StandardLogger())
 		kerberos.SetDebugLogger(log.StandardLogger())
 
 	}

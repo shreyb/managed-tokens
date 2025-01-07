@@ -109,7 +109,11 @@ func (m *ManagedTokensDatabase) open() error {
 }
 
 func (m *ManagedTokensDatabase) addForeignKeyConstraintsToDB() error {
-	if _, err := m.db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+	pragmaStatement := "PRAGMA foreign_keys = ON;"
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Adding foreign key constraints to database: %s", pragmaStatement))
+	}
+	if _, err := m.db.Exec(pragmaStatement); err != nil {
 		return fmt.Errorf("could not enable foreign key constraints: %w", err)
 	}
 	return nil
@@ -132,6 +136,9 @@ func (m *ManagedTokensDatabase) check() error {
 	if err := m.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		return &databaseCheckError{"could not get user_version from ManagedTokensDatabase", err}
 	}
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Supported schema version: %d, user version: %d", schemaVersion, userVersion))
+	}
 	if userVersion < schemaVersion {
 		if err := m.migrate(userVersion, schemaVersion); err != nil {
 			return &databaseCheckError{"Error migrating database schema versions", err}
@@ -144,7 +151,11 @@ func (m *ManagedTokensDatabase) check() error {
 
 func (m *ManagedTokensDatabase) checkApplicationId() error {
 	var dbApplicationId int
-	if err := m.db.QueryRow("PRAGMA application_id").Scan(&dbApplicationId); err != nil {
+	appIDStatement := "PRAGMA application_id"
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Checking application_id of database: %s", appIDStatement))
+	}
+	if err := m.db.QueryRow(appIDStatement).Scan(&dbApplicationId); err != nil {
 		return &databaseCheckError{"Could not get application_id from ManagedTokensDatabase", err}
 	}
 	// Make sure our application IDs match
@@ -183,6 +194,9 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 	defer dbCancel()
 
 	// Query the DB
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Querying database: %s, %v", getStatementString, args))
+	}
 	rows, err := db.QueryContext(dbContext, getStatementString, args...)
 	if err != nil {
 		err = fmt.Errorf("could not query the database: %w", err)
@@ -211,6 +225,9 @@ func getValuesTransactionRunner(ctx context.Context, db *sql.DB, getStatementStr
 			err = fmt.Errorf("could not scan row from database results: %w", err)
 			tracing.LogErrorWithTrace(span, err)
 			return data, err
+		}
+		if debugEnabled {
+			debugLogger.Debug(fmt.Sprintf("Got row from database: %v", resultRow))
 		}
 		data = append(data, resultRow)
 	}
@@ -302,6 +319,9 @@ func insertValuesTransactionRunner(ctx context.Context, db *sql.DB, insertStatem
 			argSlice = append(argSlice, datumValueSlice...)
 		}
 
+		if debugEnabled {
+			debugLogger.Debug(fmt.Sprintf("Inserting data into database: %s, %v", insertStatementString, datumValues))
+		}
 		if _, err := insertStatement.ExecContext(dbContext, datumValues...); err != nil {
 			err = fmt.Errorf("could not insert data into database: %w", err)
 			span.SetAttributes(attribute.StringSlice("args", argSlice))
