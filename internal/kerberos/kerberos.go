@@ -21,6 +21,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"regexp"
 	"text/template"
 
@@ -38,13 +40,19 @@ var (
 		"kinit": "",
 		"klist": "",
 	}
-	tracer = otel.Tracer("kerberos")
+	tracer                   = otel.Tracer("kerberos")
+	debugEnabled             = false
+	debugLogger  DebugLogger = &stdLogger{slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 )
 
 func init() {
 	// Get Kerberos templates into the kerberosExecutables map
 	if err := utils.CheckForExecutables(kerberosExecutables); err != nil {
 		panic(fmt.Errorf("could not find kerberos executables: %w", err))
+	}
+
+	if _, ok := os.LookupEnv("MANAGED_TOKENS_DEBUG"); ok {
+		debugEnabled = true
 	}
 }
 
@@ -67,6 +75,11 @@ func GetTicket(ctx context.Context, keytabPath, userPrincipal string, environ en
 
 	// Run kinit to get kerberos ticket from keytab
 	createKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["kinit"], args...)
+
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Creating new kerberos ticket. Command: %s", createKerberosTicket.String()))
+	}
+
 	span.AddEvent(
 		"creating new kerberos ticket with keytabs",
 		trace.WithAttributes(attribute.String("command", createKerberosTicket.String())),
@@ -87,6 +100,11 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 	defer span.End()
 
 	checkForKerberosTicket := environment.KerberosEnvironmentWrappedCommand(ctx, &environ, kerberosExecutables["klist"])
+
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Checking kerberos principal. Command: %s", checkForKerberosTicket.String()))
+	}
+
 	span.AddEvent("finding kerberos ticket with klist")
 	stdoutStderr, err := checkForKerberosTicket.CombinedOutput()
 	if err != nil {
@@ -103,6 +121,11 @@ func CheckPrincipal(ctx context.Context, checkPrincipal string, environ environm
 		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
+
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Found kerberos principal: %s", principal))
+	}
+
 	span.AddEvent("found principal", trace.WithAttributes(attribute.String("principal", principal)))
 
 	if principal != checkPrincipal {
@@ -149,4 +172,31 @@ func getKerberosPrincipalFromKerbListOutput(output []byte) (string, error) {
 	}
 	principal := string(matches[1])
 	return principal, nil
+}
+
+// DebugLogger is an interface for logging debug messages
+type DebugLogger interface {
+	Debug(...any)
+}
+
+// SetDebugLogger sets the debug logger for the kerberos package.  The debug logger must
+// satisfy the DebugLogger interface
+func SetDebugLogger(logger DebugLogger) {
+	debugEnabled = true
+	debugLogger = logger
+}
+
+type stdLogger struct {
+	l *slog.Logger
+}
+
+func (s *stdLogger) Debug(args ...any) {
+	if len(args) == 0 {
+		return
+	}
+	val, ok := args[0].(string)
+	if !ok {
+		return
+	}
+	s.l.Debug(val, args[1:]...)
 }
