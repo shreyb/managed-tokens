@@ -49,6 +49,12 @@ var (
 	debugLogger  DebugLogger = &stdLogger{slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 )
 
+func init() {
+	if _, ok := os.LookupEnv("MANAGED_TOKENS_DEBUG"); ok {
+		debugEnabled = true
+	}
+}
+
 // fileCopier is an interface for objects that manage the copying of a file
 type fileCopier interface {
 	copyToDestination(ctx context.Context) error
