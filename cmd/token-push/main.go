@@ -713,6 +713,7 @@ func initLogs() {
 
 		// Set package-level debug loggers
 		db.SetDebugLogger(log.StandardLogger())
+		environment.SetDebugLogger(log.StandardLogger())
 		kerberos.SetDebugLogger(log.StandardLogger())
 
 	}

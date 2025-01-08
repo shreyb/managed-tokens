@@ -17,6 +17,7 @@ package environment
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 
@@ -48,6 +49,10 @@ func KerberosEnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvi
 		environ.GetSetting(Krb5ccname),
 	)
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Prepared command in kerberos environment. Command: %s, Injected Environment: %v", cmd, environ))
+	}
+
 	return cmd
 }
 
@@ -72,6 +77,10 @@ func EnvironmentWrappedCommand(ctx context.Context, environ *CommandEnvironment,
 	// Now set the supported CommandEnvironment keys in the cmd's environment to the values in the given CommandEnvironment
 	for _, field := range getAllSupportedCommandEnvironmentFields() {
 		cmd.Env = append(cmd.Env, environ.GetSetting(field))
+	}
+
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Prepared command with environment. Command: %s, Injected Environment: %v", cmd, environ))
 	}
 
 	return cmd
