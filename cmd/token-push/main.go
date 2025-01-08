@@ -40,6 +40,7 @@ import (
 	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
+	"github.com/fermitools/managed-tokens/internal/fileCopier"
 	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
@@ -714,6 +715,7 @@ func initLogs() {
 		// Set package-level debug loggers
 		db.SetDebugLogger(log.StandardLogger())
 		environment.SetDebugLogger(log.StandardLogger())
+		fileCopier.SetDebugLogger(log.StandardLogger())
 		kerberos.SetDebugLogger(log.StandardLogger())
 
 	}

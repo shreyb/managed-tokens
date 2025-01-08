@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 
 	"text/template"
@@ -42,7 +44,9 @@ var (
 		"rsync": "",
 		"ssh":   "",
 	}
-	tracer = otel.Tracer("fileCopier")
+	tracer                   = otel.Tracer("fileCopier")
+	debugEnabled             = false
+	debugLogger  DebugLogger = &stdLogger{slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 )
 
 // fileCopier is an interface for objects that manage the copying of a file
@@ -171,6 +175,11 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 	span.AddEvent("running rsync command",
 		trace.WithAttributes(attribute.String("command", cmd.String())),
 	)
+
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Running rsync command: %s with environment: %s", cmd.String(), environ.String()))
+	}
+
 	if err := cmd.Run(); err != nil {
 		err = fmt.Errorf("could not rsync file: %w", err)
 		tracing.LogErrorWithTrace(
@@ -190,6 +199,9 @@ func rsyncFile(ctx context.Context, source, node, account, dest, sshOptions, rsy
 // All options passed here will be returned with the "-o" prepended, for use in ssh commands, so the only options that
 // should be passed are those supported by the ssh utility
 func mergeSshOpts(extraArgs []string) (mergedOpts []string, defaultArgsUsed bool) {
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Merging ssh options. Input: %v", extraArgs))
+	}
 	defaultArgs := []string{"-o", "ConnectTimeout=30", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=1"}
 	fs := pflag.NewFlagSet("ssh args", pflag.ContinueOnError)
 	fs.ParseErrorsWhitelist = pflag.ParseErrorsWhitelist{UnknownFlags: true}
@@ -208,6 +220,9 @@ func mergeSshOpts(extraArgs []string) (mergedOpts []string, defaultArgsUsed bool
 	}
 
 	mergedArgs := correctMergedSshOpts(_mergedArgs)
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Merged ssh options: %v", mergedArgs))
+	}
 	return mergedArgs, false
 }
 
@@ -257,4 +272,31 @@ func correctMergedSshOpts(args []string) []string {
 		}
 	}
 	return correctedArgs
+}
+
+// DebugLogger is an interface for logging debug messages
+type DebugLogger interface {
+	Debug(...any)
+}
+
+// SetDebugLogger sets the debug logger for the kerberos package.  The debug logger must
+// satisfy the DebugLogger interface
+func SetDebugLogger(logger DebugLogger) {
+	debugEnabled = true
+	debugLogger = logger
+}
+
+type stdLogger struct {
+	l *slog.Logger
+}
+
+func (s *stdLogger) Debug(args ...any) {
+	if len(args) == 0 {
+		return
+	}
+	val, ok := args[0].(string)
+	if !ok {
+		return
+	}
+	s.l.Debug(val, args[1:]...)
 }
