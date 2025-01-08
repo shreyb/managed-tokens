@@ -18,6 +18,7 @@
 package environment
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -185,7 +186,12 @@ func (c *CommandEnvironment) Copy() *CommandEnvironment {
 func (c *CommandEnvironment) String() string {
 	envSlice := make([]string, 0)
 	for _, field := range getAllSupportedCommandEnvironmentFields() {
-		envSlice = append(envSlice, c.GetSetting(field))
+		setting := c.GetSetting(field)
+		// These two fields might have spaces in them, so we need to quote them properly
+		if field == HtgettokenOpts || field == CondorSecCredentialGettokenOpts {
+			setting = fixEnvString(setting)
+		}
+		envSlice = append(envSlice, setting)
 	}
 	return strings.Join(envSlice, " ")
 }
@@ -205,4 +211,16 @@ func (c *CommandEnvironment) mapSupportedFieldToStructField(s supportedCommandEn
 	default:
 		return "unsupported CommandEnvironment field"
 	}
+}
+
+// For environment variable setting "ENV=value", return "ENV=\"value\""
+func fixEnvString(s string) string {
+	stringParts := strings.SplitN(s, "=", 2)
+	if len(stringParts) != 2 {
+		return s
+	}
+
+	envName := stringParts[0]
+	value := strings.Replace(stringParts[1], "\"", "\\\"", -1) // Double-escape any escaped quotes in the value
+	return fmt.Sprintf("%s=\"%s\"", envName, value)
 }

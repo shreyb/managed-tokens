@@ -191,3 +191,48 @@ func TestGetValue(t *testing.T) {
 		t.Errorf("Got wrong value from CommandEnvironment.  Expected %s, got %s", expected, result)
 	}
 }
+
+func TestFixEnvString(t *testing.T) {
+	type testCase struct {
+		description string
+		input       string
+		expected    string
+	}
+
+	testCases := []testCase{
+		{
+			"Simple case",
+			"ENV=value",
+			"ENV=\"value\"",
+		},
+		{
+			"ENV value has spaces",
+			"ENV=value -flag value2",
+			"ENV=\"value -flag value2\"",
+		},
+		{
+			"ENV value is malformed",
+			"malformed",
+			"malformed",
+		},
+		{
+			"ENV value has equal sign",
+			"ENV=value -flag=value2",
+			"ENV=\"value -flag=value2\"",
+		},
+		{
+			"ENV value has escaped quotes",
+			"ENV=value -flag \"flag value\"",
+			"ENV=\"value -flag \\\"flag value\\\"\"",
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.description, func(t *testing.T) {
+			result := fixEnvString(test.input)
+			if test.expected != result {
+				t.Errorf("Got wrong value from fixEnvString.  Expected %s, got %s", test.expected, result)
+			}
+		})
+	}
+}
