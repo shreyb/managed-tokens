@@ -44,6 +44,7 @@ import (
 	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
+	"github.com/fermitools/managed-tokens/internal/ping"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/tracing"
 	"github.com/fermitools/managed-tokens/internal/utils"
@@ -717,6 +718,7 @@ func initLogs() {
 		environment.SetDebugLogger(log.StandardLogger())
 		fileCopier.SetDebugLogger(log.StandardLogger())
 		kerberos.SetDebugLogger(log.StandardLogger())
+		ping.SetDebugLogger(log.StandardLogger())
 
 	}
 

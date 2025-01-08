@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"text/template"
@@ -37,8 +39,19 @@ var (
 	pingExecutables = map[string]string{
 		"ping": "",
 	}
-	tracer = otel.Tracer("ping")
+	tracer                   = otel.Tracer("ping")
+	debugEnabled             = false
+	debugLogger  DebugLogger = &stdLogger{slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 )
+
+func init() {
+	if err := utils.CheckForExecutables(pingExecutables); err != nil {
+		fmt.Println("One or more required executables were not found in $PATH.  Will still attempt to run, but this will probably fail")
+	}
+	if _, ok := os.LookupEnv("MANAGED_TOKENS_DEBUG"); ok {
+		debugEnabled = true
+	}
+}
 
 // Node is an interactive node
 type Node string
@@ -60,7 +73,9 @@ func (n Node) Ping(ctx context.Context, extraPingOpts []string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, pingExecutables["ping"], args...)
-	span.AddEvent("Running command to ping node: " + cmd.String()) // TODO This should only be done if we're in verbose mode
+	if debugEnabled {
+		debugLogger.Debug("Running command to ping node. Command: " + cmd.String())
+	}
 	if stdoutStderr, err := cmd.CombinedOutput(); err != nil {
 		if err2 := ctx.Err(); err2 != nil {
 			err2 = fmt.Errorf("could not ping node: %w", err2)
@@ -81,12 +96,6 @@ func (n Node) Ping(ctx context.Context, extraPingOpts []string) error {
 
 // String converts a Node object into a string
 func (n Node) String() string { return string(n) }
-
-func init() {
-	if err := utils.CheckForExecutables(pingExecutables); err != nil {
-		fmt.Println("One or more required executables were not found in $PATH.  Will still attempt to run, but this will probably fail")
-	}
-}
 
 func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string, error) {
 	mergedPingOpts, err := mergePingOpts(extraPingOpts)
@@ -120,9 +129,47 @@ func parseAndExecutePingTemplate(node string, extraPingOpts []string) ([]string,
 func mergePingOpts(extraArgs []string) ([]string, error) {
 	fs := pflag.NewFlagSet("ping flags", pflag.ContinueOnError)
 
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Merging ping options. Input args: %v", extraArgs))
+	}
+
 	// Load our default set.  Note that I'm using these names as a workaround as pflag doesn't provide support for shorthand flags only, which is a bummer
 	fs.StringS("pingFlagW", "W", "5", "")
 	fs.StringS("pingFlagc", "c", "1", "")
 
-	return utils.MergeCmdArgs(fs, extraArgs)
+	mergedOpts, err := utils.MergeCmdArgs(fs, extraArgs)
+	if err != nil {
+		return nil, fmt.Errorf("could not merge ping options: %w", err)
+	}
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Merged ping options: %v", mergedOpts))
+	}
+	return mergedOpts, nil
+}
+
+// DebugLogger is an interface for logging debug messages
+type DebugLogger interface {
+	Debug(...any)
+}
+
+// SetDebugLogger sets the debug logger for the kerberos package.  The debug logger must
+// satisfy the DebugLogger interface
+func SetDebugLogger(logger DebugLogger) {
+	debugEnabled = true
+	debugLogger = logger
+}
+
+type stdLogger struct {
+	l *slog.Logger
+}
+
+func (s *stdLogger) Debug(args ...any) {
+	if len(args) == 0 {
+		return
+	}
+	val, ok := args[0].(string)
+	if !ok {
+		return
+	}
+	s.l.Debug(val, args[1:]...)
 }
