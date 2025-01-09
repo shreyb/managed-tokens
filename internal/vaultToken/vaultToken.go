@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -46,21 +47,6 @@ var tracer = otel.Tracer("vaultToken")
 func IsServiceToken(token string) bool {
 	return strings.HasPrefix(token, ServiceTokenPrefix) ||
 		strings.HasPrefix(token, LegacyServiceTokenPrefix)
-}
-
-// InvalidVaultTokenError is an error that indicates that the token contained in filename is not a valid Hashicorp Service Token
-// (what is called a vault token in the managed-tokens/OSG/WLCG world)
-type InvalidVaultTokenError struct {
-	filename string
-	msg      string
-}
-
-func (i *InvalidVaultTokenError) Error() string {
-	return fmt.Sprintf(
-		"%s is an invalid vault/service token. %s",
-		i.filename,
-		i.msg,
-	)
 }
 
 type serviceGetter interface {
@@ -212,26 +198,31 @@ func getDefaultVaultTokenLocation(u uidGetter) string {
 
 func validateServiceVaultToken(u uidGetter, s serviceGetter) error {
 	vaultTokenFilename := getCondorVaultTokenLocation(u, s)
+	f, err := os.Open(vaultTokenFilename)
+	if err != nil {
+		return fmt.Errorf("could not open tokenfile %s for verification: %w", vaultTokenFilename, err)
+	}
+	defer f.Close()
 
-	if err := validateVaultToken(vaultTokenFilename); err != nil {
-		return fmt.Errorf("could not validate vault token: %w", err)
+	if err := validateVaultToken(f); err != nil {
+		return &InvalidVaultTokenError{
+			vaultTokenFilename,
+			"vault token failed validation",
+		}
 	}
 	return nil
 }
 
 // validateVaultToken verifies that a vault token (service token as Hashicorp calls them) indicated by the filename is valid
-func validateVaultToken(vaultTokenFilename string) error {
-	vaultTokenBytes, err := os.ReadFile(vaultTokenFilename)
+func validateVaultToken(token io.Reader) error {
+	b := new(strings.Builder)
+	_, err := io.Copy(b, token)
 	if err != nil {
-		return fmt.Errorf("could not read tokenfile %s for verification: %w", vaultTokenFilename, err)
+		return fmt.Errorf("could not read token into buffer for verification: %w", err)
 	}
 
-	vaultTokenString := string(vaultTokenBytes[:])
-	if !IsServiceToken(vaultTokenString) {
-		return &InvalidVaultTokenError{
-			vaultTokenFilename,
-			"vault token failed validation",
-		}
+	if !IsServiceToken(b.String()) {
+		return errors.New("vault token failed validation")
 	}
 	return nil
 }
@@ -287,4 +278,19 @@ func (e *ErrGetTokenLocation) Error() string {
 
 func (e *ErrGetTokenLocation) Unwrap() error {
 	return e.underlying
+}
+
+// InvalidVaultTokenError is an error that indicates that the token contained in filename is not a valid Hashicorp Service Token
+// (what is called a vault token in the managed-tokens/OSG/WLCG world)
+type InvalidVaultTokenError struct {
+	filename string
+	msg      string
+}
+
+func (i *InvalidVaultTokenError) Error() string {
+	return fmt.Sprintf(
+		"%s is an invalid vault/service token. %s",
+		i.filename,
+		i.msg,
+	)
 }

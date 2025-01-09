@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/fermitools/managed-tokens/internal/testUtils"
@@ -74,7 +75,6 @@ func TestValidateVaultToken(t *testing.T) {
 	type testCase struct {
 		description   string
 		rawString     string
-		tokenFile     string
 		expectedError error
 	}
 
@@ -90,42 +90,21 @@ func TestValidateVaultToken(t *testing.T) {
 			expectedError: nil,
 		},
 		{
-			description: "Invalid vault token",
-			rawString:   "thiswillnotwork",
-			expectedError: &InvalidVaultTokenError{
-				msg: "vault token failed validation",
-			},
+			description:   "Invalid vault token",
+			rawString:     "thiswillnotwork",
+			expectedError: errors.New("vault token failed validation"),
 		},
-	}
-
-	tempDir := t.TempDir()
-	for index, test := range testCases {
-		tempFile, _ := os.CreateTemp(tempDir, "testManagedTokens")
-		func() {
-			defer tempFile.Close()
-			_, _ = tempFile.WriteString(test.rawString)
-		}()
-		testCases[index].tokenFile = tempFile.Name()
 	}
 
 	for _, test := range testCases {
 		t.Run(
 			test.description,
 			func(t *testing.T) {
-				err := validateVaultToken(test.tokenFile)
-				switch err != nil {
-				case true:
-					if test.expectedError == nil {
-						t.Errorf("Expected nil error.  Got %s instead", err)
-						t.Fail()
-					} else {
-						if _, ok := err.(*InvalidVaultTokenError); !ok {
-							t.Errorf("Got wrong type of return error.  Expected *InvalidVaultTokenError")
-						}
-					}
-				case false:
-					if test.expectedError != nil {
-						t.Errorf("Expected non-nil error.  Got nil")
+				r := strings.NewReader(test.rawString)
+				err := validateVaultToken(r)
+				if test.expectedError != nil {
+					if err.Error() != test.expectedError.Error() {
+						t.Errorf("Expected error %s.  Got %s instead", test.expectedError, err)
 					}
 				}
 			},
