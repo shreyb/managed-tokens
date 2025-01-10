@@ -40,6 +40,9 @@ import (
 	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
+// Sleep time between each retry
+const defaultRetrySleepDuration = 60 * time.Second
+
 // Metrics
 var (
 	tokenPushTimestamp = prometheus.NewGaugeVec(
@@ -187,10 +190,16 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 					fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
 				}
 
-				numRetries, err := getWorkerRetryValueFromConfig(*sc, PushTokensWorkerType)
+				// Retry values
+				numRetries, err := getWorkerNumRetriesValueFromConfig(*sc, PushTokensWorkerType)
 				if err != nil {
 					serviceLogger.Debug("Could not get retry value from config.  Using default value")
 					numRetries = 0
+				}
+				retrySleepDuration, err := getWorkerRetrySleepValueFromConfig(*sc, PushTokensWorkerType)
+				if err != nil {
+					serviceLogger.Debug("Could not get retry sleep value from config.  Using default value")
+					retrySleepDuration = defaultRetrySleepDuration
 				}
 
 				// Send to nodes
@@ -231,7 +240,8 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 								)
 								defer span.End()
 
-								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
+								pushTimeoutWithRetries := time.Duration((int(pushTimeout+retrySleepDuration) * (int(numRetries) + 1)))
+								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeoutWithRetries)
 								defer pushCancel()
 
 								var notificationErrorString string
@@ -246,9 +256,11 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 											attribute.Int("try", i+1),
 										)
 										defer trialSpan.End()
+										_trialContext, _trialCancel := context.WithTimeout(trialContext, pushTimeout)
+										defer _trialCancel()
 
 										nodeLogger.Debugf("Attempting to push tokens to destination node, try %d, %d retries left", i+1, int(numRetries)-i)
-										err = pushToNode(trialContext, sc, sourceFilename, destinationNode, destinationFilename)
+										err = pushToNode(_trialContext, sc, sourceFilename, destinationNode, destinationFilename)
 										// Success
 										if err == nil {
 											return
@@ -260,9 +272,9 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 											return
 										}
 										// Context has errored out - no reason to retry
-										if trialContext.Err() != nil {
+										if _trialContext.Err() != nil {
 											notificationErrorString = notificationErrorString + pushContext.Err().Error()
-											if errors.Is(trialContext.Err(), context.DeadlineExceeded) {
+											if errors.Is(_trialContext.Err(), context.DeadlineExceeded) {
 												notificationErrorString = notificationErrorString + " (timeout error)"
 											}
 											tracing.LogErrorWithTrace(trialSpan, nodeLogger, fmt.Sprintf("Error pushing vault tokens to destination node: %s: will not retry", pushContext.Err()))
@@ -270,7 +282,9 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 										}
 										// Some other error - retry
 										notificationErrorString = notificationErrorString + err.Error()
-										nodeLogger.Error("Error pushing vault tokens to destination node")
+										nodeLogger.Errorf("Error pushing vault tokens to destination node.  Will sleep %s and then retry", retrySleepDuration.String())
+										time.Sleep(retrySleepDuration)
+										_trialCancel()
 									}
 								}()
 								if err != nil {
