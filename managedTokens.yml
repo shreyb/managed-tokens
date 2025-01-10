@@ -85,14 +85,19 @@ notifications_test:
 workerType:
   getKerberosTickets:
     numRetries: 0
+    retrySleep: "0s"
   storeAndGetToken:
     numRetries: 0
+    retrySleep: "0s"
   storeAndGetTokenInteractive:
     numRetries: 0
+    retrySleep: "0s"
   pingAggregator:
     numRetries: 0
+    retrySleep: "0s"
   pushTokens:
     numRetries: 3
+    retrySleep: "60s"
 
 # Experiment config items
 experiments:

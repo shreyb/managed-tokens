@@ -18,6 +18,7 @@ package main
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -133,9 +134,6 @@ func TestGetWorkerConfigValue(t *testing.T) {
 
 			// Check the result
 			assert.Equal(t, tc.expected, result)
-			// if !reflect.DeepEqual(result, tc.expected) {
-			// 	t.Errorf("Unexpected result. Expected: %v, Got: %v", tc.expected, result)
-			// }
 		})
 	}
 }
@@ -174,5 +172,46 @@ func TestIsValidWorkerTypeString(t *testing.T) {
 	for _, test := range tests {
 		result := isValidWorkerTypeString(test.input)
 		assert.Equal(t, test.expected, result)
+	}
+}
+
+func TestGetWorkerConfigTimeDuration(t *testing.T) {
+	workerType := "getKerberosTickets"
+	key := "myKey"
+
+	type testCase struct {
+		description   string
+		testValue     any
+		expectedValue time.Duration
+	}
+
+	testCases := []testCase{
+		{
+			description:   "Valid duration string",
+			testValue:     "5m",
+			expectedValue: 5 * time.Minute,
+		},
+		{
+			description:   "Invalid duration string",
+			testValue:     "invalidDuration",
+			expectedValue: time.Duration(0),
+		},
+		{
+			description:   "Non-string value",
+			testValue:     12345,
+			expectedValue: time.Duration(0),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			// Set up the configuration
+			viper.Reset()
+			defer viper.Reset()
+			viper.Set("workerType."+workerType+"."+key, tc.testValue)
+
+			result := getWorkerConfigTimeDuration(workerType, key)
+			assert.Equal(t, tc.expectedValue, result)
+		})
 	}
 }

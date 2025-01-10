@@ -128,6 +128,7 @@ func backupConfig(c1 *Config) *Config {
 		VaultServer:                    c1.VaultServer,
 		Extras:                         c1.Extras,
 		CommandEnvironment:             c1.CommandEnvironment,
+		workerSpecificConfig:           c1.workerSpecificConfig,
 		unPingableNodes:                c1.unPingableNodes,
 	}
 	return c2

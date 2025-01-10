@@ -17,6 +17,7 @@ package main
 
 import (
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -36,9 +37,7 @@ func getWorkerConfigValue(workerType, key string) any {
 	if !isValidWorkerTypeString(workerType) {
 		return nil
 	}
-
 	workerConfigPath := "workerType." + workerType + "." + key
-
 	return viper.Get(workerConfigPath)
 }
 
@@ -71,6 +70,22 @@ func getWorkerConfigStringSlice(workerType, key string) []string {
 		return v
 	}
 	return empty
+}
+
+// getWorkerConfigTimeDuration retrieves the configuration value for the given worker type and key,
+// and returns it as a time.Duration. If the configuration value cannot be parsed into a time.Duration,
+// 0 is returned
+func getWorkerConfigTimeDuration(workerType, key string) time.Duration {
+	val := getWorkerConfigValue(workerType, key)
+	v, ok := val.(string)
+	if !ok {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 // isValidWorkerTypeString checks if the given string is equal to the string representation
