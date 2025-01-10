@@ -124,6 +124,7 @@ func withTLSAuth() func(context.Context, string, string) (*http.Response, error)
 				tracing.KeyValueForLog{Key: "verb", Value: verb},
 				tracing.KeyValueForLog{Key: "authMethod", Value: "tlsAuth"},
 			)
+			return &http.Response{}, err
 		}
 
 		logSuccessWithTracing(
