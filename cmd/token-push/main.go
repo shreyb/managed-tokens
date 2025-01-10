@@ -234,6 +234,7 @@ func run(ctx context.Context) error {
 		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
 	}
 	defer span.End()
+	exeLogger.Debugf("Trace ID: %s", span.SpanContext().TraceID().String())
 
 	successfulServices := make(map[string]bool) // Initialize Map of services for which all steps were successful
 
@@ -720,7 +721,6 @@ func initLogs() {
 		kerberos.SetDebugLogger(log.StandardLogger())
 		ping.SetDebugLogger(log.StandardLogger())
 		vaultToken.SetDebugLogger(log.StandardLogger())
-
 	}
 
 	logConfigLookup := "logs.token-push.logfile"
