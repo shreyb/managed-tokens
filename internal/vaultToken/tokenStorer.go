@@ -78,12 +78,18 @@ func storeAndValidateToken(ctx context.Context, t tokenStorer, environ *environm
 		tracing.LogErrorWithTrace(span, err)
 		return err
 	}
-	span.AddEvent("Stored vault and bearer tokens in vault and condor_credd/schedd")
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Stored vault and bearer tokens in vault and condor_credd/schedd for service: %s", t.GetServiceName()))
+	}
 
 	if err := t.validateToken(); err != nil {
+
 		err = fmt.Errorf("could not validate vault token: %w", err)
 		tracing.LogErrorWithTrace(span, err)
 		return err
+	}
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Validated vault token for service: %s", t.GetServiceName()))
 	}
 
 	tracing.LogSuccessWithTrace(span, "Stored and validated vault token")
@@ -139,6 +145,9 @@ func (t *InteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context, e
 	defer span.End()
 
 	getTokensAndStoreInVaultCmd := setupCmdWithEnvironmentForTokenStorer(ctx, t, environ)
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Interactively storing and obtaining vault token with command: %s, environment: %s", getTokensAndStoreInVaultCmd.String(), environ.String()))
+	}
 
 	// We need to capture stdout and stderr on the terminal so the user can authenticate
 	getTokensAndStoreInVaultCmd.Stdout = os.Stdout
@@ -208,6 +217,9 @@ func (t *NonInteractiveTokenStorer) getTokensAndStoreInVault(ctx context.Context
 	defer span.End()
 
 	getTokensAndStoreInVaultCmd := setupCmdWithEnvironmentForTokenStorer(ctx, t, environ)
+	if debugEnabled {
+		debugLogger.Debug(fmt.Sprintf("Non-interactively storing and obtaining vault token with command: %s, environment: %s", getTokensAndStoreInVaultCmd.String(), environ.String()))
+	}
 
 	// For non-interactive use, it is an error condition if the user is prompted to authenticate, so we want to just run the command
 	// and capture the output

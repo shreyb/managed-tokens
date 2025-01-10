@@ -719,6 +719,7 @@ func initLogs() {
 		fileCopier.SetDebugLogger(log.StandardLogger())
 		kerberos.SetDebugLogger(log.StandardLogger())
 		ping.SetDebugLogger(log.StandardLogger())
+		vaultToken.SetDebugLogger(log.StandardLogger())
 
 	}
 
