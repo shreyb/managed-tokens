@@ -52,6 +52,7 @@ var (
 	version                 string // Should be injected at build time with something like go build -ldflags="-X main.version=$VERSION"
 	exeLogger               *log.Entry
 	notificationsDisabledBy disableNotificationsOption = DISABLED_BY_CONFIGURATION
+	debugEnvSetByFlag       bool                       // Set to true if we set MANAGED_TOKENS_DEBUG via flag in resolveDebugAndVerbose()
 )
 
 var devEnvironmentLabel string
@@ -93,6 +94,41 @@ var (
 
 var errExitOK = errors.New("exit 0")
 
+func main() {
+	if err := setup(); err != nil {
+		if errors.Is(err, errExitOK) {
+			os.Exit(0)
+		}
+		log.Fatal("Error running setup actions.  Exiting")
+	}
+
+	// Global Context
+	var globalTimeout time.Duration
+	var ok bool
+
+	if globalTimeout, ok = timeouts["global"]; !ok {
+		exeLogger.Fatal("Could not obtain global timeout.")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
+	defer cancel()
+
+	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
+	if tracingShutdown, err := initTracing(ctx); err == nil {
+		defer tracingShutdown(ctx)
+	}
+
+	// Run our actual operation
+	if err := run(ctx); err != nil {
+		exeLogger.Fatal("Error running operations to update database from FERRY.  Exiting")
+	}
+
+	// If we changed the debug environment variable, put it back
+	if debugEnvSetByFlag {
+		os.Unsetenv("MANAGED_TOKENS_DEBUG")
+	}
+	log.Debug("Finished run")
+}
+
 func setup() error {
 	startSetup = time.Now()
 
@@ -123,6 +159,8 @@ func setup() error {
 		return err
 	}
 
+	initEnvironment()
+
 	// TODO Remove this after bug detailed in initFlags() is fixed upstream
 	disableNotifyFlagWorkaround()
 	// END TODO
@@ -141,215 +179,6 @@ func setup() error {
 	return nil
 }
 
-func initFlags() {
-	// Defaults
-	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
-
-	// Flags
-	pflag.String("admin", "", "Override the config file admin email")
-	pflag.String("authmethod", "tls", "Choose method for authentication to FERRY.  Currently-supported choices are \"tls\" and \"jwt\"")
-	pflag.StringP("configfile", "c", "", "Specify alternate config file")
-	pflag.Bool("disable-notifications", false, "Do not send admin notifications")
-	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
-	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
-	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
-	pflag.Bool("version", false, "Version of Managed Tokens library")
-
-	pflag.Parse()
-	viper.BindPFlags(pflag.CommandLine)
-
-	// Aliases
-	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
-	//  viper.RegisterAlias("dont-notify", "disableNotifications")
-	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
-	// Instead, we have to work around this after we read in the config file (see setup())
-}
-
-// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
-func disableNotifyFlagWorkaround() {
-	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
-		viper.Set("disableNotifications", true)
-		notificationsDisabledBy = DISABLED_BY_FLAG
-	}
-}
-
-func initConfig() error {
-	// Get config file
-	configFileName := "managedTokens"
-	// Check for override
-	if config := viper.GetString("configfile"); config != "" {
-		viper.SetConfigFile(config)
-	} else {
-		viper.SetConfigName(configFileName)
-	}
-
-	viper.AddConfigPath("/etc/managed-tokens/")
-	viper.AddConfigPath("$HOME/.managed-tokens/")
-	viper.AddConfigPath(".")
-	if err := viper.ReadInConfig(); err != nil {
-		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
-		return err
-	}
-
-	return nil
-}
-
-// Set up logs
-func initLogs() {
-	log.SetLevel(log.DebugLevel)
-	debugLogConfigLookup := "logs.refresh-uids-from-ferry.debugfile"
-	logConfigLookup := "logs.refresh-uids-from-ferry.logfile"
-	// Debug log
-	log.AddHook(lfshook.NewHook(lfshook.PathMap{
-		log.DebugLevel: viper.GetString(debugLogConfigLookup),
-		log.InfoLevel:  viper.GetString(debugLogConfigLookup),
-		log.WarnLevel:  viper.GetString(debugLogConfigLookup),
-		log.ErrorLevel: viper.GetString(debugLogConfigLookup),
-		log.FatalLevel: viper.GetString(debugLogConfigLookup),
-		log.PanicLevel: viper.GetString(debugLogConfigLookup),
-	}, &log.TextFormatter{FullTimestamp: true}))
-
-	// Info log file
-	log.AddHook(lfshook.NewHook(lfshook.PathMap{
-		log.InfoLevel:  viper.GetString(logConfigLookup),
-		log.WarnLevel:  viper.GetString(logConfigLookup),
-		log.ErrorLevel: viper.GetString(logConfigLookup),
-		log.FatalLevel: viper.GetString(logConfigLookup),
-		log.PanicLevel: viper.GetString(logConfigLookup),
-	}, &log.TextFormatter{FullTimestamp: true}))
-
-	// Loki.  Example here taken from README: https://github.com/YuKitsune/lokirus/blob/main/README.md
-	lokiOpts := lokirus.NewLokiHookOptions().
-		// Grafana doesn't have a "panic" level, but it does have a "critical" level
-		// https://grafana.com/docs/grafana/latest/explore/logs-integration/
-		WithLevelMap(lokirus.LevelMap{log.PanicLevel: "critical"}).
-		WithFormatter(&log.JSONFormatter{}).
-		WithStaticLabels(lokirus.Labels{
-			"app":         "managed-tokens",
-			"command":     currentExecutable,
-			"environment": devEnvironmentLabel,
-		})
-	lokiHook := lokirus.NewLokiHookWithOpts(
-		viper.GetString("loki.host"),
-		lokiOpts,
-		log.InfoLevel,
-		log.WarnLevel,
-		log.ErrorLevel,
-		log.FatalLevel)
-
-	log.AddHook(lokiHook)
-
-	exeLogger = log.WithField("executable", currentExecutable)
-	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
-
-	if viper.GetBool("test") {
-		exeLogger.Info("Running in test mode")
-	}
-}
-
-// Setup of timeouts, if they're set
-func initTimeouts() error {
-	// Save supported timeouts into timeouts map
-	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
-		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
-		// Only save the timeout if it's supported, otherwise ignore it
-		if _, ok := timeouts[timeoutKey]; ok {
-			timeout, err := time.ParseDuration(timeoutString)
-			if err != nil {
-				exeLogger.WithField(timeoutKey, timeoutString).Warn("Could not parse configured timeout duration.  Using default")
-				continue
-			}
-			timeouts[timeoutKey] = timeout
-			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
-		}
-	}
-
-	// Verify that individual timeouts don't add to more than total timeout
-	now := time.Now()
-	timeForComponentCheck := now
-
-	for timeoutKey, timeout := range timeouts {
-		if timeoutKey != "global" {
-			timeForComponentCheck = timeForComponentCheck.Add(timeout)
-		}
-	}
-
-	timeForGlobalCheck := now.Add(timeouts["global"])
-	if timeForComponentCheck.After(timeForGlobalCheck) {
-		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
-		exeLogger.Error(msg)
-		return errors.New(msg)
-	}
-	return nil
-}
-
-// Set up prometheus metrics
-func initMetrics() error {
-	// Set up prometheus metrics
-	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
-		exeLogger.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
-			"To limit error noise, "+
-			"these failures at the experiment level will be registered as warnings in the log, "+
-			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
-		prometheusUp = false
-		return err
-	}
-
-	metrics.MetricsRegistry.MustRegister(promDuration)
-	metrics.MetricsRegistry.MustRegister(ferryRefreshTime)
-	return nil
-}
-
-// initTracing initializes the tracing configuration and returns a function to shutdown the
-// initialized TracerProvider and an error, if any.
-func initTracing(ctx context.Context) (func(context.Context), error) {
-	url := viper.GetString("tracing.url")
-	if url == "" {
-		msg := "no tracing url configured.  Continuing without tracing"
-		exeLogger.Error(msg)
-		return nil, errors.New(msg)
-	}
-	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, url, devEnvironmentLabel)
-	if err != nil {
-		exeLogger.Error("could not obtain a TraceProvider.  Continuing without tracing")
-		return nil, err
-	}
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
-	exeLogger.Debug("Sending OTLP traces to ", url)
-	return shutdown, nil
-}
-
-func main() {
-	if err := setup(); err != nil {
-		if errors.Is(err, errExitOK) {
-			os.Exit(0)
-		}
-		log.Fatal("Error running setup actions.  Exiting")
-	}
-
-	// Global Context
-	var globalTimeout time.Duration
-	var ok bool
-
-	if globalTimeout, ok = timeouts["global"]; !ok {
-		exeLogger.Fatal("Could not obtain global timeout.")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), globalTimeout)
-	defer cancel()
-
-	// Tracing has to be initialized here and not in setup because we need our global context to pass to child spans
-	if tracingShutdown, err := initTracing(ctx); err == nil {
-		defer tracingShutdown(ctx)
-	}
-
-	// Run our actual operation
-	if err := run(ctx); err != nil {
-		exeLogger.Fatal("Error running operations to update database from FERRY.  Exiting")
-	}
-	log.Debug("Finished run")
-}
-
 func run(ctx context.Context) error {
 	// Order of operations:
 	// 1. Open database to record FERRY data
@@ -364,6 +193,7 @@ func run(ctx context.Context) error {
 	if viper.GetBool("test") {
 		span.SetAttributes(attribute.KeyValue{Key: "test", Value: attribute.BoolValue(true)})
 	}
+	exeLogger.Debugf("Trace ID: %s", span.SpanContext().TraceID().String())
 	defer span.End()
 
 	if viper.GetBool("disableNotifications") {
@@ -521,7 +351,7 @@ func run(ctx context.Context) error {
 		// Don't close data channel until all workers have put their data in
 		if err := ferryDataErrGroup.Wait(); err != nil {
 			// It's OK if we have an error - just log it and move on so we can work with what data did come back
-			err = errors.New("error getting FERRY data for one of the usernames.  Please investigate")
+			err = fmt.Errorf("error getting FERRY data for one of the usernames.  Please investigate: %w", err)
 			logErrorWithTracing(exeLogger, span, err)
 		}
 	}()
@@ -604,4 +434,212 @@ func run(ctx context.Context) error {
 	promDuration.WithLabelValues(currentExecutable, "refreshManagedTokensDB").Set(time.Since(startDBInsert).Seconds())
 	ferryRefreshTime.SetToCurrentTime()
 	return nil
+}
+
+func initFlags() {
+	// Defaults
+	viper.SetDefault("notifications.admin_email", "fife-group@fnal.gov")
+
+	// Flags
+	pflag.String("admin", "", "Override the config file admin email")
+	pflag.String("authmethod", "tls", "Choose method for authentication to FERRY.  Currently-supported choices are \"tls\" and \"jwt\"")
+	pflag.StringP("configfile", "c", "", "Specify alternate config file")
+	pflag.Bool("disable-notifications", false, "Do not send admin notifications")
+	pflag.Bool("dont-notify", false, "Same as --disable-notifications")
+	pflag.BoolP("test", "t", false, "Test mode.  Query FERRY, but do not make any database changes")
+	pflag.BoolP("verbose", "v", false, "Turn on verbose mode")
+	pflag.BoolP("debug", "d", false, "Turn on debug mode.  This implies -v/--verbose.")
+	pflag.Bool("version", false, "Version of Managed Tokens library")
+
+	pflag.Parse()
+	viper.BindPFlags(pflag.CommandLine)
+
+	// Aliases
+	// TODO There's a possible bug in viper, where pflags don't get affected by registering aliases.  The following should work, at least for one alias:
+	//  viper.RegisterAlias("dont-notify", "disableNotifications")
+	//  viper.RegisterAlias("disable-notifications", "disableNotifications")
+	// Instead, we have to work around this after we read in the config file (see setup())
+
+	resolveDebugAndVerboseFromFlags()
+}
+
+// NOTE See initFlags().  This workaround will be removed when the possible viper bug referred to there is fixed.
+func disableNotifyFlagWorkaround() {
+	if viper.GetBool("disable-notifications") || viper.GetBool("dont-notify") {
+		viper.Set("disableNotifications", true)
+		notificationsDisabledBy = DISABLED_BY_FLAG
+	}
+}
+
+func initConfig() error {
+	// Get config file
+	configFileName := "managedTokens"
+	// Check for override
+	if config := viper.GetString("configfile"); config != "" {
+		viper.SetConfigFile(config)
+	} else {
+		viper.SetConfigName(configFileName)
+	}
+
+	viper.AddConfigPath("/etc/managed-tokens/")
+	viper.AddConfigPath("$HOME/.managed-tokens/")
+	viper.AddConfigPath(".")
+	if err := viper.ReadInConfig(); err != nil {
+		log.WithField("executable", currentExecutable).Errorf("Error reading in config file: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+// Environment variables to read into Viper config
+// Note: In keeping with best practices, these can be overridden by command line flags or direct
+// in-code overrides.  This only sets the initial state of the given viper keys.
+func initEnvironment() {
+	viper.BindEnv("debug", "MANAGED_TOKENS_DEBUG")
+}
+
+// Set up logs
+func initLogs() {
+	if viper.GetBool("debug") {
+		log.SetLevel(log.DebugLevel)
+		debugLogConfigLookup := "logs.refresh-uids-from-ferry.debugfile"
+
+		// Debug log
+		log.AddHook(lfshook.NewHook(lfshook.PathMap{
+			log.DebugLevel: viper.GetString(debugLogConfigLookup),
+			log.InfoLevel:  viper.GetString(debugLogConfigLookup),
+			log.WarnLevel:  viper.GetString(debugLogConfigLookup),
+			log.ErrorLevel: viper.GetString(debugLogConfigLookup),
+			log.FatalLevel: viper.GetString(debugLogConfigLookup),
+			log.PanicLevel: viper.GetString(debugLogConfigLookup),
+		}, &log.TextFormatter{FullTimestamp: true}))
+
+		// Set package-level debug loggers
+		db.SetDebugLogger(log.StandardLogger())
+		environment.SetDebugLogger(log.StandardLogger())
+	}
+
+	// Info log file
+	logConfigLookup := "logs.refresh-uids-from-ferry.logfile"
+	log.AddHook(lfshook.NewHook(lfshook.PathMap{
+		log.InfoLevel:  viper.GetString(logConfigLookup),
+		log.WarnLevel:  viper.GetString(logConfigLookup),
+		log.ErrorLevel: viper.GetString(logConfigLookup),
+		log.FatalLevel: viper.GetString(logConfigLookup),
+		log.PanicLevel: viper.GetString(logConfigLookup),
+	}, &log.TextFormatter{FullTimestamp: true}))
+
+	// Loki.  Example here taken from README: https://github.com/YuKitsune/lokirus/blob/main/README.md
+	lokiOpts := lokirus.NewLokiHookOptions().
+		// Grafana doesn't have a "panic" level, but it does have a "critical" level
+		// https://grafana.com/docs/grafana/latest/explore/logs-integration/
+		WithLevelMap(lokirus.LevelMap{log.PanicLevel: "critical"}).
+		WithFormatter(&log.JSONFormatter{}).
+		WithStaticLabels(lokirus.Labels{
+			"app":         "managed-tokens",
+			"command":     currentExecutable,
+			"environment": devEnvironmentLabel,
+		})
+	lokiHook := lokirus.NewLokiHookWithOpts(
+		viper.GetString("loki.host"),
+		lokiOpts,
+		log.InfoLevel,
+		log.WarnLevel,
+		log.ErrorLevel,
+		log.FatalLevel)
+
+	log.AddHook(lokiHook)
+
+	exeLogger = log.WithField("executable", currentExecutable)
+	exeLogger.Debugf("Using config file %s", viper.ConfigFileUsed())
+
+	if viper.GetBool("test") {
+		exeLogger.Info("Running in test mode")
+	}
+}
+
+// Setup of timeouts, if they're set
+func initTimeouts() error {
+	// Save supported timeouts into timeouts map
+	for timeoutKey, timeoutString := range viper.GetStringMapString("timeouts") {
+		timeoutKey := strings.TrimSuffix(timeoutKey, "timeout")
+		// Only save the timeout if it's supported, otherwise ignore it
+		if _, ok := timeouts[timeoutKey]; ok {
+			timeout, err := time.ParseDuration(timeoutString)
+			if err != nil {
+				exeLogger.WithField(timeoutKey, timeoutString).Warn("Could not parse configured timeout duration.  Using default")
+				continue
+			}
+			timeouts[timeoutKey] = timeout
+			exeLogger.WithField(timeoutKey, timeoutString).Debug("Configured timeout")
+		}
+	}
+
+	// Verify that individual timeouts don't add to more than total timeout
+	now := time.Now()
+	timeForComponentCheck := now
+
+	for timeoutKey, timeout := range timeouts {
+		if timeoutKey != "global" {
+			timeForComponentCheck = timeForComponentCheck.Add(timeout)
+		}
+	}
+
+	timeForGlobalCheck := now.Add(timeouts["global"])
+	if timeForComponentCheck.After(timeForGlobalCheck) {
+		msg := "configured component timeouts exceed the total configured global timeout.  Please check all configured timeouts"
+		exeLogger.Error(msg)
+		return errors.New(msg)
+	}
+	return nil
+}
+
+// Set up prometheus metrics
+func initMetrics() error {
+	// Set up prometheus metrics
+	if _, err := http.Get(viper.GetString("prometheus.host")); err != nil {
+		exeLogger.Errorf("Error contacting prometheus pushgateway %s: %s.  The rest of prometheus operations will fail. "+
+			"To limit error noise, "+
+			"these failures at the experiment level will be registered as warnings in the log, "+
+			"and not be sent in any notifications.", viper.GetString("prometheus.host"), err.Error())
+		prometheusUp = false
+		return err
+	}
+
+	metrics.MetricsRegistry.MustRegister(promDuration)
+	metrics.MetricsRegistry.MustRegister(ferryRefreshTime)
+	return nil
+}
+
+// initTracing initializes the tracing configuration and returns a function to shutdown the
+// initialized TracerProvider and an error, if any.
+func initTracing(ctx context.Context) (func(context.Context), error) {
+	url := viper.GetString("tracing.url")
+	if url == "" {
+		msg := "no tracing url configured.  Continuing without tracing"
+		exeLogger.Error(msg)
+		return nil, errors.New(msg)
+	}
+	tp, shutdown, err := tracing.NewOTLPHTTPTraceProvider(ctx, url, devEnvironmentLabel)
+	if err != nil {
+		exeLogger.Error("could not obtain a TraceProvider.  Continuing without tracing")
+		return nil, err
+	}
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{}) // In case any downstream services want to use this trace context
+	exeLogger.WithField("url", url).Debug("Sending OTLP traces")
+	return shutdown, nil
+}
+
+func resolveDebugAndVerboseFromFlags() {
+	if viper.GetBool("debug") {
+		viper.Set("verbose", true)
+		// Only set the environment if MANAGED_TOKENS_DEBUG is UNSET.  If it is set to
+		// "" or anything, we don't want to override it
+		if val, ok := os.LookupEnv("MANAGED_TOKENS_DEBUG"); val == "" && !ok {
+			os.Setenv("MANAGED_TOKENS_DEBUG", "1")
+			debugEnvSetByFlag = true
+		}
+	}
 }
