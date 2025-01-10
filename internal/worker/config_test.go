@@ -208,6 +208,11 @@ func TestBackupConfig(t *testing.T) {
 	}
 	c1.unPingableNodes = &unPingableNodes{sync.Map{}}
 	c1.unPingableNodes.Store("foo", struct{}{})
+	c1.workerSpecificConfig = map[WorkerType]map[workerSpecificConfigOption]any{
+		PushTokensWorkerType: {
+			numRetriesOption: 5,
+		},
+	}
 
 	c2 := backupConfig(c1)
 
@@ -224,6 +229,7 @@ func TestBackupConfig(t *testing.T) {
 
 	assert.Equal(t, c1.Extras, c2.Extras)
 	assert.Equal(t, c1.unPingableNodes, c2.unPingableNodes)
+	assert.Equal(t, c1.workerSpecificConfig, c2.workerSpecificConfig)
 }
 
 func TestInitializeWorkerSpecificConfigDefaults(t *testing.T) {
