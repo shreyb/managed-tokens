@@ -143,8 +143,8 @@ func (m *ManagedTokensDatabase) check() error {
 		if err := m.migrate(userVersion, schemaVersion); err != nil {
 			return &databaseCheckError{"Error migrating database schema versions", err}
 		}
-	} else if userVersion > schemaVersion {
-		fmt.Println("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
+	} else if userVersion > schemaVersion && debugEnabled {
+		debugLogger.Debug("Database is from a newer version of the Managed Tokens library.  There may have been breaking changes in newer migrations")
 	}
 	return nil
 }
