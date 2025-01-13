@@ -257,7 +257,9 @@ func getNamedDimensionStringValues(ctx context.Context, db *sql.DB, sqlGetStatem
 	}
 
 	if len(data) == 0 {
-		span.AddEvent("No values in database")
+		if debugEnabled {
+			debugLogger.Debug("No values in database")
+		}
 		return nil, nil
 	}
 
