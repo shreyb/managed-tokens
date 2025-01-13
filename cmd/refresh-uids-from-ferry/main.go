@@ -37,6 +37,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/db"
 	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/metrics"
@@ -446,7 +447,7 @@ func run(ctx context.Context) error {
 
 	// Add verbose to the global context
 	if viper.GetBool("verbose") {
-		ctx = utils.ContextWithVerbose(ctx)
+		ctx = contextStore.WithVerbose(ctx)
 	}
 	// Start up worker to aggregate all FERRY data
 	ferryData := make([]db.FerryUIDDatum, 0)
@@ -503,7 +504,7 @@ func run(ctx context.Context) error {
 
 		ferryContext := ctx
 		if timeout, ok := timeouts["ferryrequest"]; ok {
-			ferryContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+			ferryContext = contextStore.WithOverrideTimeout(ctx, timeout)
 		}
 
 		// For each username, query FERRY for UID info
@@ -557,7 +558,7 @@ func run(ctx context.Context) error {
 	startDBInsert := time.Now()
 	var dbContext context.Context
 	if timeout, ok := timeouts["db"]; ok {
-		dbContext = utils.ContextWithOverrideTimeout(ctx, timeout)
+		dbContext = contextStore.WithOverrideTimeout(ctx, timeout)
 	} else {
 		dbContext = ctx
 	}

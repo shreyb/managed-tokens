@@ -23,8 +23,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/environment"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 type MockTokenStorer struct {
@@ -156,7 +156,7 @@ func TestGetCmdArgsForTokenStorer(t *testing.T) {
 		{
 			"Verbose",
 			func() context.Context {
-				return utils.ContextWithVerbose(context.Background())
+				return contextStore.WithVerbose(context.Background())
 			},
 			[]string{"-v", serviceName},
 		},

@@ -13,14 +13,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+// package contextStore provides a set of functions and types that allow for strongly-typed values to be stored in contexts, and to
+// be safely retrieved later
+
+package contextStore
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // contextKey allows for an extensible set of context keys to be used by all packages to add strongly-typed values to contexts.  Each context key
@@ -35,81 +37,70 @@ const (
 )
 
 var (
+	// ErrorContextKeyFailedTypeCheck is returned when a value retrieved from a context fails a type-check
 	ErrContextKeyFailedTypeCheck error = errors.New("returned value failed type-check")
-	ErrContextKeyNotStored             = errors.New("no value in Context for contextKey")
+	// ErrorContextKeyNotStored is returned when a requested key is not stored in a context
+	ErrContextKeyNotStored = errors.New("no value in Context for contextKey")
 )
 
-// GetVerboseFromContext returns the type-checked value of the verbose contextKey from a context if it has been stored. If there was an issue
+// GetVerbose returns the type-checked value of the verbose contextKey from a context if it has been stored. If there was an issue
 // retrieving the value from the verbose contextKey in the context, an error is returned
-func GetVerboseFromContext(ctx context.Context) (bool, error) {
+func GetVerbose(ctx context.Context) (bool, error) {
 	var verboseReturnVal, ok bool
 	verboseVal := ctx.Value(verbose)
-	funcLogger := log.WithField("contextKey", "verbose")
 	if verboseVal == nil {
-		funcLogger.Debug("No value stored for contextKey.")
 		return false, ErrContextKeyNotStored
 	}
 	if verboseReturnVal, ok = verboseVal.(bool); !ok {
-		funcLogger.Debug("contextKey value failed type check")
 		return false, ErrContextKeyFailedTypeCheck
 	}
 	return verboseReturnVal, nil
 }
 
-// ContextWithVerbose wraps a context with a verbose=true value
-func ContextWithVerbose(ctx context.Context) context.Context {
+// WithVerbose wraps a context with a verbose=true value
+func WithVerbose(ctx context.Context) context.Context {
 	return context.WithValue(ctx, verbose, true)
 }
 
-// GetOverrideTimeoutFromContext returns the override timeout value from a context if it's been stored and type-checks it.  If either of these
+// GetOverrideTimeout returns the override timeout value from a context if it's been stored and type-checks it.  If either of these
 // operations fail, it returns an error
-func GetOverrideTimeoutFromContext(ctx context.Context) (time.Duration, error) {
+func GetOverrideTimeout(ctx context.Context) (time.Duration, error) {
 	var timeout time.Duration
 	var ok bool
-	funcLogger := log.WithField("contextKey", "overrideTimeout")
 	timeoutVal := ctx.Value(overrideTimeout)
 	if timeoutVal == nil {
-		funcLogger.Debug("No value stored for contextKey")
 		return timeout, ErrContextKeyNotStored
 	}
 	if timeout, ok = timeoutVal.(time.Duration); !ok {
-		funcLogger.Debug("contextKey value failed type check")
 		return timeout, ErrContextKeyFailedTypeCheck
 	}
 	return timeout, nil
 }
 
-// ContextWithOverrideTimeout takes a parent context and returns a new context with an override timeout set
-func ContextWithOverrideTimeout(ctx context.Context, timeout time.Duration) context.Context {
+// WithOverrideTimeout takes a parent context and returns a new context with an override timeout set
+func WithOverrideTimeout(ctx context.Context, timeout time.Duration) context.Context {
 	return context.WithValue(ctx, overrideTimeout, timeout)
 }
 
 // GetProperTimeoutFromContext takes a context and a default duration, and tries to see if the context is holding an overrideTimeout key.
 // If it finds an overrideTimeout key, it returns the corresponding time.Duration. Otherwise, it will parse the defaultDuration string and
-// return a time.Duration from that, if possible.
-func GetProperTimeoutFromContext(ctx context.Context, defaultDuration string) (time.Duration, error) {
+// return a time.Duration from that, if possible.  If the latter happens, the returned bool will be set to true, indicating that a the
+// passed in default was used.
+func GetProperTimeout(ctx context.Context, defaultDuration string) (timeout time.Duration, defaultUsed bool, err error) {
 	getDefaultTimeout := func() (time.Duration, error) {
-		timeout, err := time.ParseDuration(defaultDuration)
+		_timeout, err := time.ParseDuration(defaultDuration)
 		if err != nil {
-			log.Error("Could not parse default timeout duration")
+			return _timeout, fmt.Errorf("could not parse default timeout duration: %w", err)
 		}
-		return timeout, err
+		return _timeout, nil
 	}
 
-	var useTimeout time.Duration
-	var err error
-
-	useTimeout, err = GetOverrideTimeoutFromContext(ctx)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrContextKeyNotStored):
-			log.Debug("No overrideTimeout set.  Will use default")
-		case errors.Is(err, ErrContextKeyFailedTypeCheck):
-			log.Debug("Stored overrideTimeout failed type check.  Will use default")
-		default:
-			log.Error("Unspecified error getting overrideTimeout from context.  Will use default")
+	if timeout, err = GetOverrideTimeout(ctx); err != nil {
+		defaultTimeout, err2 := getDefaultTimeout()
+		if err2 != nil {
+			return 0, false, err2
 		}
-		return getDefaultTimeout()
+		return defaultTimeout, true, nil
 	}
-	return useTimeout, nil
+	return timeout, false, nil
 }

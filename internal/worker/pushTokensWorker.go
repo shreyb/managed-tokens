@@ -32,12 +32,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/fileCopier"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 // Sleep time between each retry
@@ -120,9 +120,12 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 		log.Debug("Closed PushTokensWorker Notifications and Success Chans")
 	}()
 
-	pushTimeout, err := utils.GetProperTimeoutFromContext(ctx, pushDefaultTimeoutStr)
+	pushTimeout, defaultUsed, err := contextStore.GetProperTimeout(ctx, pushDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse push timeout")
+	}
+	if defaultUsed {
+		log.Debug("Using default timeout for pushing tokens")
 	}
 
 	var configWg sync.WaitGroup

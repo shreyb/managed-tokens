@@ -27,12 +27,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fermitools/managed-tokens/internal/contextStore"
 	"github.com/fermitools/managed-tokens/internal/kerberos"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
 	"github.com/fermitools/managed-tokens/internal/service"
 	"github.com/fermitools/managed-tokens/internal/tracing"
-	"github.com/fermitools/managed-tokens/internal/utils"
 )
 
 var (
@@ -90,9 +90,12 @@ func GetKerberosTicketsWorker(ctx context.Context, chans channelGroup) {
 		log.Debug("Closed Kerberos Tickets Worker Notifications and Success Chan")
 	}()
 
-	kerberosTimeout, err := utils.GetProperTimeoutFromContext(ctx, kerberosDefaultTimeoutStr)
+	kerberosTimeout, defaultUsed, err := contextStore.GetProperTimeout(ctx, kerberosDefaultTimeoutStr)
 	if err != nil {
 		log.Fatal("Could not parse kerberos timeout")
+	}
+	if defaultUsed {
+		log.Debug("Using default kerberos timeout")
 	}
 
 	var wg sync.WaitGroup
