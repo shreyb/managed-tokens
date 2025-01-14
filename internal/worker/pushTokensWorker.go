@@ -259,11 +259,9 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 											attribute.Int("try", i+1),
 										)
 										defer trialSpan.End()
-										_trialContext, _trialCancel := context.WithTimeout(trialContext, pushTimeout)
-										defer _trialCancel()
 
 										nodeLogger.Debugf("Attempting to push tokens to destination node, try %d, %d retries left", i+1, int(numRetries)-i)
-										err = pushToNode(_trialContext, sc, sourceFilename, destinationNode, destinationFilename)
+										err = pushToNode(trialContext, sc, sourceFilename, destinationNode, destinationFilename)
 										// Success
 										if err == nil {
 											return
@@ -275,9 +273,9 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 											return
 										}
 										// Context has errored out - no reason to retry
-										if _trialContext.Err() != nil {
+										if trialContext.Err() != nil {
 											notificationErrorString = notificationErrorString + pushContext.Err().Error()
-											if errors.Is(_trialContext.Err(), context.DeadlineExceeded) {
+											if errors.Is(trialContext.Err(), context.DeadlineExceeded) {
 												notificationErrorString = notificationErrorString + " (timeout error)"
 											}
 											tracing.LogErrorWithTrace(trialSpan, nodeLogger, fmt.Sprintf("Error pushing vault tokens to destination node: %s: will not retry", pushContext.Err()))
@@ -285,9 +283,11 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 										}
 										// Some other error - retry
 										notificationErrorString = notificationErrorString + err.Error()
-										nodeLogger.Errorf("Error pushing vault tokens to destination node.  Will sleep %s and then retry", retrySleepDuration.String())
-										time.Sleep(retrySleepDuration)
-										_trialCancel()
+										nodeLogger.Error("Error pushing vault tokens to destination node")
+										if i < int(numRetries) {
+											nodeLogger.Debug("Will retry")
+											time.Sleep(60 * time.Second)
+										}
 									}
 								}()
 								if err != nil {
