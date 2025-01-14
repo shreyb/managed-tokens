@@ -271,6 +271,10 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 										// Some other error - retry
 										notificationErrorString = notificationErrorString + err.Error()
 										nodeLogger.Error("Error pushing vault tokens to destination node")
+										if i < int(numRetries) {
+											nodeLogger.Debug("Will retry")
+											time.Sleep(60 * time.Second)
+										}
 									}
 								}()
 								if err != nil {
