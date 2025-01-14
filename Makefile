@@ -1,5 +1,9 @@
 NAME = managed-tokens
+<<<<<<< HEAD
 VERSION = v0.16.1
+=======
+VERSION = v0.16.2
+>>>>>>> a86cf7b (Change version to v0.16.2)
 ROOTDIR = $(shell pwd)
 BUILD = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 rpmVersion := $(subst v,,$(VERSION))

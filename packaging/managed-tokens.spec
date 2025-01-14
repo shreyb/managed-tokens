@@ -1,5 +1,9 @@
 Name:           managed-tokens
+<<<<<<< HEAD
 Version:        0.16.1
+=======
+Version:        0.16.2
+>>>>>>> a86cf7b (Change version to v0.16.2)
 Release:        1%{?dist}
 Summary:        Utility to obtain Hashicorp vault (service) tokens from service kerberos principals and distribute them to experiment nodes
 
