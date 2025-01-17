@@ -26,6 +26,8 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
@@ -33,6 +35,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fermitools/managed-tokens/internal/contextStore"
+	"github.com/fermitools/managed-tokens/internal/environment"
 	"github.com/fermitools/managed-tokens/internal/fileCopier"
 	"github.com/fermitools/managed-tokens/internal/metrics"
 	"github.com/fermitools/managed-tokens/internal/notifications"
@@ -128,244 +131,164 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 		log.Debug("Using default timeout for pushing tokens")
 	}
 
+	type nodeMap struct {
+		m   map[string]any
+		mux sync.Mutex
+	}
+
 	var configWg sync.WaitGroup
 	for sc := range chans.serviceConfigChan {
-		var successNodes, failNodes sync.Map
-		serviceLogger := log.WithFields(log.Fields{
-			"experiment": sc.Service.Experiment(),
-			"role":       sc.Service.Role(),
-		})
-
-		pushSuccess := &pushTokenSuccess{
-			Service: sc.Service,
-			success: true,
-		}
 		configWg.Add(1)
-
 		go func(sc *Config) {
 			defer configWg.Done()
-			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc")
-			span.SetAttributes(
-				attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
-			)
+			ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker.serviceConfig")
 			defer span.End()
+			span.SetAttributes(
+				attribute.String("service", sc.Service.Name()),
+			)
 
-			func() {
-				defer func(p *pushTokenSuccess) {
-					chans.successChan <- p
-				}(pushSuccess)
+			serviceLogger := log.WithFields(log.Fields{
+				"service":    sc.Service.Name(),
+				"experiment": sc.Service.Experiment(),
+				"role":       sc.Service.Role(),
+			})
 
-				// Prepare default role file for the service
-				// Make sure we can get the destination filename
-				// Write the default role file to send
+			var successNodes, failNodes nodeMap // Maps to store successful and failed nodes
+			var nodesNotifyOnce nodeMap         // Map to store sync.Once values for each node, so we only send one
+			// notification per node on chans.notificationsChan
 
-				var dontSendDefaultRoleFile bool
-				defaultRoleFileDestinationFilename, err := parseDefaultRoleFileDestinationTemplateFromConfig(sc)
-				if err != nil {
-					serviceLogger.Error("Could not obtain default role file destination.  Will not push the default role file")
-					dontSendDefaultRoleFile = true
-				}
-				defaultRoleFileName, err := prepareDefaultRoleFile(sc)
-				if err != nil {
-					serviceLogger.Error("Could not prepare default role.  Will not push the default role file")
-					dontSendDefaultRoleFile = true
-				}
-				sendDefaultRoleFile := !dontSendDefaultRoleFile
+			// Preload successNodes and nodesNotifyOnce
+			successNodes.m = make(map[string]any)
+			nodesNotifyOnce.m = make(map[string]any)
+			for _, node := range sc.Nodes {
+				successNodes.m[node] = struct{}{}
+				nodesNotifyOnce.m[node] = &sync.Once{}
+			}
 
-				// Remove the tempfile when we're done
-				defer func() {
-					if err := os.Remove(defaultRoleFileName); err != nil {
-						serviceLogger.WithField("filename", defaultRoleFileName).Error("Error deleting temporary file for default role string. Please clean up manually")
-					}
-				}()
+			// Initialize failNodes
+			failNodes.m = make(map[string]any)
 
-				sourceFilename, err := findFirstCreddVaultToken(sc.ServiceCreddVaultTokenPathRoot, sc.Service.Name(), sc.Schedds)
-				if err != nil {
-					msg := "Could not find suitable vault token to push.  Will not push any vault tokens for this service."
-					tracing.LogErrorWithTrace(span, serviceLogger, msg)
-					pushSuccess.changeSuccessValue(false)
-					chans.notificationsChan <- notifications.NewSetupError(msg, sc.Service.Name())
-					return
-				}
+			// Push success value for this service config
+			pushSuccess := &pushTokenSuccess{
+				Service: sc.Service,
+				success: true,
+			}
+			defer func(p *pushTokenSuccess) {
+				chans.successChan <- p
+			}(pushSuccess)
 
-				destinationFilenames := []string{
-					fmt.Sprintf("/tmp/vt_u%d", sc.DesiredUID),
-					fmt.Sprintf("/tmp/vt_u%d-%s", sc.DesiredUID, sc.Service.Name()),
-				}
+			// Extract values from the service config that we need, compile those into a slice
+			pushConfigs, err := getPushTokensValuesFromConfig(sc)
+			if err != nil {
+				tracing.LogErrorWithTrace(span, serviceLogger, err.Error())
+				pushSuccess.changeSuccessValue(false)
+				chans.notificationsChan <- notifications.NewSetupError("Error retrieving one or more values from the configuration to push tokens", sc.Service.Name())
+				return
+			}
 
-				// Retry values
-				numRetries, err := getWorkerNumRetriesValueFromConfig(*sc, PushTokensWorkerType)
-				if err != nil {
-					serviceLogger.Debug("Could not get retry value from config.  Using default value")
-					numRetries = 0
-				}
-				retrySleepDuration, err := getWorkerRetrySleepValueFromConfig(*sc, PushTokensWorkerType)
-				if err != nil {
-					serviceLogger.Debug("Could not get retry sleep value from config.  Using default value")
-					retrySleepDuration = defaultRetrySleepDuration
-				}
+			// Errgroup for all pushConfigs
+			var g errgroup.Group
 
-				// Send to nodes
-				var nodeWg sync.WaitGroup
-				for _, destinationNode := range sc.Nodes {
-					nodeWg.Add(1)
-					go func(destinationNode string) {
-						defer nodeWg.Done()
+			// For each pushConfig, try to push to node concurrently
+			for _, pc := range pushConfigs {
+				g.Go(func() error {
+					ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker.serviceConfig.pushConfig")
+					defer span.End()
+					span.SetAttributes(
+						attribute.String("service", sc.Service.Name()),
+						attribute.String("node", pc.node),
+						attribute.String("account", pc.account),
+						attribute.String("sourceFilename", pc.sourcePath),
+						attribute.String("destinationFilename", pc.destinationPath),
+					)
 
-						ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc_nodeAnonFunc")
-						span.SetAttributes(
-							attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
-							attribute.String("node", destinationNode),
-						)
-						defer span.End()
+					pushConfigLogger := serviceLogger.WithFields(log.Fields{
+						"node":                pc.node,
+						"account":             pc.account,
+						"sourceFilename":      pc.sourcePath,
+						"destinationFilename": pc.destinationPath,
+					})
 
-						nodeLogger := serviceLogger.WithField("node", destinationNode)
+					// Add timeout to context
+					pushContext, cancel := context.WithTimeout(ctx, pushTimeout)
+					defer cancel()
 
-						var filenameWg sync.WaitGroup
+					err := pushToNode(pushContext, sc, pc.sourcePath, pc.node, pc.destinationPath, int(pc.numRetries), pc.retrySleepDuration)
+					if err != nil && pc.errorOnFail {
+						errMsg := fmt.Sprintf("Error pushing vault tokens to destination node %s", pc.node)
+						pushConfigLogger.Errorf("%s: %s", errMsg, err.Error())
 
-						// Channel for each goroutine launched below to send notifications on for later aggregation
-						nChan := make(chan notifications.Notification, len(destinationFilenames))
-						nodeStatus := struct {
-							success bool
-							mux     sync.Mutex
-						}{success: true}
+						// Mark this node as failed by adding it to failNodes and removing it from successNodes
+						failNodes.mux.Lock()
+						failNodes.m[pc.node] = struct{}{}
+						failNodes.mux.Unlock()
 
-						for _, destinationFilename := range destinationFilenames {
-							filenameWg.Add(1)
-							go func(destinationFilename string) {
-								defer filenameWg.Done()
+						successNodes.mux.Lock()
+						delete(successNodes.m, pc.node)
+						successNodes.mux.Unlock()
 
-								ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc")
-								span.SetAttributes(
-									attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
-									attribute.String("node", destinationNode),
-									attribute.String("filename", destinationFilename),
-								)
-								defer span.End()
+						// Send notification for this node, if it's not already been done
+						func() {
+							nodesNotifyOnce.mux.Lock()
+							defer nodesNotifyOnce.mux.Unlock()
 
-								pushTimeoutWithRetries := time.Duration((int(pushTimeout+retrySleepDuration) * (int(numRetries) + 1)))
-								pushContext, pushCancel := context.WithTimeout(ctx, pushTimeoutWithRetries)
-								defer pushCancel()
-
-								var notificationErrorString string
-								var err error
-								func() {
-									for i := 0; i <= int(numRetries); i++ {
-										trialContext, trialSpan := otel.GetTracerProvider().Tracer("managed-tokens").Start(pushContext, "worker.PushTokensWorker_anonFunc_nodeAnonFunc_filenameAnonFunc_trialAnonFunc")
-										trialSpan.SetAttributes(
-											attribute.String("service", sc.ServiceNameFromExperimentAndRole()),
-											attribute.String("node", destinationNode),
-											attribute.String("filename", destinationFilename),
-											attribute.Int("try", i+1),
-										)
-										defer trialSpan.End()
-
-										nodeLogger.Debugf("Attempting to push tokens to destination node, try %d, %d retries left", i+1, int(numRetries)-i)
-										err = pushToNode(trialContext, sc, sourceFilename, destinationNode, destinationFilename)
-										// Success
-										if err == nil {
-											return
-										}
-										// Unpingable node - no reason to retry
-										if sc.IsNodeUnpingable(destinationNode) {
-											notificationErrorString = fmt.Sprintf("Node %s was not pingable earlier prior to attempt to push tokens; ", destinationNode)
-											tracing.LogErrorWithTrace(trialSpan, nodeLogger, notificationErrorString+"will not retry")
-											return
-										}
-										// Context has errored out - no reason to retry
-										if trialContext.Err() != nil {
-											notificationErrorString = notificationErrorString + pushContext.Err().Error()
-											if errors.Is(trialContext.Err(), context.DeadlineExceeded) {
-												notificationErrorString = notificationErrorString + " (timeout error)"
-											}
-											tracing.LogErrorWithTrace(trialSpan, nodeLogger, fmt.Sprintf("Error pushing vault tokens to destination node: %s: will not retry", pushContext.Err()))
-											return
-										}
-										// Some other error - retry
-										notificationErrorString = notificationErrorString + err.Error()
-										nodeLogger.Error("Error pushing vault tokens to destination node")
-										if i < int(numRetries) {
-											nodeLogger.Debug("Will retry")
-											time.Sleep(60 * time.Second)
-										}
-									}
-								}()
-								if err != nil {
-									pushSuccess.changeSuccessValue(false) // Mark the whole service config as failed
-
-									// Mark this node as failed
-									failNodes.LoadOrStore(destinationNode, struct{}{})
-									func() {
-										nodeStatus.mux.Lock()
-										defer nodeStatus.mux.Unlock()
-										nodeStatus.success = false
-									}()
-
-									nChan <- notifications.NewPushError(notificationErrorString, sc.ServiceNameFromExperimentAndRole(), destinationNode)
-								}
-							}(destinationFilename)
-						}
-
-						// Since we're pushing the same file to two different locations,
-						// only report one failure to push a file to a node.
-						notificationsForwardDone := make(chan struct{})
-						go func() {
-							defer close(notificationsForwardDone)
-							var once sync.Once
-							sendNotificationFunc := func(n notifications.Notification) func() {
-								return func() {
-									chans.notificationsChan <- n
-								}
+							// Make sure our node is in the nodesNotifyOnce.m map, and that the value is a *sync.Once
+							_val, ok := nodesNotifyOnce.m[pc.node] // Is this node a key in the map?
+							if !ok {
+								return
 							}
-							for n := range nChan {
-								once.Do(sendNotificationFunc(n))
+							once, ok := _val.(*sync.Once) // Is the value a *sync.Once?
+							if !ok {
+								return
 							}
+
+							// Use the *sync.Once for this node to send a notification if it hasn't already been done
+							once.Do(func() {
+								_add := err.Error()
+								if errors.Is(err, context.DeadlineExceeded) {
+									_add = "(timeout error)"
+								}
+								chans.notificationsChan <- notifications.NewPushError(
+									fmt.Sprintf("%s: %s", errMsg, _add),
+									sc.ServiceNameFromExperimentAndRole(),
+									pc.node)
+							})
 						}()
-						filenameWg.Wait()          // Wait until all push operations for this node are complete
-						close(nChan)               // Close aggregation chan
-						<-notificationsForwardDone // Wait until we've forwarded the message on
 
-						// Set tokenPushTimestamp metric
-						if nodeStatus.success {
-							span.SetStatus(codes.Ok, "Successfully pushed tokens to node")
-							tokenPushTimestamp.WithLabelValues(sc.Service.Name(), destinationNode).SetToCurrentTime()
-							successNodes.LoadOrStore(destinationNode, struct{}{})
-						}
+						// Increment our push failure count metric for this node
+						pushFailureCount.WithLabelValues(sc.Service.Name(), pc.node).Inc()
+						return err
+					}
 
-						// Send the default role file to the destination node.  If we fail here, don't count this as an error
-						if sendDefaultRoleFile {
-							pushContext, pushCancel := context.WithTimeout(ctx, pushTimeout)
-							defer pushCancel()
-							if err := pushToNode(pushContext, sc, defaultRoleFileName, destinationNode, defaultRoleFileDestinationFilename); err != nil {
-								serviceLogger.WithField("node", destinationNode).Error("Error pushing default role file to destination node")
-							} else {
-								serviceLogger.WithField("node", destinationNode).Debug("Success pushing default role file to destination node")
-							}
-						}
-					}(destinationNode)
-					nodeWg.Wait()
-				}
-			}()
+					return nil
+				})
+			}
 
-			// Aggreagte our successful and failed pushes here
-			successesSlice := make([]string, 0)
-			failuresSlice := make([]string, 0)
-			successNodes.Range(func(key, value any) bool {
-				if keyVal, ok := key.(string); ok {
-					successesSlice = append(successesSlice, keyVal)
-				} else {
-					log.Errorf("Error storing node in successesSlice:  corrupt data in successNodes sync.Map of type %T: %v", key, key)
+			// Wait until all pushConfigs have been processed
+			if err := g.Wait(); err != nil {
+				pushSuccess.changeSuccessValue(false)
+				tracing.LogErrorWithTrace(span, serviceLogger, "Error pushing tokens to one or more nodes")
+			} else {
+				span.SetStatus(codes.Ok, "Successfully pushed tokens to nodes")
+				for node := range successNodes.m {
+					tokenPushTimestamp.WithLabelValues(sc.Service.Name(), node).SetToCurrentTime()
 				}
-				return true
-			})
-			failNodes.Range(func(key, value any) bool {
-				if keyVal, ok := key.(string); ok {
-					failuresSlice = append(failuresSlice, keyVal)
-				} else {
-					log.Errorf("Error storing node in failesSlice:  corrupt data in failNodes sync.Map of type %T: %v", key, key)
-				}
-				return true
-			})
+			}
+			// In Go 1.23, we can possibly change this to use maps.Keys() to return an iter.Seq
+			successesSlice := make([]string, 0, len(successNodes.m))
+			failuresSlice := make([]string, 0, len(failNodes.m))
+
+			successNodes.mux.Lock()
+			for node := range successNodes.m {
+				successesSlice = append(successesSlice, node)
+			}
+			successNodes.mux.Unlock()
+			failNodes.mux.Lock()
+			for node := range failNodes.m {
+				failuresSlice = append(failuresSlice, node)
+			}
+			failNodes.mux.Unlock()
+
 			log.WithField("service", sc.Service.Name()).Infof("Successful nodes: %s", strings.Join(successesSlice, ", "))
 			log.WithField("service", sc.Service.Name()).Infof("Failed nodes: %s", strings.Join(failuresSlice, ", "))
 		}(sc)
@@ -374,7 +297,7 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 }
 
 // pushToNode copies a file from a specified source to a destination path, using the environment and account configured in the worker.Config object
-func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string) error {
+func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFile string, numRetries int, retrySleep time.Duration) error {
 	startTime := time.Now()
 	ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.pushToNode")
 	span.SetAttributes(
@@ -417,11 +340,42 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 		c.CommandEnvironment,
 	)
 
-	err := fileCopier.CopyToDestination(ctx, f)
-	if err != nil {
-		tracing.LogErrorWithTrace(span, funcLogger, "Could not copy file to destination")
-		pushFailureCount.WithLabelValues(c.Service.Name(), node).Inc()
-		return err
+	for i := 0; i <= numRetries; i++ {
+		// TODO move this to another func perhaps?
+		funcLogger.Debugf("Try %d, %d retries left", i+1, numRetries-i)
+		if ctx.Err() != nil {
+			msg := "did not try to push file to destination node: context error"
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				msg := fmt.Sprintf("%s: (timeout error)", msg)
+				tracing.LogErrorWithTrace(span, funcLogger, msg)
+				return fmt.Errorf("failed to push file to destination node: %w", ctx.Err())
+			}
+		}
+
+		err := fileCopier.CopyToDestination(ctx, f)
+		// Success
+		if err == nil {
+			break
+		}
+		// Unpingable node - no reason to retry
+		if c.IsNodeUnpingable(node) {
+			notificationErrorString := fmt.Sprintf("failed to push file to destination node: Node %s was not pingable earlier prior to attempt to push tokens; ", node)
+			tracing.LogErrorWithTrace(span, funcLogger, notificationErrorString+"will not retry")
+			return errors.New(notificationErrorString)
+		}
+		// Context has errored out - no reason to retry
+		if ctx.Err() != nil {
+			tracing.LogErrorWithTrace(span, funcLogger, fmt.Sprintf("failed to push file to destination node: %s: will not retry", ctx.Err()))
+			return fmt.Errorf("failed to push file to destination node: %w", ctx.Err())
+		}
+		// Some other error - retry
+		funcLogger.Error("failed to push file to destination node")
+		if i == int(numRetries) {
+			funcLogger.Debug("Max retries reached. Will not retry")
+			return err
+		}
+		funcLogger.Debugf("Will retry. First sleeping for %s", retrySleep.String())
+		time.Sleep(retrySleep)
 	}
 
 	dur := time.Since(startTime).Seconds()
@@ -517,4 +471,110 @@ func findFirstCreddVaultToken(tokenRootPath, serviceName string, credds []string
 	}
 
 	return "", errors.New("could not find any vault tokens to return")
+}
+
+type pushTokensConfig struct {
+	sourcePath         string
+	node               string
+	account            string
+	destinationPath    string
+	env                environment.CommandEnvironment
+	unpingable         bool
+	fileCopierOptions  []string
+	sshOptions         []string
+	errorOnFail        bool
+	numRetries         uint
+	retrySleepDuration time.Duration
+}
+
+func getPushTokensValuesFromConfig(c *Config) ([]pushTokensConfig, error) {
+	if c == nil {
+		return nil, errors.New("nil Config object passed to getPushTokensValuesFromConfig")
+	}
+
+	pushTokensConfigs := make([]pushTokensConfig, 0, 3*len(c.Nodes))
+
+	sourceFilename, err := findFirstCreddVaultToken(c.ServiceCreddVaultTokenPathRoot, c.Service.Name(), c.Schedds)
+	if err != nil {
+		return nil, fmt.Errorf("could not find suitable vault token to push: %w", err)
+	}
+
+	destinationTokenFilenames := []string{
+		fmt.Sprintf("/tmp/vt_u%d", c.DesiredUID),
+		fmt.Sprintf("/tmp/vt_u%d-%s", c.DesiredUID, c.Service.Name()),
+	}
+
+	// Default role files
+	var dontSendDefaultRoleFile bool
+	defaultRoleFileDestinationFilename, err := parseDefaultRoleFileDestinationTemplateFromConfig(c)
+	if err != nil {
+		log.Error("Could not obtain default role file destination.  Will not push the default role file")
+		dontSendDefaultRoleFile = true
+	}
+	defaultRoleFileName, err := prepareDefaultRoleFile(c)
+	if err != nil {
+		log.Error("Could not prepare default role file.  Will not push the default role file")
+		dontSendDefaultRoleFile = true
+	}
+	sendDefaultRoleFile := !dontSendDefaultRoleFile
+
+	// Retry values
+	numRetries, err := getWorkerNumRetriesValueFromConfig(*c, PushTokensWorkerType)
+	if err != nil {
+		log.Debug("Could not get retry value from config.  Using default value")
+		numRetries = 0
+	}
+	retrySleepDuration, err := getWorkerRetrySleepValueFromConfig(*c, PushTokensWorkerType)
+	if err != nil {
+		log.Debug("Could not get retry sleep value from config.  Using default value")
+		retrySleepDuration = defaultRetrySleepDuration
+	}
+
+	var fileCopierOptions []string
+	fileCopierOptions, ok := GetFileCopierOptionsFromExtras(c)
+	if !ok {
+		log.WithField("service", c.Service.Name()).Error(`Stored FileCopierOptions in config is not a string. Using default value of ""`)
+		fileCopierOptions = []string{}
+	}
+
+	var sshOptions []string
+	sshOptions, ok = GetSSHOptionsFromExtras(c)
+	if !ok {
+		log.WithField("service", c.Service.Name()).Error(`Stored SSHOptions in config is not a []string. Using default value of []string{}`)
+		sshOptions = []string{}
+	}
+
+	for _, node := range c.Nodes {
+		for _, destinationTokenFilename := range destinationTokenFilenames {
+			// Vault tokens
+			pushTokensConfigs = append(pushTokensConfigs, pushTokensConfig{
+				sourcePath:         sourceFilename,
+				node:               node,
+				account:            c.Account,
+				destinationPath:    destinationTokenFilename,
+				env:                c.CommandEnvironment,
+				unpingable:         c.IsNodeUnpingable(node),
+				fileCopierOptions:  fileCopierOptions,
+				sshOptions:         sshOptions,
+				errorOnFail:        true,
+				numRetries:         numRetries,
+				retrySleepDuration: retrySleepDuration,
+			})
+		}
+		// Default role file
+		if sendDefaultRoleFile {
+			pushTokensConfigs = append(pushTokensConfigs, pushTokensConfig{
+				sourcePath:        defaultRoleFileName,
+				node:              node,
+				account:           c.Account,
+				destinationPath:   defaultRoleFileDestinationFilename,
+				env:               c.CommandEnvironment,
+				unpingable:        c.IsNodeUnpingable(node),
+				fileCopierOptions: fileCopierOptions,
+				sshOptions:        sshOptions,
+				errorOnFail:       false,
+			})
+		}
+	}
+	return pushTokensConfigs, nil
 }
