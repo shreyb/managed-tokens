@@ -16,10 +16,12 @@
 package main
 
 import (
-	"strings"
+	"bytes"
+	"slices"
 	"time"
 
 	"github.com/spf13/viper"
+	"golang.org/x/exp/constraints"
 
 	"github.com/fermitools/managed-tokens/internal/worker"
 )
@@ -32,19 +34,26 @@ var validWorkerTypes = []worker.WorkerType{
 	worker.PushTokensWorkerType,
 }
 
+// workerTypeToConfigString converts a worker type to a string that the configuration uses
+func workerTypeToConfigString(wt worker.WorkerType) string {
+	s := wt.String()
+	first := bytes.ToLower([]byte(s[0:1]))
+	return string(first) + s[1:]
+}
+
 // getWorkerConfigValue retrieves the value of a worker-specific key from the configuration
-func getWorkerConfigValue(workerType, key string) any {
-	if !isValidWorkerTypeString(workerType) {
+func getWorkerConfigValue(wt worker.WorkerType, key string) any {
+	if !slices.Contains(validWorkerTypes, wt) {
 		return nil
 	}
-	workerConfigPath := "workerType." + workerType + "." + key
+	workerConfigPath := "workerType." + workerTypeToConfigString(wt) + "." + key
 	return viper.Get(workerConfigPath)
 }
 
 // getWorkerConfigString retrieves the configuration value for the given worker type and key,
 // and returns it as a string. If the value is not a string, an empty string is returned.
-func getWorkerConfigString(workerType, key string) string {
-	val := getWorkerConfigValue(workerType, key)
+func getWorkerConfigString(wt worker.WorkerType, key string) string {
+	val := getWorkerConfigValue(wt, key)
 	if v, ok := val.(string); ok {
 		return v
 	}
@@ -53,9 +62,9 @@ func getWorkerConfigString(workerType, key string) string {
 
 // getWorkerConfigInt retrieves the configuration value for the given worker type and key,
 // and returns it as a string. If the value is not a string, an empty string is returned.
-func getWorkerConfigInt(workerType, key string) int {
-	val := getWorkerConfigValue(workerType, key)
-	if v, ok := val.(int); ok {
+func getWorkerConfigInteger[T constraints.Integer](wt worker.WorkerType, key string) T {
+	val := getWorkerConfigValue(wt, key)
+	if v, ok := val.(T); ok {
 		return v
 	}
 	return 0
@@ -63,9 +72,9 @@ func getWorkerConfigInt(workerType, key string) int {
 
 // getWorkerConfigStringSlice retrieves the configuration value for the given worker type and key,
 // and returns it as a slice of strings. If the value is not a []string, an empty slice is returned.
-func getWorkerConfigStringSlice(workerType, key string) []string {
+func getWorkerConfigStringSlice(wt worker.WorkerType, key string) []string {
 	empty := make([]string, 0)
-	val := getWorkerConfigValue(workerType, key)
+	val := getWorkerConfigValue(wt, key)
 	if v, ok := val.([]string); ok {
 		return v
 	}
@@ -75,8 +84,8 @@ func getWorkerConfigStringSlice(workerType, key string) []string {
 // getWorkerConfigTimeDuration retrieves the configuration value for the given worker type and key,
 // and returns it as a time.Duration. If the configuration value cannot be parsed into a time.Duration,
 // 0 is returned
-func getWorkerConfigTimeDuration(workerType, key string) time.Duration {
-	val := getWorkerConfigValue(workerType, key)
+func getWorkerConfigTimeDuration(wt worker.WorkerType, key string) time.Duration {
+	val := getWorkerConfigValue(wt, key)
 	v, ok := val.(string)
 	if !ok {
 		return 0
@@ -86,15 +95,4 @@ func getWorkerConfigTimeDuration(workerType, key string) time.Duration {
 		return 0
 	}
 	return d
-}
-
-// isValidWorkerTypeString checks if the given string is equal to the string representation
-// of a valid WorkerType wt as determined by wt.String()
-func isValidWorkerTypeString(s string) bool {
-	for _, wt := range validWorkerTypes {
-		if strings.EqualFold(wt.String(), s) {
-			return true
-		}
-	}
-	return false
 }
