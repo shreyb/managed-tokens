@@ -18,6 +18,7 @@ package main
 import (
 	"context"
 	"errors"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -71,4 +72,32 @@ func getVaultTokenStoreHoldoffFuncOpt(s service.Service) func(*worker.Config) er
 		return worker.SetVaultTokenStoreHoldoff()
 	}
 	return func(c *worker.Config) error { return nil } // NOOP
+}
+
+type workerRetryConfig struct {
+	numRetries uint
+	retrySleep time.Duration
+}
+
+func setAllWorkerRetryValues(workerRetryMap map[worker.WorkerType]workerRetryConfig) func(*worker.Config) error {
+	return func(c *worker.Config) error {
+		for wt, wr := range workerRetryMap {
+			worker.SetWorkerNumRetriesValue(wt, wr.numRetries)(c)
+			worker.SetWorkerRetrySleepValue(wt, wr.retrySleep)(c)
+		}
+		return nil
+	}
+}
+
+// getAndCheckRetryInfoFromConfig gets the number of retries and the sleep time between retries from the configuration
+// for a particular worker type key in the configuration.  It then checks that the retry timeout is less than the
+// given duration.
+func getAndCheckRetryInfoFromConfig(wt worker.WorkerType, checkTimeout time.Duration) (numRetries uint, retrySleep time.Duration, err error) {
+	numRetries = getWorkerConfigInteger[uint](wt, "numRetries")
+	retrySleep = getWorkerConfigTimeDuration(wt, "retrySleep")
+	if err := checkRetryTimeout(numRetries, retrySleep, checkTimeout); err != nil {
+		msg := "timeout is less than the time it would take to retry all attempts.  Will stop now"
+		return 0, 0, errors.New(msg)
+	}
+	return numRetries, retrySleep, nil
 }
