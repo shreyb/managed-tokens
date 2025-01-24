@@ -191,6 +191,14 @@ func PushTokensWorker(ctx context.Context, chans channelGroup) {
 
 			// For each pushConfig, try to push to node concurrently
 			for _, pc := range pushConfigs {
+				if pc.cleanupFunc != nil {
+					defer func() {
+						if err := pc.cleanupFunc(); err != nil {
+							serviceLogger.Error("Error cleaning up after pushing files.  Please investigate and clean up manually if needed")
+						}
+					}()
+				}
+
 				g.Go(func() error {
 					ctx, span := otel.GetTracerProvider().Tracer("managed-tokens").Start(ctx, "worker.PushTokensWorker.serviceConfig.pushConfig")
 					defer span.End()
@@ -341,7 +349,6 @@ func pushToNode(ctx context.Context, c *Config, sourceFile, node, destinationFil
 	)
 
 	for i := 0; i <= numRetries; i++ {
-		// TODO move this to another func perhaps?
 		funcLogger.Debugf("Try %d, %d retries left", i+1, numRetries-i)
 		if ctx.Err() != nil {
 			msg := "did not try to push file to destination node: context error"
@@ -485,6 +492,7 @@ type pushTokensConfig struct {
 	errorOnFail        bool
 	numRetries         uint
 	retrySleepDuration time.Duration
+	cleanupFunc        func() error
 }
 
 func getPushTokensValuesFromConfig(c *Config) ([]pushTokensConfig, error) {
@@ -573,6 +581,12 @@ func getPushTokensValuesFromConfig(c *Config) ([]pushTokensConfig, error) {
 				fileCopierOptions: fileCopierOptions,
 				sshOptions:        sshOptions,
 				errorOnFail:       false,
+				cleanupFunc: func() error {
+					if err := os.Remove(defaultRoleFileName); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return errors.New("could not remove default role file")
+					}
+					return nil
+				},
 			})
 		}
 	}
