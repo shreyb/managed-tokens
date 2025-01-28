@@ -1168,7 +1168,7 @@ func TestResolveDisableNotifications(t *testing.T) {
 func TestCheckRetryTimeout(t *testing.T) {
 	type testCase struct {
 		description        string
-		numRetries         uint
+		numRetries         int
 		retrySleepDuration time.Duration
 		timeout            time.Duration
 		expectedError      bool

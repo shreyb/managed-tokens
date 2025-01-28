@@ -92,8 +92,8 @@ func setAllWorkerRetryValues(workerRetryMap map[worker.WorkerType]workerRetryCon
 // getAndCheckRetryInfoFromConfig gets the number of retries and the sleep time between retries from the configuration
 // for a particular worker type key in the configuration.  It then checks that the retry timeout is less than the
 // given duration.
-func getAndCheckRetryInfoFromConfig(wt worker.WorkerType, checkTimeout time.Duration) (numRetries uint, retrySleep time.Duration, err error) {
-	numRetries = getWorkerConfigInteger[uint](wt, "numRetries")
+func getAndCheckRetryInfoFromConfig(wt worker.WorkerType, checkTimeout time.Duration) (numRetries int, retrySleep time.Duration, err error) {
+	numRetries = getWorkerConfigInteger[int](wt, "numRetries")
 	retrySleep = getWorkerConfigTimeDuration(wt, "retrySleep")
 	if err := checkRetryTimeout(numRetries, retrySleep, checkTimeout); err != nil {
 		msg := "timeout is less than the time it would take to retry all attempts.  Will stop now"

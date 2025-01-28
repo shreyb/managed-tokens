@@ -450,7 +450,7 @@ func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
 	return *vaultServerPtr, nil
 }
 
-func checkRetryTimeout(numRetries uint, retrySleepDuration time.Duration, timeout time.Duration) error {
+func checkRetryTimeout(numRetries int, retrySleepDuration time.Duration, timeout time.Duration) error {
 	if timeout < time.Duration(numRetries)*retrySleepDuration {
 		return fmt.Errorf("timeout (%s) is less than numRetries*retrySleepDuration (%s)", timeout, time.Duration(numRetries)*retrySleepDuration)
 	}

@@ -15,7 +15,7 @@ func TestGetAndCheckRetryInfoFromConfig(t *testing.T) {
 		name          string
 		workerType    worker.WorkerType
 		checkTimeout  time.Duration
-		numRetries    uint
+		numRetries    int
 		retrySleep    time.Duration
 		expectedError error
 	}{
@@ -47,7 +47,7 @@ func TestGetAndCheckRetryInfoFromConfig(t *testing.T) {
 			numRetries, retrySleep, err := getAndCheckRetryInfoFromConfig(tt.workerType, tt.checkTimeout)
 			if tt.expectedError != nil {
 				assert.EqualError(t, err, tt.expectedError.Error())
-				assert.Equal(t, uint(0), numRetries)
+				assert.Equal(t, 0, numRetries)
 				assert.Equal(t, time.Duration(0), retrySleep)
 				return
 			}

@@ -297,7 +297,7 @@ func run(ctx context.Context) error {
 			return errors.New(msg)
 		}
 		workerRetryMap[retryArg.WorkerType] = workerRetryConfig{
-			numRetries: numRetries,
+			numRetries: uint(numRetries),
 			retrySleep: retrySleep,
 		}
 	}
