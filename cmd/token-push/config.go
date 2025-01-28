@@ -27,6 +27,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/shlex"
 	log "github.com/sirupsen/logrus"
@@ -447,4 +448,11 @@ func parseVaultServerFromEnvSetting(envSetting string) (string, error) {
 	}
 
 	return *vaultServerPtr, nil
+}
+
+func checkRetryTimeout(numRetries int, retrySleepDuration time.Duration, timeout time.Duration) error {
+	if timeout < time.Duration(numRetries)*retrySleepDuration {
+		return fmt.Errorf("timeout (%s) is less than numRetries*retrySleepDuration (%s)", timeout, time.Duration(numRetries)*retrySleepDuration)
+	}
+	return nil
 }

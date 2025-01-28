@@ -275,6 +275,33 @@ func run(ctx context.Context) error {
 		}
 	}
 
+	// Worker-specific config that is service-independent to be passed to the worker.Config constructor
+	// Note - this will be made less verbose when #114-115 are done TODO
+	workerRetryMap := make(map[worker.WorkerType]workerRetryConfig)
+
+	_retryArgs := []struct {
+		worker.WorkerType
+		checkTimeout time.Duration
+	}{
+		{worker.GetKerberosTicketsWorkerType, timeouts[timeoutKerberos]},
+		{worker.StoreAndGetTokenWorkerType, timeouts[timeoutVaultStorer]},
+		{worker.StoreAndGetTokenInteractiveWorkerType, timeouts[timeoutVaultStorer]},
+		{worker.PingAggregatorWorkerType, timeouts[timeoutPing]},
+		{worker.PushTokensWorkerType, timeouts[timeoutPush]},
+	}
+	for _, retryArg := range _retryArgs {
+		numRetries, retrySleep, err := getAndCheckRetryInfoFromConfig(retryArg.WorkerType, retryArg.checkTimeout)
+		if err != nil {
+			msg := fmt.Sprintf("invalid timeout %s: %s", workerTypeToConfigString(retryArg.WorkerType), err.Error())
+			tracing.LogErrorWithTrace(span, exeLogger, msg)
+			return errors.New(msg)
+		}
+		workerRetryMap[retryArg.WorkerType] = workerRetryConfig{
+			numRetries: uint(numRetries),
+			retrySleep: retrySleep,
+		}
+	}
+
 	// All the cleanup actions that should run any time run() returns
 	defer func() {
 		// Run cleanup actions
@@ -386,18 +413,6 @@ func run(ctx context.Context) error {
 			extraPingOpts := getPingOptsFromConfig(serviceConfigPath)
 			sshOpts := getSSHOptsFromConfig(serviceConfigPath)
 
-			// Worker-specific config to be passed to the worker.Config constructor
-			getKerberosTicketsRetries := getWorkerConfigInt("getKerberosTickets", "numRetries")
-			getKerberosTicketsRetrySleep := getWorkerConfigTimeDuration("getKerberosTickets", "retrySleep")
-			storeAndGetTokenRetries := getWorkerConfigInt("storeAndGetToken", "numRetries")
-			storeAndGetTokenRetrySleep := getWorkerConfigTimeDuration("storeAndGetToken", "retrySleep")
-			storeAndGetTokenInteractiveRetries := getWorkerConfigInt("storeAndGetTokenInteractive", "numRetries")
-			storeAndGetTokenInteractiveRetrySleep := getWorkerConfigTimeDuration("storeAndGetTokenInteractive", "retrySleep")
-			pingAggregatorRetries := getWorkerConfigInt("pingAggregator", "numRetries")
-			pingAggregatorRetrySleep := getWorkerConfigTimeDuration("pingAggregator", "retrySleep")
-			pushTokensRetries := getWorkerConfigInt("pushTokens", "numRetries")
-			pushTokensRetrySleep := getWorkerConfigTimeDuration("pushTokens", "retrySleep")
-
 			c, err := worker.NewConfig(
 				s,
 				worker.SetCommandEnvironment(
@@ -413,22 +428,7 @@ func run(ctx context.Context) error {
 				worker.SetDesiredUID(uid),
 				worker.SetNodes(viper.GetStringSlice(serviceConfigPath+".destinationNodes")),
 				worker.SetAccount(viper.GetString(serviceConfigPath+".account")),
-
-				worker.SetWorkerNumRetriesValue(worker.GetKerberosTicketsWorkerType, uint(getKerberosTicketsRetries)),
-				worker.SetWorkerRetrySleepValue(worker.GetKerberosTicketsWorkerType, getKerberosTicketsRetrySleep),
-
-				worker.SetWorkerNumRetriesValue(worker.StoreAndGetTokenWorkerType, uint(storeAndGetTokenRetries)),
-				worker.SetWorkerRetrySleepValue(worker.StoreAndGetTokenWorkerType, storeAndGetTokenRetrySleep),
-
-				worker.SetWorkerNumRetriesValue(worker.StoreAndGetTokenInteractiveWorkerType, uint(storeAndGetTokenInteractiveRetries)),
-				worker.SetWorkerRetrySleepValue(worker.StoreAndGetTokenInteractiveWorkerType, storeAndGetTokenInteractiveRetrySleep),
-
-				worker.SetWorkerNumRetriesValue(worker.PingAggregatorWorkerType, uint(pingAggregatorRetries)),
-				worker.SetWorkerRetrySleepValue(worker.PingAggregatorWorkerType, pingAggregatorRetrySleep),
-
-				worker.SetWorkerNumRetriesValue(worker.PushTokensWorkerType, uint(pushTokensRetries)),
-				worker.SetWorkerRetrySleepValue(worker.PushTokensWorkerType, pushTokensRetrySleep),
-
+				setAllWorkerRetryValues(workerRetryMap),
 				worker.SetSupportedExtrasKeyValue(worker.DefaultRoleFileDestinationTemplate, defaultRoleFileDestinationTemplate),
 				worker.SetSupportedExtrasKeyValue(worker.FileCopierOptions, fileCopierOptions),
 				worker.SetSupportedExtrasKeyValue(worker.PingOptions, extraPingOpts),

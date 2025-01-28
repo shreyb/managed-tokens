@@ -1,6 +1,8 @@
 module github.com/fermitools/managed-tokens
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.2
 
 require (
 	github.com/cornfeedhobo/pflag v1.1.0
@@ -18,7 +20,8 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.31.0
 	go.opentelemetry.io/otel/sdk v1.31.0
 	go.opentelemetry.io/otel/trace v1.31.0
-	golang.org/x/sync v0.8.0
+	golang.org/x/exp v0.0.0-20250106191152-7588d65b2ba8
+	golang.org/x/sync v0.10.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
 

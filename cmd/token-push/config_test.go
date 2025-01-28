@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -1161,5 +1162,50 @@ func TestResolveDisableNotifications(t *testing.T) {
 				assert.Equal(t, test.expectedNoServiceNotifications, noServiceNotifications)
 			},
 		)
+	}
+}
+
+func TestCheckRetryTimeout(t *testing.T) {
+	type testCase struct {
+		description        string
+		numRetries         int
+		retrySleepDuration time.Duration
+		timeout            time.Duration
+		expectedError      bool
+	}
+
+	testCases := []testCase{
+		{
+			description:        "Timeout is greater than numRetries * retrySleepDuration",
+			numRetries:         3,
+			retrySleepDuration: 10 * time.Second,
+			timeout:            40 * time.Second,
+			expectedError:      false,
+		},
+		{
+			description:        "Timeout is equal to numRetries * retrySleepDuration",
+			numRetries:         3,
+			retrySleepDuration: 10 * time.Second,
+			timeout:            30 * time.Second,
+			expectedError:      false,
+		},
+		{
+			description:        "Timeout is less than numRetries * retrySleepDuration",
+			numRetries:         3,
+			retrySleepDuration: 10 * time.Second,
+			timeout:            20 * time.Second,
+			expectedError:      true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.description, func(t *testing.T) {
+			err := checkRetryTimeout(test.numRetries, test.retrySleepDuration, test.timeout)
+			if test.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
 	}
 }
